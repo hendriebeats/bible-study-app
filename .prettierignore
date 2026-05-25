@@ -1,0 +1,11 @@
+.next/
+out/
+build/
+node_modules/
+package-lock.json
+next-env.d.ts
+*.lock
+
+# Generated / tooling artifacts
+src/lib/supabase/database.types.ts
+supabase/.temp/
