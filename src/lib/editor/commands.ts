@@ -16,27 +16,59 @@ export function isMarkActive(state: EditorState, markType: MarkType): boolean {
   return state.doc.rangeHasMark(from, to, markType);
 }
 
-/** Does the selection's textblock have this node type + attrs (e.g. a heading)? */
+/**
+ * Does any textblock in the selection have this node type + attrs (e.g. a
+ * heading)? Range-aware so it's correct for a cursor, a multi-block selection,
+ * and a full select-all (whose `$from` resolves to the doc, not a textblock).
+ */
 export function isBlockActive(
   state: EditorState,
   nodeType: NodeType,
   attrs: Attrs = {},
 ): boolean {
-  return state.selection.$from.parent.hasMarkup(nodeType, attrs);
+  const { from, to, $from, empty } = state.selection;
+  if (empty) {
+    return $from.parent.hasMarkup(nodeType, attrs);
+  }
+  let active = false;
+  state.doc.nodesBetween(from, to, (node) => {
+    if (active) {
+      return false;
+    }
+    if (node.isTextblock && node.hasMarkup(nodeType, attrs)) {
+      active = true;
+    }
+    return !active;
+  });
+  return active;
 }
 
-/** Is the selection inside an ancestor of this type (e.g. a list or quote)? */
+/**
+ * Is the selection inside (or spanning) an ancestor of this type (e.g. a list
+ * or quote)? Checks ancestors of the cursor and, for ranges, any node of the
+ * type the selection touches.
+ */
 export function isAncestorActive(
   state: EditorState,
   nodeType: NodeType,
 ): boolean {
-  const { $from } = state.selection;
+  const { $from, from, to } = state.selection;
   for (let depth = $from.depth; depth > 0; depth--) {
     if ($from.node(depth).type === nodeType) {
       return true;
     }
   }
-  return false;
+  let active = false;
+  state.doc.nodesBetween(from, to, (node) => {
+    if (active) {
+      return false;
+    }
+    if (node.type === nodeType) {
+      active = true;
+    }
+    return !active;
+  });
+  return active;
 }
 
 export const toggleBold: Command = toggleMark(marks.strong);
