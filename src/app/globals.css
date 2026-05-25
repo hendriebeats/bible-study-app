@@ -180,4 +180,17 @@
     content: attr(data-placeholder);
     @apply pointer-events-none float-left h-0 text-muted-foreground;
   }
+  /* A read-along viewer's rendering of the writer's live caret + selection. */
+  .remote-caret {
+    display: inline-block;
+    width: 2px;
+    height: 1.2em;
+    margin-left: -1px;
+    vertical-align: text-bottom;
+    background: var(--primary);
+    pointer-events: none;
+  }
+  .remote-selection {
+    background: color-mix(in oklch, var(--primary) 22%, transparent);
+  }
 }

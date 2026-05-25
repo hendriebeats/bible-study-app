@@ -31,3 +31,21 @@ export interface SerializedStep {
   stepType: string;
   [key: string]: unknown;
 }
+
+/**
+ * A batch of steps the writer broadcasts for live read-along. `base` is the
+ * version the steps build on; `version` is the resulting head. Viewers apply
+ * only when `base` matches their current version, else they resync.
+ */
+export interface StepsPayload {
+  base: number;
+  steps: SerializedStep[];
+  version: number;
+}
+
+/** The writer's live cursor/selection (document positions valid at `version`). */
+export interface CursorPayload {
+  anchor: number;
+  head: number;
+  version: number;
+}

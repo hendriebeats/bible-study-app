@@ -53,6 +53,11 @@ import {
   stepToJSON,
 } from "@/lib/editor/serialize";
 import type { PMDocJSON, SerializedStep } from "@/lib/editor/types";
+import {
+  broadcastCursor,
+  broadcastSteps,
+  openSectionChannel,
+} from "@/lib/realtime/section-channel";
 
 const AUTOSAVE_DELAY_MS = 1200;
 /** Snapshot a checkpoint after this many new steps, to bound replay length. */
@@ -250,6 +255,8 @@ export function SectionEditor({
     }
 
     const clientId = crypto.randomUUID();
+    // Broadcast this writer's steps + cursor to read-only viewers (read-along).
+    const channel = openSectionChannel(section.id, {});
 
     async function flush() {
       if (flushingRef.current || pendingStepsRef.current.length === 0) {
@@ -279,6 +286,17 @@ export function SectionEditor({
         }
         lastVersionRef.current = result.version;
         setStatus("saved");
+        // Push the persisted steps + the cursor's new position to viewers.
+        broadcastSteps(channel, {
+          base,
+          steps: batch,
+          version: result.version,
+        });
+        broadcastCursor(channel, {
+          anchor: view.state.selection.anchor,
+          head: view.state.selection.head,
+          version: result.version,
+        });
         if (result.version - lastCheckpointRef.current >= CHECKPOINT_EVERY) {
           lastCheckpointRef.current = result.version;
           void createSectionCheckpoint(section.id).catch(() => undefined);
@@ -328,6 +346,17 @@ export function SectionEditor({
           }
           setStatus("saving");
           scheduleFlush();
+        } else if (
+          transaction.selectionSet &&
+          pendingStepsRef.current.length === 0
+        ) {
+          // Cursor moved with no unsaved edits — its position is valid at the
+          // confirmed head, so viewers can place it directly.
+          broadcastCursor(channel, {
+            anchor: next.selection.anchor,
+            head: next.selection.head,
+            version: lastVersionRef.current,
+          });
         }
       },
       handleDOMEvents: {
@@ -344,6 +373,7 @@ export function SectionEditor({
       if (saveTimer.current) {
         clearTimeout(saveTimer.current);
       }
+      void channel.unsubscribe();
       view.destroy();
       viewRef.current = null;
     };

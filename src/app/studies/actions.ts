@@ -130,6 +130,28 @@ export async function appendSectionSteps(
   return { ok: true, version: data };
 }
 
+/** Fetch a section's current materialized doc + head version (viewer resync). */
+export async function fetchSectionHead(
+  sectionId: string,
+): Promise<{ content: PMDocJSON; version: number } | null> {
+  const { supabase } = await requireUser();
+  const { data, error } = await supabase
+    .from("sections")
+    .select("content, current_version")
+    .eq("id", sectionId)
+    .maybeSingle();
+  if (error) {
+    throw new Error(error.message);
+  }
+  if (!data) {
+    return null;
+  }
+  return {
+    content: data.content as unknown as PMDocJSON,
+    version: data.current_version,
+  };
+}
+
 /** Snapshot a section's current doc as a checkpoint (idempotent per version). */
 export async function createSectionCheckpoint(
   sectionId: string,
