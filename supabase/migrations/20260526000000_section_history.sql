@@ -20,6 +20,16 @@ alter table public.sections
   add column deleted_at timestamptz,
   add column archived_at timestamptz;
 
+-- A document always needs at least one block (raw ProseMirror won't auto-fill
+-- like Tiptap did), and stored content must match the doc the editor starts
+-- from so step replay reconstructs it. Default/normalize to a single paragraph.
+alter table public.sections
+  alter column content set default '{"type":"doc","content":[{"type":"paragraph"}]}'::jsonb;
+
+update public.sections
+set content = '{"type":"doc","content":[{"type":"paragraph"}]}'::jsonb
+where content = '{"type":"doc","content":[]}'::jsonb;
+
 alter table public.studies
   add column deleted_at timestamptz,
   add column archived_at timestamptz;
@@ -191,6 +201,7 @@ set search_path = public
 as $$
 declare
   _current integer;
+  _old_doc jsonb;
   _count integer;
 begin
   if not public.is_section_owner(_section_id) then
@@ -199,7 +210,7 @@ begin
   end if;
 
   -- Lock the head; serializes concurrent appends for this section.
-  select current_version into _current
+  select current_version, content into _current, _old_doc
   from sections
   where id = _section_id
   for update;
@@ -208,10 +219,19 @@ begin
     raise exception 'section % not found', _section_id using errcode = 'P0002';
   end if;
 
-  -- Optimistic concurrency: the batch must build on the current head.
+  -- Optimistic concurrency: the batch must build on the current head. Use the
+  -- PostgREST "PTxxx" convention (-> HTTP 409) so the code/message reach the
+  -- client; SQLSTATE 40001 is intercepted by PostgREST as a retryable timeout.
   if _expected_base <> _current then
     raise exception 'version conflict: expected base %, head is %',
-      _expected_base, _current using errcode = '40001';
+      _expected_base, _current using errcode = 'PT409';
+  end if;
+
+  -- On a section's very first edit, snapshot the doc these steps build on as a
+  -- base checkpoint, so history can always be reconstructed from version 0.
+  if not exists (select 1 from section_checkpoints where section_id = _section_id) then
+    insert into section_checkpoints (section_id, version, doc, created_by)
+    values (_section_id, _current, _old_doc, auth.uid());
   end if;
 
   _count := coalesce(jsonb_array_length(_steps), 0);

@@ -1,7 +1,7 @@
 "use client";
 
 import { gapCursor } from "prosemirror-gapcursor";
-import { history, redo, undo } from "prosemirror-history";
+import { closeHistory, history, redo, undo } from "prosemirror-history";
 import {
   Bold,
   Heading1,
@@ -21,11 +21,15 @@ import type { Command } from "prosemirror-state";
 import { EditorView } from "prosemirror-view";
 import { useEffect, useRef, useState } from "react";
 
-import { renameSection, saveSection } from "@/app/studies/actions";
+import {
+  appendSectionSteps,
+  createSectionCheckpoint,
+  renameSection,
+} from "@/app/studies/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
-import type { Section } from "@/lib/db/types";
+import type { Section, SectionHistory } from "@/lib/db/types";
 import {
   isAncestorActive,
   isBlockActive,
@@ -33,8 +37,8 @@ import {
   toggleBlockquote,
   toggleBold,
   toggleBulletList,
-  toggleItalic,
   toggleHeading,
+  toggleItalic,
   toggleOrderedList,
   toggleStrike,
 } from "@/lib/editor/commands";
@@ -42,10 +46,17 @@ import { buildInputRules } from "@/lib/editor/plugins/input-rules";
 import { buildKeymaps } from "@/lib/editor/plugins/keymap";
 import { placeholder } from "@/lib/editor/plugins/placeholder";
 import { marks, nodes, schema } from "@/lib/editor/schema";
-import { docToJSON, jsonToDoc } from "@/lib/editor/serialize";
-import type { PMDocJSON } from "@/lib/editor/types";
+import {
+  docToJSON,
+  jsonToDoc,
+  jsonToStep,
+  stepToJSON,
+} from "@/lib/editor/serialize";
+import type { PMDocJSON, SerializedStep } from "@/lib/editor/types";
 
 const AUTOSAVE_DELAY_MS = 1200;
+/** Snapshot a checkpoint after this many new steps, to bound replay length. */
+const CHECKPOINT_EVERY = 50;
 
 type SaveStatus = "idle" | "saving" | "saved";
 
@@ -61,9 +72,41 @@ function createPlugins() {
 
 function initialDoc(content: PMDocJSON) {
   const doc = jsonToDoc(content);
-  // The stored default {"type":"doc","content":[]} is empty, but the schema
-  // requires at least one block — fall back to a single empty paragraph.
+  // Defensive: the schema requires at least one block; fall back to a paragraph.
   return doc.childCount > 0 ? doc : (schema.topNodeType.createAndFill() ?? doc);
+}
+
+/**
+ * Rebuild the editor state with a usable undo stack: start from the base doc
+ * (latest checkpoint) and replay the persisted steps as history-tracked
+ * transactions, so Cmd-Z survives a page refresh back to that checkpoint.
+ * `closeHistory` between persisted batches (different `created_at`) keeps undo
+ * groups roughly at the granularity the edits were made. Any replay failure
+ * falls back to the materialized head doc with no history (doc stays correct).
+ */
+function buildInitialState(bundle: SectionHistory, headContent: PMDocJSON) {
+  try {
+    let state = EditorState.create({
+      doc: initialDoc(bundle.baseDoc),
+      plugins: createPlugins(),
+    });
+    let prevCreatedAt: string | null = null;
+    for (const row of bundle.steps) {
+      let tr = state.tr;
+      if (prevCreatedAt !== null && row.created_at !== prevCreatedAt) {
+        tr = closeHistory(tr);
+      }
+      tr.step(jsonToStep(row.step));
+      state = state.apply(tr);
+      prevCreatedAt = row.created_at;
+    }
+    return state;
+  } catch {
+    return EditorState.create({
+      doc: initialDoc(headContent),
+      plugins: createPlugins(),
+    });
+  }
 }
 
 interface ToolbarItem {
@@ -179,7 +222,13 @@ function Toolbar({
   );
 }
 
-export function SectionEditor({ section }: { section: Section }) {
+export function SectionEditor({
+  section,
+  history: sectionHistory,
+}: {
+  section: Section;
+  history: SectionHistory;
+}) {
   const [title, setTitle] = useState(section.title);
   const [status, setStatus] = useState<SaveStatus>("idle");
   const [editorState, setEditorState] = useState<EditorState | null>(null);
@@ -187,48 +236,84 @@ export function SectionEditor({ section }: { section: Section }) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Persistence state (refs so the editor view's callbacks always see current
+  // values without re-creating the view).
+  const lastVersionRef = useRef(sectionHistory.headVersion);
+  const lastCheckpointRef = useRef(sectionHistory.baseVersion);
+  const pendingStepsRef = useRef<SerializedStep[]>([]);
+  const flushingRef = useRef(false);
+
   useEffect(() => {
     const mount = mountRef.current;
     if (!mount) {
       return;
     }
 
-    function persist(doc: PMDocJSON) {
-      void saveSection(section.id, doc)
-        .then(() => {
-          setStatus("saved");
-        })
-        .catch(() => {
-          setStatus("idle");
-        });
+    const clientId = crypto.randomUUID();
+
+    async function flush() {
+      if (flushingRef.current || pendingStepsRef.current.length === 0) {
+        return;
+      }
+      const view = viewRef.current;
+      if (!view) {
+        return;
+      }
+      flushingRef.current = true;
+      const batch = pendingStepsRef.current;
+      pendingStepsRef.current = [];
+      const base = lastVersionRef.current;
+      const newDoc = docToJSON(view.state.doc);
+      try {
+        const result = await appendSectionSteps(
+          section.id,
+          base,
+          batch,
+          newDoc,
+          clientId,
+        );
+        if (!result.ok) {
+          // Another writer advanced the doc — reload to resync from the head.
+          window.location.reload();
+          return;
+        }
+        lastVersionRef.current = result.version;
+        setStatus("saved");
+        if (result.version - lastCheckpointRef.current >= CHECKPOINT_EVERY) {
+          lastCheckpointRef.current = result.version;
+          void createSectionCheckpoint(section.id).catch(() => undefined);
+        }
+      } catch {
+        // Keep the steps and let the next change (or blur) retry.
+        pendingStepsRef.current = [...batch, ...pendingStepsRef.current];
+        setStatus("idle");
+      } finally {
+        flushingRef.current = false;
+        if (pendingStepsRef.current.length > 0) {
+          scheduleFlush();
+        }
+      }
     }
 
-    function scheduleSave(doc: PMDocJSON) {
-      setStatus("saving");
+    function scheduleFlush() {
       if (saveTimer.current) {
         clearTimeout(saveTimer.current);
       }
       saveTimer.current = setTimeout(() => {
-        persist(doc);
+        void flush();
       }, AUTOSAVE_DELAY_MS);
     }
 
-    function flushSave() {
+    function flushNow() {
       if (saveTimer.current) {
         clearTimeout(saveTimer.current);
         saveTimer.current = null;
       }
-      const view = viewRef.current;
-      if (view) {
-        persist(docToJSON(view.state.doc));
-      }
+      void flush();
     }
 
     const view = new EditorView(mount, {
-      state: EditorState.create({
-        doc: initialDoc(section.content),
-        plugins: createPlugins(),
-      }),
+      state: buildInitialState(sectionHistory, section.content),
       dispatchTransaction(transaction) {
         const current = viewRef.current;
         if (!current) {
@@ -238,13 +323,16 @@ export function SectionEditor({ section }: { section: Section }) {
         current.updateState(next);
         setEditorState(next);
         if (transaction.docChanged) {
-          // Persist on blur so navigating away never loses edits.
-          scheduleSave(docToJSON(next.doc));
+          for (const step of transaction.steps) {
+            pendingStepsRef.current.push(stepToJSON(step));
+          }
+          setStatus("saving");
+          scheduleFlush();
         }
       },
       handleDOMEvents: {
         blur: () => {
-          flushSave();
+          flushNow();
           return false;
         },
       },

@@ -55,5 +55,9 @@ export async function getSection(sectionId: string): Promise<Section | null> {
     return null;
   }
   // `content` is stored as jsonb (Json); narrow it to the editor's doc type.
-  return { ...data, content: data.content as unknown as PMDocJSON };
+  return {
+    ...data,
+    content: data.content as unknown as PMDocJSON,
+    current_version: data.current_version,
+  };
 }

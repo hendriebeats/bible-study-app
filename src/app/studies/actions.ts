@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import type { PMDocJSON } from "@/lib/editor/types";
+import type { PMDocJSON, SerializedStep } from "@/lib/editor/types";
 import type { Json } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
 
@@ -82,6 +82,64 @@ export async function saveSection(
     .from("sections")
     .update({ content: content as unknown as Json })
     .eq("id", sectionId);
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
+export type AppendResult =
+  | { ok: true; version: number }
+  | { ok: false; conflict: true; head: number };
+
+/**
+ * Append a batch of ProseMirror steps to a section's history (and update its
+ * materialized doc) atomically via the `append_section_steps` RPC. Returns the
+ * new head version, or a conflict if the client's base is stale.
+ */
+export async function appendSectionSteps(
+  sectionId: string,
+  expectedBase: number,
+  steps: SerializedStep[],
+  newDoc: PMDocJSON,
+  clientId: string,
+): Promise<AppendResult> {
+  const { supabase } = await requireUser();
+  const { data, error } = await supabase.rpc("append_section_steps", {
+    _section_id: sectionId,
+    _expected_base: expectedBase,
+    _steps: steps as unknown as Json,
+    _new_doc: newDoc as unknown as Json,
+    _client_id: clientId,
+  });
+  if (error) {
+    // The RPC raises SQLSTATE PT409 on a version conflict so the client resyncs.
+    if (error.code === "PT409") {
+      const { data: head } = await supabase
+        .from("sections")
+        .select("current_version")
+        .eq("id", sectionId)
+        .maybeSingle();
+      return {
+        ok: false,
+        conflict: true,
+        head: head?.current_version ?? expectedBase,
+      };
+    }
+    throw new Error(error.message);
+  }
+  return { ok: true, version: data };
+}
+
+/** Snapshot a section's current doc as a checkpoint (idempotent per version). */
+export async function createSectionCheckpoint(
+  sectionId: string,
+  label?: string,
+): Promise<void> {
+  const { supabase } = await requireUser();
+  const { error } = await supabase.rpc("create_section_checkpoint", {
+    _section_id: sectionId,
+    _label: label,
+  });
   if (error) {
     throw new Error(error.message);
   }
