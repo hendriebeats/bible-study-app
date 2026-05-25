@@ -1,24 +1,35 @@
 "use client";
 
-import { BookOpen, Plus } from "lucide-react";
+import { BookOpen, MoreVertical, Plus, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTransition } from "react";
 
-import { createSection } from "@/app/studies/actions";
+import { createSection, deleteSection } from "@/app/studies/actions";
+import { TrashButton } from "@/components/studies/trash-button";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { UserMenu } from "@/components/user-menu";
-import type { SectionSummary, Study } from "@/lib/db/types";
+import type { SectionSummary, Study, TrashItem } from "@/lib/db/types";
 import { cn } from "@/lib/utils";
 
 export function StudySidebar({
   study,
   sections,
   user,
+  isOwner,
+  trashedSections,
 }: {
   study: Study;
   sections: SectionSummary[];
   user: { displayName: string; email: string; avatarUrl: string | null };
+  isOwner: boolean;
+  trashedSections: TrashItem[];
 }) {
   const pathname = usePathname();
   const [pending, startTransition] = useTransition();
@@ -42,11 +53,11 @@ export function StudySidebar({
             const href = `/studies/${study.id}/${section.id}`;
             const active = pathname === href;
             return (
-              <li key={section.id}>
+              <li key={section.id} className="group flex items-center gap-1">
                 <Link
                   href={href}
                   className={cn(
-                    "block truncate rounded-md px-3 py-2 text-sm",
+                    "min-w-0 flex-1 truncate rounded-md px-3 py-2 text-sm",
                     active
                       ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
                       : "hover:bg-sidebar-accent/50",
@@ -54,27 +65,63 @@ export function StudySidebar({
                 >
                   {section.title}
                 </Link>
+                {isOwner ? (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        aria-label="Section options"
+                        className="size-7 shrink-0 opacity-0 group-hover:opacity-100"
+                      >
+                        <MoreVertical className="size-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        variant="destructive"
+                        disabled={pending}
+                        onClick={() => {
+                          startTransition(() => {
+                            void deleteSection(section.id, study.id);
+                          });
+                        }}
+                      >
+                        <Trash2 className="size-4" />
+                        Move to trash
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                ) : null}
               </li>
             );
           })}
         </ul>
       </nav>
 
-      <div className="border-t p-2">
-        <Button
-          variant="ghost"
-          className="w-full justify-start"
-          disabled={pending}
-          onClick={() => {
-            startTransition(() => {
-              void createSection(study.id);
-            });
-          }}
-        >
-          <Plus className="size-4" />
-          Add section
-        </Button>
-      </div>
+      {isOwner ? (
+        <div className="grid gap-1 border-t p-2">
+          <Button
+            variant="ghost"
+            className="w-full justify-start"
+            disabled={pending}
+            onClick={() => {
+              startTransition(() => {
+                void createSection(study.id);
+              });
+            }}
+          >
+            <Plus className="size-4" />
+            Add section
+          </Button>
+          <TrashButton
+            kind="section"
+            items={trashedSections}
+            studyId={study.id}
+          />
+        </div>
+      ) : null}
 
       <div className="flex items-center gap-2 border-t p-3">
         <UserMenu

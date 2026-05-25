@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import type { ReactNode } from "react";
 
 import { StudySidebar } from "@/components/studies/study-sidebar";
-import { getStudy, listSections } from "@/lib/db/studies";
+import { getStudy, listSections, listTrashedSections } from "@/lib/db/studies";
 import { createClient } from "@/lib/supabase/server";
 
 export default async function StudyLayout({
@@ -27,7 +27,9 @@ export default async function StudyLayout({
     notFound();
   }
 
+  const isOwner = study.owner_id === user.id;
   const sections = await listSections(studyId);
+  const trashedSections = isOwner ? await listTrashedSections(studyId) : [];
   const { data: profile } = await supabase
     .from("profiles")
     .select("display_name, avatar_url")
@@ -39,6 +41,8 @@ export default async function StudyLayout({
       <StudySidebar
         study={study}
         sections={sections}
+        isOwner={isOwner}
+        trashedSections={trashedSections}
         user={{
           displayName: profile?.display_name ?? "",
           email: user.email ?? "",

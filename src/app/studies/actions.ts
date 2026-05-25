@@ -236,6 +236,7 @@ export async function renameStudy(
   revalidatePath("/dashboard");
 }
 
+/** Soft-delete a section into the Trash (recoverable; archived after 30 days). */
 export async function deleteSection(
   sectionId: string,
   studyId: string,
@@ -243,11 +244,53 @@ export async function deleteSection(
   const { supabase } = await requireUser();
   const { error } = await supabase
     .from("sections")
-    .delete()
+    .update({ deleted_at: new Date().toISOString() })
     .eq("id", sectionId);
   if (error) {
     throw new Error(error.message);
   }
   revalidatePath(`/studies/${studyId}`);
   redirect(`/studies/${studyId}`);
+}
+
+/** Restore a soft-deleted section from the Trash. */
+export async function restoreSection(
+  sectionId: string,
+  studyId: string,
+): Promise<void> {
+  const { supabase } = await requireUser();
+  const { error } = await supabase
+    .from("sections")
+    .update({ deleted_at: null })
+    .eq("id", sectionId);
+  if (error) {
+    throw new Error(error.message);
+  }
+  revalidatePath(`/studies/${studyId}`);
+}
+
+/** Soft-delete a whole study into the Trash (recoverable; archived after 30 days). */
+export async function deleteStudy(studyId: string): Promise<void> {
+  const { supabase } = await requireUser();
+  const { error } = await supabase
+    .from("studies")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", studyId);
+  if (error) {
+    throw new Error(error.message);
+  }
+  revalidatePath("/dashboard");
+}
+
+/** Restore a soft-deleted study from the Trash. */
+export async function restoreStudy(studyId: string): Promise<void> {
+  const { supabase } = await requireUser();
+  const { error } = await supabase
+    .from("studies")
+    .update({ deleted_at: null })
+    .eq("id", studyId);
+  if (error) {
+    throw new Error(error.message);
+  }
+  revalidatePath("/dashboard");
 }

@@ -24,6 +24,13 @@ export interface SectionSummary {
   position: number;
 }
 
+/** A trashed (soft-deleted, not yet archived) study or section. */
+export interface TrashItem {
+  id: string;
+  title: string;
+  deleted_at: string;
+}
+
 /** Full section, including its ProseMirror document and head version. */
 export interface Section extends SectionSummary {
   content: PMDocJSON;
