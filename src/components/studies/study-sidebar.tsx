@@ -4,8 +4,13 @@ import { BookOpen, MoreVertical, Plus, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTransition } from "react";
+import { toast } from "sonner";
 
-import { createSection, deleteSection } from "@/app/studies/actions";
+import {
+  createSection,
+  deleteSection,
+  restoreSection,
+} from "@/app/studies/actions";
 import { TrashButton } from "@/components/studies/trash-button";
 import { Button } from "@/components/ui/button";
 import {
@@ -85,6 +90,18 @@ export function StudySidebar({
                         onClick={() => {
                           startTransition(() => {
                             void deleteSection(section.id, study.id);
+                          });
+                          // deleteSection redirects, so fire the toast now; Undo
+                          // restores the section from the Trash.
+                          toast("Section moved to trash.", {
+                            action: {
+                              label: "Undo",
+                              onClick: () => {
+                                startTransition(() => {
+                                  void restoreSection(section.id, study.id);
+                                });
+                              },
+                            },
                           });
                         }}
                       >

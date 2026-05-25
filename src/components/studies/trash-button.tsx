@@ -1,7 +1,8 @@
 "use client";
 
 import { RotateCcw, Trash2, X } from "lucide-react";
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
+import { toast } from "sonner";
 
 import { restoreSection, restoreStudy } from "@/app/studies/actions";
 import { Button } from "@/components/ui/button";
@@ -13,6 +14,15 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 function daysLeft(deletedAt: string): number {
   const remaining = new Date(deletedAt).getTime() + 30 * DAY_MS - Date.now();
   return Math.max(0, Math.ceil(remaining / DAY_MS));
+}
+
+/** Human label for the auto-archive countdown ("1 day left", not "1 days"). */
+function daysLeftLabel(deletedAt: string): string {
+  const days = daysLeft(deletedAt);
+  if (days === 0) {
+    return "Archiving soon";
+  }
+  return days === 1 ? "1 day left" : `${String(days)} days left`;
 }
 
 /**
@@ -32,6 +42,22 @@ export function TrashButton({
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
 
+  // Close the drawer on Escape while it's open.
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
   function restore(id: string) {
     startTransition(() => {
       if (kind === "study") {
@@ -40,6 +66,7 @@ export function TrashButton({
         void restoreSection(id, studyId);
       }
     });
+    toast.success(kind === "study" ? "Study restored." : "Section restored.");
   }
 
   return (
@@ -61,12 +88,12 @@ export function TrashButton({
           <button
             type="button"
             aria-label="Close trash"
-            className="fixed inset-0 z-40 bg-foreground/20"
+            className="fixed inset-0 z-40 bg-foreground/20 motion-safe:animate-in motion-safe:fade-in"
             onClick={() => {
               setOpen(false);
             }}
           />
-          <aside className="fixed inset-y-0 right-0 z-50 flex w-96 max-w-full flex-col border-l bg-card shadow-lg">
+          <aside className="fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l bg-card shadow-lg motion-safe:animate-in motion-safe:slide-in-from-right sm:w-96">
             <header className="flex items-center justify-between p-4">
               <span className="font-semibold">Trash</span>
               <Button
@@ -99,7 +126,7 @@ export function TrashButton({
                           {item.title}
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          {daysLeft(item.deleted_at)} days left
+                          {daysLeftLabel(item.deleted_at)}
                         </p>
                       </div>
                       <Button

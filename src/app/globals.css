@@ -182,16 +182,36 @@
   }
   /* A read-along viewer's rendering of the writer's live caret + selection. */
   .remote-caret {
+    position: relative;
     display: inline-block;
     width: 2px;
     height: 1.2em;
     margin-left: -1px;
     vertical-align: text-bottom;
-    background: var(--primary);
+    background: var(--remote-color, var(--primary));
     pointer-events: none;
   }
+  .remote-caret-label {
+    position: absolute;
+    top: -1.4em;
+    left: -1px;
+    white-space: nowrap;
+    border-radius: 4px;
+    padding: 0 4px;
+    font-size: 0.7rem;
+    line-height: 1.4;
+    font-weight: 500;
+    color: #fff;
+    background: var(--remote-color, var(--primary));
+    pointer-events: none;
+    user-select: none;
+  }
   .remote-selection {
-    background: color-mix(in oklch, var(--primary) 22%, transparent);
+    background: color-mix(
+      in oklch,
+      var(--remote-color, var(--primary)) 22%,
+      transparent
+    );
   }
   /* Version-history diff: insertions highlighted, deletions struck through. */
   .diff-insert {

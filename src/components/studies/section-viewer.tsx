@@ -6,6 +6,7 @@ import { EditorView } from "prosemirror-view";
 import { useEffect, useRef, useState } from "react";
 
 import { fetchSectionHead } from "@/app/studies/actions";
+import { PresenceAvatars } from "@/components/studies/presence-avatars";
 import type { Section } from "@/lib/db/types";
 import {
   remoteCursor,
@@ -15,6 +16,10 @@ import { schema } from "@/lib/editor/schema";
 import { jsonToDoc, jsonToStep } from "@/lib/editor/serialize";
 import type { PMDocJSON } from "@/lib/editor/types";
 import { openSectionChannel } from "@/lib/realtime/section-channel";
+import type {
+  ConnectionStatus,
+  PresenceMember,
+} from "@/lib/realtime/section-channel";
 
 function viewerDoc(content: PMDocJSON) {
   const doc = jsonToDoc(content);
@@ -28,15 +33,30 @@ function viewerState(content: PMDocJSON): EditorState {
   });
 }
 
+const STATUS_LABEL: Record<ConnectionStatus, string> = {
+  connecting: "Connecting…",
+  live: "live",
+  reconnecting: "Reconnecting…",
+  closed: "Disconnected",
+};
+
 /**
  * Read-only live view of a section a co-member doesn't own. Mirrors the
- * writer's edits and cursor via Supabase Realtime; the editor isn't editable.
+ * writer's edits and labeled cursor via Supabase Realtime; the editor isn't
+ * editable. Shows who else is reading along and the connection's health.
  */
-export function SectionViewer({ section }: { section: Section }) {
+export function SectionViewer({
+  section,
+  me,
+}: {
+  section: Section;
+  me: { id: string; name: string } | null;
+}) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
   const versionRef = useRef(section.current_version);
-  const [connected, setConnected] = useState(false);
+  const [members, setMembers] = useState<PresenceMember[]>([]);
+  const [status, setStatus] = useState<ConnectionStatus>("connecting");
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -69,45 +89,63 @@ export function SectionViewer({ section }: { section: Section }) {
 
     let channel: RealtimeChannel | undefined;
     let disposed = false;
-    void openSectionChannel(section.id, {
-      onSteps({ base, steps, version }) {
-        const current = viewRef.current;
-        if (!current) {
-          return;
-        }
-        if (base !== versionRef.current) {
-          // Missed or out-of-order batch — pull the head and reset.
-          if (base > versionRef.current) {
+    void openSectionChannel(
+      section.id,
+      {
+        onSteps({ base, steps, version }) {
+          const current = viewRef.current;
+          if (!current) {
+            return;
+          }
+          if (base !== versionRef.current) {
+            // Missed or out-of-order batch — pull the head and reset.
+            if (base > versionRef.current) {
+              void resync();
+            }
+            return;
+          }
+          try {
+            let tr = current.state.tr;
+            for (const step of steps) {
+              tr = tr.step(jsonToStep(step));
+            }
+            current.dispatch(tr);
+            versionRef.current = version;
+          } catch {
             void resync();
           }
-          return;
-        }
-        try {
-          let tr = current.state.tr;
-          for (const step of steps) {
-            tr = tr.step(jsonToStep(step));
+        },
+        onCursor({ anchor, head, name, color }) {
+          const current = viewRef.current;
+          if (current) {
+            current.dispatch(
+              current.state.tr.setMeta(remoteCursorKey, {
+                anchor,
+                head,
+                name,
+                color,
+              }),
+            );
           }
-          current.dispatch(tr);
-          versionRef.current = version;
-        } catch {
-          void resync();
-        }
+        },
+        onPresence(next) {
+          if (!disposed) {
+            setMembers(next);
+          }
+        },
+        onStatus(next) {
+          if (!disposed) {
+            setStatus(next);
+          }
+        },
       },
-      onCursor({ anchor, head }) {
-        const current = viewRef.current;
-        if (current) {
-          current.dispatch(
-            current.state.tr.setMeta(remoteCursorKey, { anchor, head }),
-          );
-        }
-      },
-    }).then((ch) => {
+      me ? { userId: me.id, name: me.name, isOwner: false } : undefined,
+    ).then((ch) => {
       if (disposed) {
         void ch.unsubscribe();
         return;
       }
       channel = ch;
-      setConnected(true);
     });
 
     // Catch any edits made between the server render and the subscription.
@@ -129,9 +167,27 @@ export function SectionViewer({ section }: { section: Section }) {
     <div className="flex h-full flex-col">
       <div className="mb-3 flex items-center gap-2">
         <h1 className="text-2xl font-bold">{section.title}</h1>
-        <span className="shrink-0 text-xs text-muted-foreground">
-          {connected ? "Read-only · live" : "Read-only"}
-        </span>
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          <PresenceAvatars
+            members={members.filter((member) => member.userId !== me?.id)}
+          />
+          <span
+            className="flex items-center gap-1.5 text-xs text-muted-foreground"
+            role="status"
+            aria-live="polite"
+          >
+            <span
+              className={
+                status === "live"
+                  ? "size-2 rounded-full bg-primary"
+                  : status === "reconnecting"
+                    ? "size-2 rounded-full bg-muted-foreground motion-safe:animate-pulse"
+                    : "size-2 rounded-full bg-muted-foreground"
+              }
+            />
+            Read-only · {STATUS_LABEL[status]}
+          </span>
+        </div>
       </div>
       <div ref={mountRef} className="mt-4 flex-1 overflow-auto" />
     </div>

@@ -48,4 +48,7 @@ export interface CursorPayload {
   anchor: number;
   head: number;
   version: number;
+  /** Writer's display name + color, for a labeled remote caret on viewers. */
+  name?: string;
+  color?: string;
 }

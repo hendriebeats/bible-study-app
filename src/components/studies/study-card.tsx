@@ -3,8 +3,9 @@
 import { MoreVertical, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useTransition } from "react";
+import { toast } from "sonner";
 
-import { deleteStudy } from "@/app/studies/actions";
+import { deleteStudy, restoreStudy } from "@/app/studies/actions";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -59,6 +60,16 @@ export function StudyCard({ study }: { study: Study }) {
               onClick={() => {
                 startTransition(() => {
                   void deleteStudy(study.id);
+                });
+                toast("Study moved to trash.", {
+                  action: {
+                    label: "Undo",
+                    onClick: () => {
+                      startTransition(() => {
+                        void restoreStudy(study.id);
+                      });
+                    },
+                  },
                 });
               }}
             >

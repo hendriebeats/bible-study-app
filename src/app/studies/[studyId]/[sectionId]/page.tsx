@@ -23,6 +23,21 @@ export default async function SectionPage({
   const study = await getStudy(studyId);
   const isOwner = user != null && study?.owner_id === user.id;
 
+  // Identity for live presence + a labeled remote cursor (read-along).
+  let me: { id: string; name: string } | null = null;
+  if (user) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("display_name")
+      .eq("id", user.id)
+      .maybeSingle();
+    const name =
+      [profile?.display_name?.trim(), user.email?.split("@")[0]].find(
+        (value) => value !== undefined && value !== "",
+      ) ?? "Someone";
+    me = { id: user.id, name };
+  }
+
   // The owner edits (and needs history for refresh-surviving undo); co-members
   // get the read-only live viewer.
   const history = isOwner
@@ -41,6 +56,7 @@ export default async function SectionPage({
         section={section}
         isOwner={isOwner}
         history={history}
+        me={me}
       />
     </div>
   );

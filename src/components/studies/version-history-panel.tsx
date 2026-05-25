@@ -34,6 +34,7 @@ export function VersionHistoryPanel({
 }) {
   const [timeline, setTimeline] = useState<SectionTimeline | null>(null);
   const [version, setVersion] = useState(headVersion);
+  const [compareVersion, setCompareVersion] = useState(headVersion);
   const [showDiff, setShowDiff] = useState(false);
 
   useEffect(() => {
@@ -48,18 +49,36 @@ export function VersionHistoryPanel({
     };
   }, [sectionId]);
 
+  // Close the panel on Escape (it only mounts while open).
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [onClose]);
+
+  // When comparing, diff the older version (A) forward to the newer (B).
+  const fromV = Math.min(version, compareVersion);
+  const toV = Math.max(version, compareVersion);
+  const diffing = showDiff && fromV !== toV;
+
   const preview = useMemo(() => {
     if (!timeline) {
       return null;
     }
-    if (showDiff && version < headVersion) {
+    if (diffing) {
       const fromDoc = reconstructDoc(
-        version,
+        fromV,
         timeline.checkpoints,
         timeline.steps,
       );
       const stepsBetween = timeline.steps.filter(
-        (step) => step.version > version && step.version <= headVersion,
+        (step) => step.version > fromV && step.version <= toV,
       );
       return diffSince(fromDoc, stepsBetween);
     }
@@ -67,7 +86,7 @@ export function VersionHistoryPanel({
       doc: reconstructDoc(version, timeline.checkpoints, timeline.steps),
       decorations: undefined,
     };
-  }, [timeline, version, showDiff, headVersion]);
+  }, [timeline, version, diffing, fromV, toV]);
 
   function handleRestore() {
     if (!timeline) {
@@ -85,10 +104,10 @@ export function VersionHistoryPanel({
       <button
         type="button"
         aria-label="Close version history"
-        className="fixed inset-0 z-40 bg-foreground/20"
+        className="fixed inset-0 z-40 bg-foreground/20 motion-safe:animate-in motion-safe:fade-in"
         onClick={onClose}
       />
-      <aside className="fixed inset-y-0 right-0 z-50 flex w-96 max-w-full flex-col border-l bg-card shadow-lg">
+      <aside className="fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l bg-card shadow-lg motion-safe:animate-in motion-safe:slide-in-from-right sm:w-96">
         <header className="flex items-center justify-between p-4">
           <span className="font-semibold">Version history</span>
           <Button
@@ -122,20 +141,48 @@ export function VersionHistoryPanel({
               />
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs text-muted-foreground">
-                  Version {version} of {headVersion}
+                  {diffing
+                    ? `Comparing v${String(fromV)} → v${String(toV)}`
+                    : `Version ${String(version)} of ${String(headVersion)}`}
                 </span>
                 <Button
                   type="button"
                   size="sm"
                   variant={showDiff ? "secondary" : "ghost"}
-                  disabled={atHead}
                   onClick={() => {
                     setShowDiff((value) => !value);
                   }}
                 >
-                  Show changes
+                  Compare
                 </Button>
               </div>
+              {showDiff ? (
+                <div className="space-y-2 rounded-md border bg-muted/40 p-3 motion-safe:animate-in motion-safe:fade-in">
+                  <span className="text-xs font-medium text-muted-foreground">
+                    Compare with another version
+                  </span>
+                  <Slider
+                    min={0}
+                    max={headVersion}
+                    step={1}
+                    value={[compareVersion]}
+                    onValueChange={(values) => {
+                      setCompareVersion(values[0] ?? headVersion);
+                    }}
+                    aria-label="Compare with version"
+                  />
+                  <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                    <span className="flex items-center gap-1">
+                      <span className="size-2.5 rounded-sm bg-primary/30" />
+                      Added
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <span className="size-2.5 rounded-sm bg-destructive/30" />
+                      Removed
+                    </span>
+                  </div>
+                </div>
+              ) : null}
             </div>
             <Separator />
 

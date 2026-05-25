@@ -22,12 +22,15 @@ import { EditorState } from "prosemirror-state";
 import type { Command } from "prosemirror-state";
 import { EditorView } from "prosemirror-view";
 import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 
 import {
   appendSectionSteps,
   createSectionCheckpoint,
+  fetchSectionHead,
   renameSection,
 } from "@/app/studies/actions";
+import { PresenceAvatars } from "@/components/studies/presence-avatars";
 import { VersionHistoryPanel } from "@/components/studies/version-history-panel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -59,8 +62,10 @@ import type { PMDocJSON, SerializedStep } from "@/lib/editor/types";
 import {
   broadcastCursor,
   broadcastSteps,
+  colorForId,
   openSectionChannel,
 } from "@/lib/realtime/section-channel";
+import type { PresenceMember } from "@/lib/realtime/section-channel";
 
 const AUTOSAVE_DELAY_MS = 1200;
 /** Snapshot a checkpoint after this many new steps, to bound replay length. */
@@ -233,15 +238,18 @@ function Toolbar({
 export function SectionEditor({
   section,
   history: sectionHistory,
+  me,
 }: {
   section: Section;
   history: SectionHistory;
+  me: { id: string; name: string } | null;
 }) {
   const [title, setTitle] = useState(section.title);
   const [status, setStatus] = useState<SaveStatus>("idle");
   const [editorState, setEditorState] = useState<EditorState | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyHead, setHistoryHead] = useState(0);
+  const [members, setMembers] = useState<PresenceMember[]>([]);
   const viewRef = useRef<EditorView | null>(null);
   const mountRef = useRef<HTMLDivElement | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -260,10 +268,23 @@ export function SectionEditor({
     }
 
     const clientId = crypto.randomUUID();
-    // Broadcast this writer's steps + cursor to read-only viewers (read-along).
+    const myName = me?.name;
+    const myColor = me ? colorForId(me.id) : undefined;
+    // Broadcast this writer's steps + cursor to read-only viewers (read-along),
+    // and join presence so the owner can see who's reading along.
     let channel: RealtimeChannel | undefined;
     let disposed = false;
-    void openSectionChannel(section.id, {}).then((ch) => {
+    void openSectionChannel(
+      section.id,
+      {
+        onPresence: (next) => {
+          if (!disposed) {
+            setMembers(next);
+          }
+        },
+      },
+      me ? { userId: me.id, name: me.name, isOwner: true } : undefined,
+    ).then((ch) => {
       if (disposed) {
         void ch.unsubscribe();
         return;
@@ -293,12 +314,29 @@ export function SectionEditor({
           clientId,
         );
         if (!result.ok) {
-          // Another writer advanced the doc — reload to resync from the head.
-          window.location.reload();
+          // Another writer (the owner's other tab) advanced the doc. Discard our
+          // stale pending edits and rebuild from the server head in place — no
+          // jarring full-page reload.
+          const head = await fetchSectionHead(section.id);
+          if (head) {
+            pendingStepsRef.current = [];
+            lastVersionRef.current = head.version;
+            lastCheckpointRef.current = head.version;
+            const fresh = EditorState.create({
+              doc: initialDoc(head.content),
+              plugins: createPlugins(),
+            });
+            view.updateState(fresh);
+            setEditorState(fresh);
+            setStatus("saved");
+            toast.info("Synced with your latest edits from another tab.");
+          }
           return;
         }
         lastVersionRef.current = result.version;
         setStatus("saved");
+        // A retry/transient error may have surfaced an error toast earlier; clear it.
+        toast.dismiss("section-save-error");
         // Push the persisted steps + the cursor's new position to viewers.
         if (channel) {
           broadcastSteps(channel, {
@@ -310,6 +348,8 @@ export function SectionEditor({
             anchor: view.state.selection.anchor,
             head: view.state.selection.head,
             version: result.version,
+            name: myName,
+            color: myColor,
           });
         }
         if (result.version - lastCheckpointRef.current >= CHECKPOINT_EVERY) {
@@ -317,9 +357,13 @@ export function SectionEditor({
           void createSectionCheckpoint(section.id).catch(() => undefined);
         }
       } catch {
-        // Keep the steps and let the next change (or blur) retry.
+        // Keep the steps and let the next change (or blur) retry. Surface a
+        // single, deduped error toast (cleared on the next successful save).
         pendingStepsRef.current = [...batch, ...pendingStepsRef.current];
         setStatus("idle");
+        toast.error("Couldn't save your changes. Retrying…", {
+          id: "section-save-error",
+        });
       } finally {
         flushingRef.current = false;
         if (pendingStepsRef.current.length > 0) {
@@ -345,6 +389,30 @@ export function SectionEditor({
       void flush();
     }
 
+    // Throttle cursor broadcasts (trailing) so rapid selection changes — e.g.
+    // dragging a selection — don't flood viewers with messages.
+    const CURSOR_THROTTLE_MS = 80;
+    let cursorTimer: ReturnType<typeof setTimeout> | null = null;
+    let pendingCursor: { anchor: number; head: number } | null = null;
+    function scheduleCursorBroadcast(anchor: number, head: number) {
+      pendingCursor = { anchor, head };
+      if (cursorTimer) {
+        return;
+      }
+      cursorTimer = setTimeout(() => {
+        cursorTimer = null;
+        if (channel && pendingCursor) {
+          broadcastCursor(channel, {
+            anchor: pendingCursor.anchor,
+            head: pendingCursor.head,
+            version: lastVersionRef.current,
+            name: myName,
+            color: myColor,
+          });
+        }
+      }, CURSOR_THROTTLE_MS);
+    }
+
     const view = new EditorView(mount, {
       state: buildInitialState(sectionHistory, section.content),
       dispatchTransaction(transaction) {
@@ -362,17 +430,12 @@ export function SectionEditor({
           setStatus("saving");
           scheduleFlush();
         } else if (
-          channel &&
           transaction.selectionSet &&
           pendingStepsRef.current.length === 0
         ) {
           // Cursor moved with no unsaved edits — its position is valid at the
-          // confirmed head, so viewers can place it directly.
-          broadcastCursor(channel, {
-            anchor: next.selection.anchor,
-            head: next.selection.head,
-            version: lastVersionRef.current,
-          });
+          // confirmed head, so viewers can place it directly (throttled).
+          scheduleCursorBroadcast(next.selection.anchor, next.selection.head);
         }
       },
       handleDOMEvents: {
@@ -389,6 +452,9 @@ export function SectionEditor({
       disposed = true;
       if (saveTimer.current) {
         clearTimeout(saveTimer.current);
+      }
+      if (cursorTimer) {
+        clearTimeout(cursorTimer);
       }
       if (channel) {
         void channel.unsubscribe();
@@ -424,6 +490,19 @@ export function SectionEditor({
     );
     if (tr.docChanged) {
       view.dispatch(tr);
+      // The restore is a single undoable transaction — offer a one-click revert.
+      toast.success("Version restored.", {
+        action: {
+          label: "Undo",
+          onClick: () => {
+            const current = viewRef.current;
+            if (current) {
+              undo(current.state, current.dispatch);
+              current.focus();
+            }
+          },
+        },
+      });
     }
     setHistoryOpen(false);
     view.focus();
@@ -452,7 +531,16 @@ export function SectionEditor({
           className="h-auto border-0 bg-transparent px-0 text-2xl font-bold shadow-none focus-visible:ring-0"
         />
         <div className="ml-auto flex shrink-0 items-center gap-2">
-          <span className="text-xs text-muted-foreground">{statusLabel}</span>
+          <PresenceAvatars
+            members={members.filter((member) => member.userId !== me?.id)}
+          />
+          <span
+            className="text-xs text-muted-foreground"
+            role="status"
+            aria-live="polite"
+          >
+            {statusLabel}
+          </span>
           <Button
             type="button"
             size="sm"

@@ -1,3 +1,4 @@
+import { REALTIME_SUBSCRIBE_STATES } from "@supabase/supabase-js";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 
 import type { CursorPayload, StepsPayload } from "@/lib/editor/types";
@@ -6,9 +7,65 @@ import { createClient } from "@/lib/supabase/client";
 const STEPS_EVENT = "steps";
 const CURSOR_EVENT = "cursor";
 
+/** Subscription health, surfaced to the UI as a live/reconnecting indicator. */
+export type ConnectionStatus =
+  | "connecting"
+  | "live"
+  | "reconnecting"
+  | "closed";
+
+/** A stable, readable color palette for cursors + presence avatars. */
+const CURSOR_COLORS = [
+  "#1971c2",
+  "#e8590c",
+  "#2f9e44",
+  "#9c36b5",
+  "#c2255c",
+  "#0c8599",
+  "#5f3dc4",
+  "#e67700",
+];
+
+/** Deterministic color for a user id, so the same person is always one color. */
+export function colorForId(id: string): string {
+  let hash = 0;
+  for (let i = 0; i < id.length; i += 1) {
+    hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
+  }
+  return CURSOR_COLORS[hash % CURSOR_COLORS.length] ?? "#1971c2";
+}
+
+/** Someone currently on the section (the writer or a read-along viewer). */
+export interface PresenceMember {
+  userId: string;
+  name: string;
+  color: string;
+  isOwner: boolean;
+}
+
+/** Who this client is, for presence tracking + a labeled remote cursor. */
+export interface SectionIdentity {
+  userId: string;
+  name: string;
+  isOwner: boolean;
+}
+
+/**
+ * The metadata each client tracks into presence. The index signature lets it
+ * satisfy supabase-js's `{ [key: string]: any }` presence constraint.
+ */
+interface PresenceMeta {
+  userId: string;
+  name: string;
+  isOwner: boolean;
+  [key: string]: string | boolean;
+}
+
 export interface SectionChannelHandlers {
   onSteps?: (payload: StepsPayload) => void;
   onCursor?: (payload: CursorPayload) => void;
+  onPresence?: (members: PresenceMember[]) => void;
+  onStatus?: (status: ConnectionStatus) => void;
 }
 
 /**
@@ -16,6 +73,9 @@ export interface SectionChannelHandlers {
  * steps + cursor; read-only viewers receive them. `self: false` so the writer
  * doesn't echo its own messages. The DB step log remains the durable source of
  * truth — broadcast is just the low-latency path (viewers resync on gaps).
+ *
+ * When `identity` is given, the client also joins presence (so everyone can see
+ * who's here) and reports subscription health via `onStatus`.
  *
  * The channel is `private`, so access is gated by RLS on `realtime.messages`
  * (see the realtime-authorization migration): only the section owner may send,
@@ -25,6 +85,7 @@ export interface SectionChannelHandlers {
 export async function openSectionChannel(
   sectionId: string,
   handlers: SectionChannelHandlers,
+  identity?: SectionIdentity,
 ): Promise<RealtimeChannel> {
   const supabase = createClient();
   const {
@@ -35,7 +96,11 @@ export async function openSectionChannel(
   }
 
   const channel = supabase.channel(`section:${sectionId}`, {
-    config: { broadcast: { self: false }, private: true },
+    config: {
+      broadcast: { self: false },
+      private: true,
+      ...(identity ? { presence: { key: identity.userId } } : {}),
+    },
   });
 
   if (handlers.onSteps) {
@@ -48,8 +113,51 @@ export async function openSectionChannel(
       handlers.onCursor?.(message.payload as CursorPayload);
     });
   }
+  if (handlers.onPresence) {
+    channel.on("presence", { event: "sync" }, () => {
+      const state = channel.presenceState<PresenceMeta>();
+      const members: PresenceMember[] = [];
+      const seen = new Set<string>();
+      for (const presences of Object.values(state)) {
+        for (const presence of presences) {
+          if (seen.has(presence.userId)) {
+            continue;
+          }
+          seen.add(presence.userId);
+          members.push({
+            userId: presence.userId,
+            name: presence.name,
+            color: colorForId(presence.userId),
+            isOwner: presence.isOwner,
+          });
+        }
+      }
+      handlers.onPresence?.(members);
+    });
+  }
 
-  channel.subscribe();
+  handlers.onStatus?.("connecting");
+  channel.subscribe((status) => {
+    if (status === REALTIME_SUBSCRIBE_STATES.SUBSCRIBED) {
+      handlers.onStatus?.("live");
+      if (identity) {
+        const meta: PresenceMeta = {
+          userId: identity.userId,
+          name: identity.name,
+          isOwner: identity.isOwner,
+        };
+        void channel.track(meta);
+      }
+    } else if (
+      status === REALTIME_SUBSCRIBE_STATES.CHANNEL_ERROR ||
+      status === REALTIME_SUBSCRIBE_STATES.TIMED_OUT
+    ) {
+      handlers.onStatus?.("reconnecting");
+    } else {
+      // The only remaining state is CLOSED.
+      handlers.onStatus?.("closed");
+    }
+  });
   return channel;
 }
 

@@ -10,13 +10,15 @@ export function SectionSurface({
   section,
   history,
   isOwner,
+  me,
 }: {
   section: Section;
   history: SectionHistory | null;
   isOwner: boolean;
+  me: { id: string; name: string } | null;
 }) {
   if (isOwner && history) {
-    return <SectionEditor section={section} history={history} />;
+    return <SectionEditor section={section} history={history} me={me} />;
   }
-  return <SectionViewer section={section} />;
+  return <SectionViewer section={section} me={me} />;
 }
