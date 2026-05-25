@@ -1,5 +1,6 @@
 "use client";
 
+import type { RealtimeChannel } from "@supabase/supabase-js";
 import { gapCursor } from "prosemirror-gapcursor";
 import { closeHistory, history, redo, undo } from "prosemirror-history";
 import {
@@ -256,7 +257,15 @@ export function SectionEditor({
 
     const clientId = crypto.randomUUID();
     // Broadcast this writer's steps + cursor to read-only viewers (read-along).
-    const channel = openSectionChannel(section.id, {});
+    let channel: RealtimeChannel | undefined;
+    let disposed = false;
+    void openSectionChannel(section.id, {}).then((ch) => {
+      if (disposed) {
+        void ch.unsubscribe();
+        return;
+      }
+      channel = ch;
+    });
 
     async function flush() {
       if (flushingRef.current || pendingStepsRef.current.length === 0) {
@@ -287,16 +296,18 @@ export function SectionEditor({
         lastVersionRef.current = result.version;
         setStatus("saved");
         // Push the persisted steps + the cursor's new position to viewers.
-        broadcastSteps(channel, {
-          base,
-          steps: batch,
-          version: result.version,
-        });
-        broadcastCursor(channel, {
-          anchor: view.state.selection.anchor,
-          head: view.state.selection.head,
-          version: result.version,
-        });
+        if (channel) {
+          broadcastSteps(channel, {
+            base,
+            steps: batch,
+            version: result.version,
+          });
+          broadcastCursor(channel, {
+            anchor: view.state.selection.anchor,
+            head: view.state.selection.head,
+            version: result.version,
+          });
+        }
         if (result.version - lastCheckpointRef.current >= CHECKPOINT_EVERY) {
           lastCheckpointRef.current = result.version;
           void createSectionCheckpoint(section.id).catch(() => undefined);
@@ -347,6 +358,7 @@ export function SectionEditor({
           setStatus("saving");
           scheduleFlush();
         } else if (
+          channel &&
           transaction.selectionSet &&
           pendingStepsRef.current.length === 0
         ) {
@@ -370,10 +382,13 @@ export function SectionEditor({
     setEditorState(view.state);
 
     return () => {
+      disposed = true;
       if (saveTimer.current) {
         clearTimeout(saveTimer.current);
       }
-      void channel.unsubscribe();
+      if (channel) {
+        void channel.unsubscribe();
+      }
       view.destroy();
       viewRef.current = null;
     };

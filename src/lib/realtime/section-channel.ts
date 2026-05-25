@@ -16,14 +16,26 @@ export interface SectionChannelHandlers {
  * steps + cursor; read-only viewers receive them. `self: false` so the writer
  * doesn't echo its own messages. The DB step log remains the durable source of
  * truth — broadcast is just the low-latency path (viewers resync on gaps).
+ *
+ * The channel is `private`, so access is gated by RLS on `realtime.messages`
+ * (see the realtime-authorization migration): only the section owner may send,
+ * and only readers may receive. We authenticate the socket with the user's JWT
+ * before subscribing; supabase-js keeps it current on token refresh.
  */
-export function openSectionChannel(
+export async function openSectionChannel(
   sectionId: string,
   handlers: SectionChannelHandlers,
-): RealtimeChannel {
+): Promise<RealtimeChannel> {
   const supabase = createClient();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (session) {
+    await supabase.realtime.setAuth(session.access_token);
+  }
+
   const channel = supabase.channel(`section:${sectionId}`, {
-    config: { broadcast: { self: false } },
+    config: { broadcast: { self: false }, private: true },
   });
 
   if (handlers.onSteps) {

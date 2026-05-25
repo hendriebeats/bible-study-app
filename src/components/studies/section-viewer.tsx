@@ -67,7 +67,9 @@ export function SectionViewer({ section }: { section: Section }) {
       versionRef.current = head.version;
     }
 
-    const channel: RealtimeChannel = openSectionChannel(section.id, {
+    let channel: RealtimeChannel | undefined;
+    let disposed = false;
+    void openSectionChannel(section.id, {
       onSteps({ base, steps, version }) {
         const current = viewRef.current;
         if (!current) {
@@ -99,14 +101,23 @@ export function SectionViewer({ section }: { section: Section }) {
           );
         }
       },
+    }).then((ch) => {
+      if (disposed) {
+        void ch.unsubscribe();
+        return;
+      }
+      channel = ch;
+      setConnected(true);
     });
-    setConnected(true);
 
     // Catch any edits made between the server render and the subscription.
     void resync();
 
     return () => {
-      void channel.unsubscribe();
+      disposed = true;
+      if (channel) {
+        void channel.unsubscribe();
+      }
       view.destroy();
       viewRef.current = null;
     };
