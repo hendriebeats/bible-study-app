@@ -32,9 +32,14 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# ...but keep the placeholder template tracked for contributors
+!.env.example
 
 # vercel
 .vercel
+
+# claude code (personal/machine-local settings; shared config lives in settings.json)
+.claude/settings.local.json
 
 # typescript
 *.tsbuildinfo
