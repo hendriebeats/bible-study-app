@@ -8,6 +8,7 @@ import {
   Heading1,
   Heading2,
   Heading3,
+  History,
   Italic,
   List,
   ListOrdered,
@@ -27,6 +28,7 @@ import {
   createSectionCheckpoint,
   renameSection,
 } from "@/app/studies/actions";
+import { VersionHistoryPanel } from "@/components/studies/version-history-panel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
@@ -238,6 +240,8 @@ export function SectionEditor({
   const [title, setTitle] = useState(section.title);
   const [status, setStatus] = useState<SaveStatus>("idle");
   const [editorState, setEditorState] = useState<EditorState | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyHead, setHistoryHead] = useState(0);
   const viewRef = useRef<EditorView | null>(null);
   const mountRef = useRef<HTMLDivElement | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -405,6 +409,26 @@ export function SectionEditor({
     view.focus();
   }
 
+  // Restore by replacing the whole doc with a past version — flows through the
+  // normal step pipeline, so it's persisted, broadcast, and itself undoable.
+  function applyRestore(targetDoc: PMDocJSON) {
+    const view = viewRef.current;
+    if (!view) {
+      return;
+    }
+    const node = jsonToDoc(targetDoc);
+    const tr = view.state.tr.replaceWith(
+      0,
+      view.state.doc.content.size,
+      node.content,
+    );
+    if (tr.docChanged) {
+      view.dispatch(tr);
+    }
+    setHistoryOpen(false);
+    view.focus();
+  }
+
   function handleTitleBlur() {
     const next = title.trim() || "Untitled section";
     if (next !== section.title) {
@@ -427,12 +451,34 @@ export function SectionEditor({
           aria-label="Section title"
           className="h-auto border-0 bg-transparent px-0 text-2xl font-bold shadow-none focus-visible:ring-0"
         />
-        <span className="shrink-0 text-xs text-muted-foreground">
-          {statusLabel}
-        </span>
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          <span className="text-xs text-muted-foreground">{statusLabel}</span>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              setHistoryHead(lastVersionRef.current);
+              setHistoryOpen(true);
+            }}
+          >
+            <History className="size-4" />
+            History
+          </Button>
+        </div>
       </div>
       <Toolbar state={editorState} onCommand={runCommand} />
       <div ref={mountRef} className="mt-4 flex-1 overflow-auto" />
+      {historyOpen ? (
+        <VersionHistoryPanel
+          sectionId={section.id}
+          headVersion={historyHead}
+          onRestore={applyRestore}
+          onClose={() => {
+            setHistoryOpen(false);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

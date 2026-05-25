@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
+import type { SectionTimeline } from "@/lib/db/types";
 import type { PMDocJSON, SerializedStep } from "@/lib/editor/types";
 import type { Json } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
@@ -128,6 +129,42 @@ export async function appendSectionSteps(
     throw new Error(error.message);
   }
   return { ok: true, version: data };
+}
+
+/** Fetch a section's full history (checkpoints + steps) for the history panel. */
+export async function fetchSectionTimeline(
+  sectionId: string,
+): Promise<SectionTimeline> {
+  const { supabase } = await requireUser();
+  const { data: checkpoints, error: cpError } = await supabase
+    .from("section_checkpoints")
+    .select("version, label, created_at, doc")
+    .eq("section_id", sectionId)
+    .order("version", { ascending: true });
+  if (cpError) {
+    throw new Error(cpError.message);
+  }
+  const { data: steps, error: stepsError } = await supabase
+    .from("section_steps")
+    .select("version, step, created_at")
+    .eq("section_id", sectionId)
+    .order("version", { ascending: true });
+  if (stepsError) {
+    throw new Error(stepsError.message);
+  }
+  return {
+    checkpoints: checkpoints.map((c) => ({
+      version: c.version,
+      label: c.label,
+      created_at: c.created_at,
+      doc: c.doc as unknown as PMDocJSON,
+    })),
+    steps: steps.map((s) => ({
+      version: s.version,
+      step: s.step as unknown as SerializedStep,
+      created_at: s.created_at,
+    })),
+  };
 }
 
 /** Fetch a section's current materialized doc + head version (viewer resync). */

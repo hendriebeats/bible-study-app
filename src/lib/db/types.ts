@@ -57,3 +57,20 @@ export interface SectionHistory {
   headVersion: number;
   steps: SectionStepRow[];
 }
+
+/** A full-doc checkpoint = a user-facing "version" of a section. */
+export interface SectionCheckpointRow {
+  version: number;
+  label: string | null;
+  created_at: string;
+  doc: PMDocJSON;
+}
+
+/**
+ * The complete history of a section (all checkpoints + all steps), enough to
+ * reconstruct the document at any version on the client for the history panel.
+ */
+export interface SectionTimeline {
+  checkpoints: SectionCheckpointRow[];
+  steps: SectionStepRow[];
+}
