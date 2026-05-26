@@ -2,11 +2,9 @@ import { notFound } from "next/navigation";
 
 import { SectionSurface } from "@/components/studies/section-surface";
 import { listCompareTargets } from "@/lib/db/compare";
-import { getGenreBlockTemplates } from "@/lib/db/genres";
 import { getDocumentHistory } from "@/lib/db/history";
-import { getSection, getSectionDocuments, getStudy } from "@/lib/db/studies";
+import { getSection, getSectionDocuments } from "@/lib/db/studies";
 import { getScriptureOptions } from "@/lib/db/user-settings";
-import type { BlockSpec } from "@/lib/editor/blocks";
 import { createClient } from "@/lib/supabase/server";
 
 export default async function SectionPage({
@@ -28,23 +26,19 @@ export default async function SectionPage({
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  const study = await getStudy(studyId);
   const { data: ownerFlag } = await supabase.rpc("is_study_owner", {
     _study_id: studyId,
   });
   const isOwner = ownerFlag ?? false;
 
-  // The study's genre default blocks, for the blocks editor's "reset to default".
-  const defaultBlocks: BlockSpec[] = study?.genre_id
-    ? (await getGenreBlockTemplates(study.genre_id)).map((t) => ({
-        title: t.title,
-        subtitle: t.subtitle,
-        placeholder: t.placeholder,
-        defaultContent: t.default_content,
-        lineageId: t.lineage_id,
-        templateId: t.id,
-      }))
-    : [];
+  // Whether the editor's "Copy from previous section" option has a source.
+  const { count: otherSectionCount } = await supabase
+    .from("sections")
+    .select("id", { count: "exact", head: true })
+    .eq("study_id", studyId)
+    .is("deleted_at", null)
+    .neq("id", sectionId);
+  const hasPreviousSection = (otherSectionCount ?? 0) > 0;
 
   // Identity for live presence + a labeled remote cursor (read-along).
   let me: { id: string; name: string } | null = null;
@@ -94,7 +88,7 @@ export default async function SectionPage({
         documents={documents}
         notesHistory={notesHistory}
         blocksHistory={blocksHistory}
-        defaultBlocks={defaultBlocks}
+        hasPreviousSection={hasPreviousSection}
         isOwner={isOwner}
         canCompare={canCompare}
         me={me}

@@ -199,18 +199,22 @@ export async function leaveGroup(groupId: string): Promise<ActionResult> {
 export async function attachStudyToGroup(
   groupId: string,
   studyId: string | null,
-): Promise<ActionResult> {
+): Promise<{ ok: false; error: string } | undefined> {
   const { supabase } = await requireUser();
-  const { error } = await supabase.rpc("attach_study_to_group", {
-    _group_study_id: groupId,
-    _study_id: studyId ?? undefined,
-  });
+  const { data: attachedStudyId, error } = await supabase.rpc(
+    "attach_study_to_group",
+    {
+      _group_study_id: groupId,
+      _study_id: studyId ?? undefined,
+    },
+  );
   if (error) {
     return { ok: false, error: error.message };
   }
   revalidatePath("/dashboard");
   revalidatePath("/groups");
-  return { ok: true };
+  // Drop the user straight into the study they just attached/seeded.
+  redirect(`/studies/${attachedStudyId}`);
 }
 
 /** Decline a pending invitation addressed to the current user. */
@@ -233,8 +237,8 @@ export async function acceptInvitation(
   token: string,
   studyId: string | null,
 ): Promise<{ ok: false; error: string } | undefined> {
-  const { supabase } = await requireUser();
-  const { data, error } = await supabase.rpc("accept_invitation", {
+  const { supabase, userId } = await requireUser();
+  const { data: groupId, error } = await supabase.rpc("accept_invitation", {
     _token: token,
     _study_id: studyId ?? undefined,
   });
@@ -242,5 +246,20 @@ export async function acceptInvitation(
     return { ok: false, error: error.message };
   }
   revalidatePath("/groups");
-  redirect(`/groups/${data}`);
+  // Land the user in their study within the group (the one they attached, or
+  // the fresh seed). Fall back to the group if there's somehow no study.
+  let targetStudyId = studyId;
+  if (!targetStudyId) {
+    const { data: membership } = await supabase
+      .from("group_study_members")
+      .select("study_id")
+      .eq("group_study_id", groupId)
+      .eq("user_id", userId)
+      .maybeSingle();
+    targetStudyId = membership?.study_id ?? null;
+  }
+  if (targetStudyId) {
+    redirect(`/studies/${targetStudyId}`);
+  }
+  redirect(`/groups/${groupId}`);
 }

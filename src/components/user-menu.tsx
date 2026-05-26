@@ -1,6 +1,6 @@
 "use client";
 
-import { LogOut, Settings, Shield } from "lucide-react";
+import { Building2, LogOut, Settings, Shield } from "lucide-react";
 import Link from "next/link";
 
 import { signOut } from "@/app/(auth)/actions";
@@ -60,11 +60,17 @@ export function UserMenu({
             Account settings
           </Link>
         </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link href="/organizations">
+            <Building2 className="size-4" />
+            Organization
+          </Link>
+        </DropdownMenuItem>
         {isAdmin ? (
           <DropdownMenuItem asChild>
             <Link href="/admin">
               <Shield className="size-4" />
-              Admin · Genres
+              Admin settings
             </Link>
           </DropdownMenuItem>
         ) : null}

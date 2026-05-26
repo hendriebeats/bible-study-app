@@ -1,9 +1,10 @@
 "use client";
 
-import { Plus } from "lucide-react";
-import { useState, useTransition } from "react";
+import { Plus, Search } from "lucide-react";
+import { useMemo, useState, useTransition } from "react";
+import { toast } from "sonner";
 
-import { createStudy } from "@/app/studies/actions";
+import { createStudyFromSelection } from "@/app/studies/actions";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -17,18 +18,96 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { Genre } from "@/lib/db/types";
+import type { OrgBookContext } from "@/lib/db/templates";
+import type { StudyTemplate } from "@/lib/db/types";
+import { BOOKS } from "@/lib/scripture/books";
+import { cn } from "@/lib/utils";
 
-export function NewStudyDialog({ genres }: { genres: Genre[] }) {
+type Tab = "book" | "custom" | "blank";
+
+const OLD_TESTAMENT = BOOKS.filter((b) => b.ordinal <= 39);
+const NEW_TESTAMENT = BOOKS.filter((b) => b.ordinal >= 40);
+
+export function NewStudyDialog({
+  customTemplates,
+  orgContext,
+}: {
+  customTemplates: StudyTemplate[];
+  orgContext: OrgBookContext;
+}) {
   const [open, setOpen] = useState(false);
+  const [tab, setTab] = useState<Tab>("book");
   const [name, setName] = useState("");
-  const [genreId, setGenreId] = useState("");
+  const [bookOrdinal, setBookOrdinal] = useState<number | null>(null);
+  const [templateId, setTemplateId] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
   const [pending, startTransition] = useTransition();
 
-  const selectedGenre = genres.find((genre) => genre.id === genreId);
+  const overridden = new Set(orgContext.overriddenOrdinals);
+  const disabled = new Set(orgContext.disabledOrdinals);
+
+  function bookBadge(ordinal: number): string | null {
+    if (!orgContext.inOrg) {
+      return null;
+    }
+    if (overridden.has(ordinal)) {
+      return "Org template";
+    }
+    if (!orgContext.usesDefaults || disabled.has(ordinal)) {
+      return "Starter";
+    }
+    return null;
+  }
+
+  const { ot, nt } = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const match = (list: typeof BOOKS) =>
+      q === "" ? list : list.filter((b) => b.name.toLowerCase().includes(q));
+    return { ot: match(OLD_TESTAMENT), nt: match(NEW_TESTAMENT) };
+  }, [query]);
+
+  const canCreate =
+    name.trim() !== "" &&
+    (tab === "blank" ||
+      (tab === "book" && bookOrdinal !== null) ||
+      (tab === "custom" && templateId !== null));
+
+  function reset() {
+    setTab("book");
+    setName("");
+    setBookOrdinal(null);
+    setTemplateId(null);
+    setQuery("");
+  }
+
+  function submit() {
+    if (!canCreate) {
+      return;
+    }
+    startTransition(() => {
+      void createStudyFromSelection({
+        kind: tab,
+        title: name.trim(),
+        bookOrdinal: tab === "book" ? (bookOrdinal ?? undefined) : undefined,
+        templateId: tab === "custom" ? (templateId ?? undefined) : undefined,
+      }).catch((error: unknown) => {
+        toast.error(
+          error instanceof Error ? error.message : "Couldn't create the study.",
+        );
+      });
+    });
+  }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) {
+          reset();
+        }
+      }}
+    >
       <DialogTrigger asChild>
         <Button type="button">
           <Plus className="size-4" />
@@ -39,20 +118,125 @@ export function NewStudyDialog({ genres }: { genres: Genre[] }) {
         <DialogHeader>
           <DialogTitle>New study</DialogTitle>
           <DialogDescription>
-            Name your study and pick a study type to start with the right
-            prompts.
+            Start from a book of the Bible, a custom template, or a blank study.
           </DialogDescription>
         </DialogHeader>
 
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            startTransition(() => {
-              void createStudy(name, genreId === "" ? null : genreId);
-            });
-          }}
-          className="grid gap-4"
-        >
+        <div className="grid gap-4">
+          {/* Tabs */}
+          <div className="flex gap-1 rounded-lg bg-muted p-1">
+            {(["book", "custom", "blank"] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => {
+                  setTab(t);
+                }}
+                className={cn(
+                  "flex-1 rounded-md px-2 py-1 text-sm font-medium capitalize transition-colors",
+                  tab === t
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {t === "book" ? "Book of the Bible" : t}
+              </button>
+            ))}
+          </div>
+
+          {tab === "book" ? (
+            <div className="grid gap-2">
+              <div className="relative">
+                <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  type="search"
+                  placeholder="Search books…"
+                  value={query}
+                  onChange={(event) => {
+                    setQuery(event.target.value);
+                  }}
+                  className="pl-8"
+                />
+              </div>
+              <div className="max-h-56 overflow-auto rounded-md border">
+                {[
+                  { label: "Old Testament", books: ot },
+                  { label: "New Testament", books: nt },
+                ].map((group) =>
+                  group.books.length === 0 ? null : (
+                    <div key={group.label}>
+                      <p className="sticky top-0 bg-muted/80 px-3 py-1 text-xs font-medium text-muted-foreground backdrop-blur-sm">
+                        {group.label}
+                      </p>
+                      {group.books.map((book) => {
+                        const badge = bookBadge(book.ordinal);
+                        return (
+                          <button
+                            key={book.ordinal}
+                            type="button"
+                            onClick={() => {
+                              setBookOrdinal(book.ordinal);
+                              setName(book.name);
+                            }}
+                            className={cn(
+                              "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-muted/50",
+                              bookOrdinal === book.ordinal && "bg-accent/60",
+                            )}
+                          >
+                            <span className="flex-1">{book.name}</span>
+                            {badge ? (
+                              <span className="rounded-full bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                                {badge}
+                              </span>
+                            ) : null}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ),
+                )}
+              </div>
+            </div>
+          ) : null}
+
+          {tab === "custom" ? (
+            <div className="max-h-56 overflow-auto rounded-md border">
+              {customTemplates.length === 0 ? (
+                <p className="p-4 text-center text-sm text-muted-foreground">
+                  No custom templates available.
+                </p>
+              ) : (
+                customTemplates.map((tmpl) => (
+                  <button
+                    key={tmpl.id}
+                    type="button"
+                    onClick={() => {
+                      setTemplateId(tmpl.id);
+                      setName(tmpl.name);
+                    }}
+                    className={cn(
+                      "block w-full px-3 py-2 text-left text-sm hover:bg-muted/50",
+                      templateId === tmpl.id && "bg-accent/60",
+                    )}
+                  >
+                    <span className="block font-medium">{tmpl.name}</span>
+                    {tmpl.description ? (
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {tmpl.description}
+                      </span>
+                    ) : null}
+                  </button>
+                ))
+              )}
+            </div>
+          ) : null}
+
+          {tab === "blank" ? (
+            <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+              A blank study with one empty section.
+            </p>
+          ) : null}
+
           <div className="grid gap-1.5">
             <Label htmlFor="new-study-name">Name</Label>
             <Input
@@ -62,45 +246,24 @@ export function NewStudyDialog({ genres }: { genres: Genre[] }) {
                 setName(event.target.value);
               }}
               placeholder="e.g. Gospel of John"
-              required
             />
           </div>
+        </div>
 
-          <div className="grid gap-1.5">
-            <Label htmlFor="new-study-type">Study type</Label>
-            <select
-              id="new-study-type"
-              value={genreId}
-              onChange={(event) => {
-                setGenreId(event.target.value);
-              }}
-              className="h-9 rounded-md border bg-background px-2 text-sm"
-            >
-              <option value="">Blank (no template)</option>
-              {genres.map((genre) => (
-                <option key={genre.id} value={genre.id}>
-                  {genre.name}
-                </option>
-              ))}
-            </select>
-            {selectedGenre?.description ? (
-              <p className="text-xs text-muted-foreground">
-                {selectedGenre.description}
-              </p>
-            ) : null}
-          </div>
-
-          <DialogFooter>
-            <DialogClose asChild>
-              <Button type="button" variant="outline">
-                Cancel
-              </Button>
-            </DialogClose>
-            <Button type="submit" disabled={pending || name.trim() === ""}>
-              Create study
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button type="button" variant="outline">
+              Cancel
             </Button>
-          </DialogFooter>
-        </form>
+          </DialogClose>
+          <Button
+            type="button"
+            disabled={pending || !canCreate}
+            onClick={submit}
+          >
+            {pending ? "Creating…" : "Create study"}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

@@ -1,6 +1,7 @@
 "use client";
 
 import { Bell, X } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useState, useTransition } from "react";
 import { toast } from "sonner";
 
@@ -9,10 +10,11 @@ import {
   attachStudyToGroup,
   declineInvitation,
 } from "@/app/groups/actions";
+import { markNotificationsRead } from "@/app/organizations/actions";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import type { MyInvitation } from "@/lib/db/groups";
-import type { Study } from "@/lib/db/types";
+import type { AppNotification, Study } from "@/lib/db/types";
 
 /** Shared "use an existing study or seed a new one from the template" picker. */
 function AttachChooser({
@@ -100,10 +102,9 @@ function LooseGroupItem({
 
   function attach(studyId: string | null) {
     startTransition(() => {
+      // Resolves with a value only on failure; success redirects to the study.
       void attachStudyToGroup(group.id, studyId).then((result) => {
-        if (result.ok) {
-          toast.success(`Study attached to ${group.name}.`);
-        } else {
+        if (result) {
           toast.error(result.error);
         }
       });
@@ -217,17 +218,70 @@ function InvitationItem({
  * Top-bar notifications: a bell that only badges when there's something to act
  * on — group studies with no study attached, and pending invitations to join.
  */
+function NotificationItem({
+  notification,
+  onNavigate,
+}: {
+  notification: AppNotification;
+  onNavigate: () => void;
+}) {
+  const body = (
+    <div className="rounded-lg border p-3">
+      <p className="text-sm font-medium">{notification.title}</p>
+      {notification.body ? (
+        <p className="mt-0.5 line-clamp-3 text-sm text-muted-foreground">
+          {notification.body}
+        </p>
+      ) : null}
+      <p className="mt-1 text-xs text-muted-foreground">
+        {new Date(notification.created_at).toLocaleDateString()}
+      </p>
+    </div>
+  );
+  if (notification.link) {
+    return (
+      <Link
+        href={notification.link}
+        className="block hover:opacity-80"
+        onClick={onNavigate}
+      >
+        {body}
+      </Link>
+    );
+  }
+  return body;
+}
+
 export function AppHeaderNotifications({
   looseGroups,
   invitations,
   myStudies,
+  notifications = [],
+  pendingOrgReviews = [],
 }: {
   looseGroups: { id: string; name: string }[];
   invitations: MyInvitation[];
   myStudies: Study[];
+  notifications?: AppNotification[];
+  pendingOrgReviews?: { id: string; name: string }[];
 }) {
   const [open, setOpen] = useState(false);
-  const count = looseGroups.length + invitations.length;
+  const [readCleared, setReadCleared] = useState(false);
+  const unreadNotifs = notifications.filter((n) => n.read_at === null).length;
+  const effectiveUnread = readCleared ? 0 : unreadNotifs;
+  const count =
+    looseGroups.length +
+    invitations.length +
+    pendingOrgReviews.length +
+    effectiveUnread;
+
+  function openPanel() {
+    setOpen(true);
+    if (unreadNotifs > 0 && !readCleared) {
+      setReadCleared(true);
+      void markNotificationsRead();
+    }
+  }
 
   useEffect(() => {
     if (!open) {
@@ -254,9 +308,7 @@ export function AppHeaderNotifications({
         aria-label={
           count > 0 ? `Notifications (${String(count)})` : "Notifications"
         }
-        onClick={() => {
-          setOpen(true);
-        }}
+        onClick={openPanel}
       >
         <Bell className="size-4" />
         {count > 0 ? (
@@ -293,12 +345,30 @@ export function AppHeaderNotifications({
             </header>
             <Separator />
             <div className="flex-1 space-y-3 overflow-auto p-3">
-              {count === 0 ? (
+              {count === 0 && notifications.length === 0 ? (
                 <p className="p-2 text-sm text-muted-foreground">
                   You&rsquo;re all caught up.
                 </p>
               ) : (
                 <>
+                  {pendingOrgReviews.map((org) => (
+                    <Link
+                      key={org.id}
+                      href={`/admin/organizations/${org.id}`}
+                      className="block rounded-lg border p-3 hover:bg-muted/50"
+                      onClick={() => {
+                        setOpen(false);
+                      }}
+                    >
+                      <p className="text-sm">
+                        <span className="font-medium">{org.name}</span> is
+                        awaiting verification.
+                      </p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        Review request →
+                      </p>
+                    </Link>
+                  ))}
                   {invitations.map((invitation) => (
                     <InvitationItem
                       key={invitation.token}
@@ -311,6 +381,15 @@ export function AppHeaderNotifications({
                       key={group.id}
                       group={group}
                       studies={myStudies}
+                    />
+                  ))}
+                  {notifications.map((notification) => (
+                    <NotificationItem
+                      key={notification.id}
+                      notification={notification}
+                      onNavigate={() => {
+                        setOpen(false);
+                      }}
                     />
                   ))}
                 </>

@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { ChevronRight, Layers } from "lucide-react";
+import { Building2, ChevronRight, Layers } from "lucide-react";
 import Link from "next/link";
 
 import { NewGenreForm } from "@/components/admin/new-genre-form";
@@ -23,6 +23,34 @@ export default async function AdminGenresPage() {
         The default study-block sets new sections start from, organized by
         genre. Editing these changes the defaults for future studies.
       </p>
+
+      <Link
+        href="/admin/organizations"
+        className="mt-4 flex items-center gap-3 rounded-lg border px-4 py-3 hover:bg-muted/50"
+      >
+        <Building2 className="size-5 text-muted-foreground" />
+        <span className="min-w-0 flex-1">
+          <span className="block font-medium">Organization verification</span>
+          <span className="block text-sm text-muted-foreground">
+            Review organizations requesting to be listed publicly.
+          </span>
+        </span>
+        <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+      </Link>
+
+      <Link
+        href="/admin/templates"
+        className="mt-2 flex items-center gap-3 rounded-lg border px-4 py-3 hover:bg-muted/50"
+      >
+        <Layers className="size-5 text-muted-foreground" />
+        <span className="min-w-0 flex-1">
+          <span className="block font-medium">Study templates</span>
+          <span className="block text-sm text-muted-foreground">
+            The book + custom templates users create studies from.
+          </span>
+        </span>
+        <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+      </Link>
 
       <div className="mt-6">
         <NewGenreForm />

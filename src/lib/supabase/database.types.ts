@@ -39,6 +39,55 @@ export type Database = {
   }
   public: {
     Tables: {
+      book_genres: {
+        Row: {
+          book_name: string
+          book_ordinal: number
+          genre_slug: string
+        }
+        Insert: {
+          book_name: string
+          book_ordinal: number
+          genre_slug: string
+        }
+        Update: {
+          book_name?: string
+          book_ordinal?: number
+          genre_slug?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "book_genres_genre_slug_fkey"
+            columns: ["genre_slug"]
+            isOneToOne: false
+            referencedRelation: "genres"
+            referencedColumns: ["slug"]
+          },
+        ]
+      }
+      dismissed_announcements: {
+        Row: {
+          announcement_id: string
+          user_id: string
+        }
+        Insert: {
+          announcement_id: string
+          user_id: string
+        }
+        Update: {
+          announcement_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dismissed_announcements_announcement_id_fkey"
+            columns: ["announcement_id"]
+            isOneToOne: false
+            referencedRelation: "organization_announcements"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       document_highlights: {
         Row: {
           created_at: string
@@ -315,6 +364,300 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      notifications: {
+        Row: {
+          body: string | null
+          created_at: string
+          id: string
+          kind: string
+          link: string | null
+          organization_id: string | null
+          read_at: string | null
+          title: string
+          user_id: string
+        }
+        Insert: {
+          body?: string | null
+          created_at?: string
+          id?: string
+          kind: string
+          link?: string | null
+          organization_id?: string | null
+          read_at?: string | null
+          title: string
+          user_id: string
+        }
+        Update: {
+          body?: string | null
+          created_at?: string
+          id?: string
+          kind?: string
+          link?: string | null
+          organization_id?: string | null
+          read_at?: string | null
+          title?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      org_disabled_book_templates: {
+        Row: {
+          book_ordinal: number
+          organization_id: string
+        }
+        Insert: {
+          book_ordinal: number
+          organization_id: string
+        }
+        Update: {
+          book_ordinal?: number
+          organization_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "org_disabled_book_templates_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      organization_announcements: {
+        Row: {
+          author_id: string | null
+          body: string
+          created_at: string
+          id: string
+          organization_id: string
+        }
+        Insert: {
+          author_id?: string | null
+          body: string
+          created_at?: string
+          id?: string
+          organization_id: string
+        }
+        Update: {
+          author_id?: string | null
+          body?: string
+          created_at?: string
+          id?: string
+          organization_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "organization_announcements_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      organization_invitations: {
+        Row: {
+          accepted_by: string | null
+          created_at: string
+          email: string | null
+          expires_at: string
+          id: string
+          inviter_id: string | null
+          organization_id: string
+          role: Database["public"]["Enums"]["org_role"]
+          status: Database["public"]["Enums"]["invitation_status"]
+          token: string
+          updated_at: string
+        }
+        Insert: {
+          accepted_by?: string | null
+          created_at?: string
+          email?: string | null
+          expires_at?: string
+          id?: string
+          inviter_id?: string | null
+          organization_id: string
+          role?: Database["public"]["Enums"]["org_role"]
+          status?: Database["public"]["Enums"]["invitation_status"]
+          token: string
+          updated_at?: string
+        }
+        Update: {
+          accepted_by?: string | null
+          created_at?: string
+          email?: string | null
+          expires_at?: string
+          id?: string
+          inviter_id?: string | null
+          organization_id?: string
+          role?: Database["public"]["Enums"]["org_role"]
+          status?: Database["public"]["Enums"]["invitation_status"]
+          token?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "organization_invitations_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      organization_join_requests: {
+        Row: {
+          created_at: string
+          id: string
+          note: string | null
+          organization_id: string
+          reviewed_by: string | null
+          status: Database["public"]["Enums"]["join_request_status"]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          note?: string | null
+          organization_id: string
+          reviewed_by?: string | null
+          status?: Database["public"]["Enums"]["join_request_status"]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          note?: string | null
+          organization_id?: string
+          reviewed_by?: string | null
+          status?: Database["public"]["Enums"]["join_request_status"]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "organization_join_requests_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      organization_members: {
+        Row: {
+          id: string
+          joined_at: string
+          organization_id: string
+          role: Database["public"]["Enums"]["org_role"]
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          joined_at?: string
+          organization_id: string
+          role?: Database["public"]["Enums"]["org_role"]
+          user_id: string
+        }
+        Update: {
+          id?: string
+          joined_at?: string
+          organization_id?: string
+          role?: Database["public"]["Enums"]["org_role"]
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "organization_members_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      organizations: {
+        Row: {
+          city: string | null
+          country: string | null
+          created_at: string
+          created_by: string | null
+          description: string
+          icon_url: string | null
+          id: string
+          join_policy: Database["public"]["Enums"]["org_join_policy"]
+          name: string
+          region: string | null
+          updated_at: string
+          use_default_template_library: boolean
+          verification_contact_email: string | null
+          verification_note: string | null
+          verification_official_name: string | null
+          verification_reject_reason: string | null
+          verification_reviewed_at: string | null
+          verification_reviewed_by: string | null
+          verification_status: Database["public"]["Enums"]["org_verification_status"]
+          verification_website: string | null
+          visibility: Database["public"]["Enums"]["org_visibility"]
+        }
+        Insert: {
+          city?: string | null
+          country?: string | null
+          created_at?: string
+          created_by?: string | null
+          description: string
+          icon_url?: string | null
+          id?: string
+          join_policy?: Database["public"]["Enums"]["org_join_policy"]
+          name: string
+          region?: string | null
+          updated_at?: string
+          use_default_template_library?: boolean
+          verification_contact_email?: string | null
+          verification_note?: string | null
+          verification_official_name?: string | null
+          verification_reject_reason?: string | null
+          verification_reviewed_at?: string | null
+          verification_reviewed_by?: string | null
+          verification_status?: Database["public"]["Enums"]["org_verification_status"]
+          verification_website?: string | null
+          visibility?: Database["public"]["Enums"]["org_visibility"]
+        }
+        Update: {
+          city?: string | null
+          country?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string
+          icon_url?: string | null
+          id?: string
+          join_policy?: Database["public"]["Enums"]["org_join_policy"]
+          name?: string
+          region?: string | null
+          updated_at?: string
+          use_default_template_library?: boolean
+          verification_contact_email?: string | null
+          verification_note?: string | null
+          verification_official_name?: string | null
+          verification_reject_reason?: string | null
+          verification_reviewed_at?: string | null
+          verification_reviewed_by?: string | null
+          verification_status?: Database["public"]["Enums"]["org_verification_status"]
+          verification_website?: string | null
+          visibility?: Database["public"]["Enums"]["org_visibility"]
+        }
+        Relationships: []
       }
       profiles: {
         Row: {
@@ -607,8 +950,11 @@ export type Database = {
           deleted_at: string | null
           genre_id: string | null
           id: string
+          is_app_template: boolean
           owner_group_id: string | null
           owner_id: string | null
+          owner_org_id: string | null
+          source_template_id: string | null
           title: string
           updated_at: string
         }
@@ -618,8 +964,11 @@ export type Database = {
           deleted_at?: string | null
           genre_id?: string | null
           id?: string
+          is_app_template?: boolean
           owner_group_id?: string | null
           owner_id?: string | null
+          owner_org_id?: string | null
+          source_template_id?: string | null
           title?: string
           updated_at?: string
         }
@@ -629,8 +978,11 @@ export type Database = {
           deleted_at?: string | null
           genre_id?: string | null
           id?: string
+          is_app_template?: boolean
           owner_group_id?: string | null
           owner_id?: string | null
+          owner_org_id?: string | null
+          source_template_id?: string | null
           title?: string
           updated_at?: string
         }
@@ -647,6 +999,93 @@ export type Database = {
             columns: ["owner_group_id"]
             isOneToOne: false
             referencedRelation: "group_studies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "studies_owner_org_id_fkey"
+            columns: ["owner_org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "studies_source_template_id_fkey"
+            columns: ["source_template_id"]
+            isOneToOne: false
+            referencedRelation: "study_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      study_templates: {
+        Row: {
+          book_ordinal: number | null
+          created_at: string
+          created_by: string | null
+          description: string | null
+          enabled: boolean
+          genre_id: string | null
+          id: string
+          name: string
+          organization_id: string | null
+          position: number
+          scope: Database["public"]["Enums"]["template_scope"]
+          template_study_id: string
+          type: Database["public"]["Enums"]["template_type"]
+          updated_at: string
+        }
+        Insert: {
+          book_ordinal?: number | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          enabled?: boolean
+          genre_id?: string | null
+          id?: string
+          name: string
+          organization_id?: string | null
+          position?: number
+          scope: Database["public"]["Enums"]["template_scope"]
+          template_study_id: string
+          type: Database["public"]["Enums"]["template_type"]
+          updated_at?: string
+        }
+        Update: {
+          book_ordinal?: number | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          enabled?: boolean
+          genre_id?: string | null
+          id?: string
+          name?: string
+          organization_id?: string | null
+          position?: number
+          scope?: Database["public"]["Enums"]["template_scope"]
+          template_study_id?: string
+          type?: Database["public"]["Enums"]["template_type"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "study_templates_genre_id_fkey"
+            columns: ["genre_id"]
+            isOneToOne: false
+            referencedRelation: "genres"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "study_templates_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "study_templates_template_study_id_fkey"
+            columns: ["template_study_id"]
+            isOneToOne: false
+            referencedRelation: "studies"
             referencedColumns: ["id"]
           },
         ]
@@ -710,6 +1149,7 @@ export type Database = {
         Args: { _study_id?: string; _token: string }
         Returns: string
       }
+      accept_org_invitation: { Args: { _token: string }; Returns: string }
       align_sections: {
         Args: { _my_section_id: string; _target_study_id: string }
         Returns: {
@@ -741,24 +1181,57 @@ export type Database = {
         }
         Returns: number
       }
+      approve_join_request: { Args: { _id: string }; Returns: undefined }
       archive_expired_trash: { Args: never; Returns: undefined }
       attach_study_to_group: {
         Args: { _group_study_id: string; _study_id?: string }
         Returns: string
       }
+      can_edit_template_study: { Args: { _study_id: string }; Returns: boolean }
       can_read_document: { Args: { _document_id: string }; Returns: boolean }
       can_read_section: { Args: { _section_id: string }; Returns: boolean }
       can_read_study: { Args: { _study_id: string }; Returns: boolean }
+      can_read_template_study: { Args: { _study_id: string }; Returns: boolean }
+      create_app_custom_template: {
+        Args: { _genre_id?: string; _name: string }
+        Returns: string
+      }
       create_document_checkpoint: {
         Args: { _document_id: string; _label?: string }
         Returns: string
       }
       create_group_study: { Args: { _name: string }; Returns: string }
+      create_org_template: {
+        Args: {
+          _book_ordinal?: number
+          _genre_id?: string
+          _name?: string
+          _type: string
+        }
+        Returns: string
+      }
+      create_organization: {
+        Args: { _description: string; _name: string }
+        Returns: string
+      }
       create_section_checkpoint: {
         Args: { _label?: string; _section_id: string }
         Returns: string
       }
+      create_study_from_selection: {
+        Args: {
+          _book_ordinal?: number
+          _genre_id?: string
+          _kind: string
+          _template_id?: string
+          _title: string
+        }
+        Returns: string
+      }
       decline_invitation: { Args: { _token: string }; Returns: undefined }
+      decline_org_invitation: { Args: { _token: string }; Returns: undefined }
+      deny_join_request: { Args: { _id: string }; Returns: undefined }
+      genre_blocks_doc: { Args: { _genre_id: string }; Returns: Json }
       get_invitation: {
         Args: { _token: string }
         Returns: {
@@ -769,10 +1242,27 @@ export type Database = {
           status: string
         }[]
       }
+      get_org_invitation: {
+        Args: { _token: string }
+        Returns: {
+          expires_at: string
+          invite_role: Database["public"]["Enums"]["org_role"]
+          organization_id: string
+          organization_name: string
+          status: string
+        }[]
+      }
+      instantiate_study_from_template: {
+        Args: { _template_study_id: string; _title?: string }
+        Returns: string
+      }
       is_admin: { Args: never; Returns: boolean }
       is_document_owner: { Args: { _document_id: string }; Returns: boolean }
       is_group_member: { Args: { _group_study_id: string }; Returns: boolean }
       is_group_owner: { Args: { _group_study_id: string }; Returns: boolean }
+      is_org_admin: { Args: { _org_id: string }; Returns: boolean }
+      is_org_member: { Args: { _org_id: string }; Returns: boolean }
+      is_org_super_admin: { Args: { _org_id: string }; Returns: boolean }
       is_section_owner: { Args: { _section_id: string }; Returns: boolean }
       is_study_owner: { Args: { _study_id: string }; Returns: boolean }
       list_my_invitations: {
@@ -785,8 +1275,29 @@ export type Database = {
           token: string
         }[]
       }
+      list_my_org_invitations: {
+        Args: never
+        Returns: {
+          expires_at: string
+          invite_role: Database["public"]["Enums"]["org_role"]
+          organization_id: string
+          organization_name: string
+          token: string
+        }[]
+      }
+      mark_notifications_read: { Args: { _ids?: string[] }; Returns: undefined }
+      my_org_id: { Args: never; Returns: string }
+      post_org_announcement: { Args: { _body: string }; Returns: string }
       realtime_document_id: { Args: never; Returns: string }
       realtime_section_id: { Args: never; Returns: string }
+      request_to_join_org: {
+        Args: { _note?: string; _org: string }
+        Returns: string
+      }
+      review_org_verification: {
+        Args: { _decision: string; _org: string; _reason?: string }
+        Returns: undefined
+      }
       seed_my_group_study: {
         Args: { _group_study_id: string }
         Returns: string
@@ -797,12 +1308,33 @@ export type Database = {
       }
       shares_group_with_study: { Args: { _study_id: string }; Returns: boolean }
       shares_group_with_user: { Args: { _user_id: string }; Returns: boolean }
+      shares_org_with_user: { Args: { _user_id: string }; Returns: boolean }
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
+      submit_org_verification: {
+        Args: {
+          _contact_email: string
+          _note: string
+          _official_name: string
+          _website: string
+        }
+        Returns: undefined
+      }
     }
     Enums: {
       document_kind: "notes" | "blocks"
       invitation_status: "pending" | "accepted" | "revoked" | "expired"
+      join_request_status: "pending" | "approved" | "denied"
+      org_join_policy: "request" | "open"
+      org_role: "super_admin" | "admin" | "member"
+      org_verification_status:
+        | "unverified"
+        | "pending"
+        | "verified"
+        | "rejected"
+      org_visibility: "public" | "unlisted"
+      template_scope: "app" | "org"
+      template_type: "book" | "custom"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -935,6 +1467,18 @@ export const Constants = {
     Enums: {
       document_kind: ["notes", "blocks"],
       invitation_status: ["pending", "accepted", "revoked", "expired"],
+      join_request_status: ["pending", "approved", "denied"],
+      org_join_policy: ["request", "open"],
+      org_role: ["super_admin", "admin", "member"],
+      org_verification_status: [
+        "unverified",
+        "pending",
+        "verified",
+        "rejected",
+      ],
+      org_visibility: ["public", "unlisted"],
+      template_scope: ["app", "org"],
+      template_type: ["book", "custom"],
     },
   },
 } as const

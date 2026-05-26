@@ -10,13 +10,34 @@ export interface Profile {
 
 export interface Study {
   id: string;
-  /** Null for a group-owned template study (then `owner_group_id` is set). */
+  /** Null unless a user owns it; exactly one owner axis is set. */
   owner_id: string | null;
   owner_group_id: string | null;
+  /** Set when the study is an organization-owned template scaffold. */
+  owner_org_id: string | null;
+  /** True when the study is an app-default template scaffold (super-admin owned). */
+  is_app_template: boolean;
+  /** The study_templates row this study was instantiated from, if any. */
+  source_template_id: string | null;
   title: string;
   genre_id: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/** A study-template registry entry (app or org scope; book or custom). */
+export interface StudyTemplate {
+  id: string;
+  scope: "app" | "org";
+  organization_id: string | null;
+  type: "book" | "custom";
+  book_ordinal: number | null;
+  genre_id: string | null;
+  name: string;
+  description: string | null;
+  template_study_id: string;
+  enabled: boolean;
+  position: number;
 }
 
 /** A group study: a named container with a canonical template + members. */
@@ -46,6 +67,89 @@ export interface Invitation {
   role: string;
   status: string;
   expires_at: string;
+  created_at: string;
+}
+
+/** A user's role within an organization (super_admin > admin > member). */
+export type OrgRole = "super_admin" | "admin" | "member";
+export type OrgVisibility = "public" | "unlisted";
+export type OrgJoinPolicy = "request" | "open";
+export type OrgVerificationStatus =
+  | "unverified"
+  | "pending"
+  | "verified"
+  | "rejected";
+
+/** An organization: a church/ministry that gathers members and brands them. */
+export interface Organization {
+  id: string;
+  name: string;
+  description: string;
+  icon_url: string | null;
+  city: string | null;
+  region: string | null;
+  country: string | null;
+  visibility: OrgVisibility;
+  join_policy: OrgJoinPolicy;
+  verification_status: OrgVerificationStatus;
+  verification_official_name: string | null;
+  verification_website: string | null;
+  verification_contact_email: string | null;
+  verification_note: string | null;
+  verification_reviewed_at: string | null;
+  verification_reject_reason: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** A member of an org, with their profile. */
+export interface OrgMember {
+  user_id: string;
+  role: OrgRole;
+  display_name: string | null;
+  avatar_url: string | null;
+  joined_at: string;
+}
+
+/** A pending/used invitation to an org. */
+export interface OrgInvitation {
+  id: string;
+  email: string | null;
+  token: string;
+  role: OrgRole;
+  status: string;
+  expires_at: string;
+  created_at: string;
+}
+
+/** A pending request to join an org, with the requester's profile. */
+export interface OrgJoinRequest {
+  id: string;
+  user_id: string;
+  note: string | null;
+  created_at: string;
+  display_name: string | null;
+  avatar_url: string | null;
+}
+
+/** An org announcement (plain text, admin-posted). */
+export interface OrgAnnouncement {
+  id: string;
+  organization_id: string;
+  author_id: string | null;
+  body: string;
+  created_at: string;
+}
+
+/** A bell notification for the current user. */
+export interface AppNotification {
+  id: string;
+  kind: string;
+  title: string;
+  body: string | null;
+  link: string | null;
+  read_at: string | null;
   created_at: string;
 }
 

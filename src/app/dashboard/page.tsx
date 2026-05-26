@@ -4,12 +4,18 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { AppHeader } from "@/components/app-header";
+import { AnnouncementFeed } from "@/components/organizations/announcement-feed";
 import { NewStudyDialog } from "@/components/studies/new-study-dialog";
 import { StudiesList } from "@/components/studies/studies-list";
 import { TrashButton } from "@/components/studies/trash-button";
 import { Button } from "@/components/ui/button";
 import { listGenres } from "@/lib/db/genres";
+import { listActiveAnnouncements } from "@/lib/db/organizations";
 import { listMyStudiesEnriched, listTrashedStudies } from "@/lib/db/studies";
+import {
+  getOrgBookContext,
+  listAvailableCustomTemplates,
+} from "@/lib/db/templates";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = { title: "Your studies" };
@@ -23,10 +29,20 @@ export default async function DashboardPage() {
     redirect("/login");
   }
 
-  const [studies, genres, trashedStudies] = await Promise.all([
+  const [
+    studies,
+    genres,
+    trashedStudies,
+    announcements,
+    customTemplates,
+    orgContext,
+  ] = await Promise.all([
     listMyStudiesEnriched(),
     listGenres(),
     listTrashedStudies(),
+    listActiveAnnouncements(),
+    listAvailableCustomTemplates(),
+    getOrgBookContext(),
   ]);
 
   return (
@@ -34,6 +50,7 @@ export default async function DashboardPage() {
       <AppHeader />
 
       <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-10">
+        <AnnouncementFeed announcements={announcements} />
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold tracking-tight">Your studies</h1>
           <div className="flex items-center gap-2">
@@ -44,7 +61,10 @@ export default async function DashboardPage() {
               </Link>
             </Button>
             <TrashButton kind="study" items={trashedStudies} />
-            <NewStudyDialog genres={genres} />
+            <NewStudyDialog
+              customTemplates={customTemplates}
+              orgContext={orgContext}
+            />
           </div>
         </div>
 

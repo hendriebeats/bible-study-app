@@ -29,6 +29,75 @@ async function requireAdmin() {
   return { supabase };
 }
 
+/** Approve an organization's verification (app admins only). */
+export async function approveOrgVerification(
+  orgId: string,
+): Promise<ActionResult> {
+  const { supabase } = await requireAdmin();
+  const { error } = await supabase.rpc("review_org_verification", {
+    _org: orgId,
+    _decision: "verified",
+  });
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+  revalidatePath("/admin/organizations");
+  revalidatePath(`/admin/organizations/${orgId}`);
+  return { ok: true };
+}
+
+/** Reject an organization's verification with a reason (app admins only). */
+export async function rejectOrgVerification(
+  orgId: string,
+  reason: string,
+): Promise<ActionResult> {
+  const { supabase } = await requireAdmin();
+  const { error } = await supabase.rpc("review_org_verification", {
+    _org: orgId,
+    _decision: "rejected",
+    _reason: reason.trim() === "" ? undefined : reason.trim(),
+  });
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+  revalidatePath("/admin/organizations");
+  revalidatePath(`/admin/organizations/${orgId}`);
+  return { ok: true };
+}
+
+/** Create an app custom template and open it in the editor (app admins only). */
+export async function createAppCustomTemplate(
+  name: string,
+  genreId: string | null,
+): Promise<void> {
+  const { supabase } = await requireAdmin();
+  const { data, error } = await supabase.rpc("create_app_custom_template", {
+    _name: name,
+    _genre_id: genreId ?? undefined,
+  });
+  if (error) {
+    throw new Error(error.message);
+  }
+  revalidatePath("/admin/templates");
+  redirect(`/studies/${data}`);
+}
+
+/** Delete a template by its backing study (cascades the registry row). */
+export async function deleteTemplate(
+  templateStudyId: string,
+): Promise<ActionResult> {
+  const { supabase } = await requireAdmin();
+  const { error } = await supabase
+    .from("studies")
+    .delete()
+    .eq("id", templateStudyId);
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+  revalidatePath("/admin/templates");
+  return { ok: true };
+}
+
 function slugify(name: string): string {
   return (
     name

@@ -16,7 +16,6 @@ import type {
   Section,
   SectionDocuments,
 } from "@/lib/db/types";
-import type { BlockSpec } from "@/lib/editor/blocks";
 import type { ScriptureOptions } from "@/lib/scripture/options";
 
 /**
@@ -31,7 +30,7 @@ export function SectionSurface({
   documents,
   notesHistory,
   blocksHistory,
-  defaultBlocks,
+  hasPreviousSection,
   isOwner,
   canCompare,
   me,
@@ -41,7 +40,7 @@ export function SectionSurface({
   documents: SectionDocuments;
   notesHistory: DocumentHistory | null;
   blocksHistory: DocumentHistory | null;
-  defaultBlocks: BlockSpec[];
+  hasPreviousSection: boolean;
   isOwner: boolean;
   canCompare: boolean;
   me: { id: string; name: string } | null;
@@ -115,7 +114,8 @@ export function SectionSurface({
             me={me}
             label="Study blocks"
             placeholder="Work through your study here…"
-            defaultBlocks={defaultBlocks}
+            studyId={section.study_id}
+            hasPreviousSection={hasPreviousSection}
           />
         ) : (
           <DocumentViewer

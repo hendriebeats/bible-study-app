@@ -4,11 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import type { DocumentTimeline } from "@/lib/db/types";
-import {
-  blocksDocFromSpecs,
-  specsFromBlocksDoc,
-  type BlockSpec,
-} from "@/lib/editor/blocks";
+import { specsFromBlocksDoc, type BlockSpec } from "@/lib/editor/blocks";
 import type { PMDocJSON, PMNodeJSON, SerializedStep } from "@/lib/editor/types";
 import { getGenreIdBySlug } from "@/lib/db/genres";
 import { getScriptureProvider } from "@/lib/scripture";
@@ -21,74 +17,107 @@ import { parseReference } from "@/lib/scripture/reference";
 import type { Json } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
 
-type ServerClient = Awaited<ReturnType<typeof createClient>>;
-
 /**
- * Seed a new section's `blocks` document. Sticky: copy the most recent other
- * section's block setup; otherwise fall back to the study's genre default
- * template; otherwise leave the empty default. Sets content directly (version
- * 0) — the seed is the new baseline, not an edit.
+ * Block specs from the section's most recent OTHER section — the source for the
+ * editor's "Copy from previous section" action. Empty if there's no prior one.
  */
-async function seedNewSectionBlocks(
-  supabase: ServerClient,
+export async function getPreviousSectionBlockSpecs(
   studyId: string,
-  newSectionId: string,
-): Promise<void> {
-  let specs: BlockSpec[] = [];
-
+  sectionId: string,
+): Promise<BlockSpec[]> {
+  const { supabase } = await requireUser();
   const { data: prevSections } = await supabase
     .from("sections")
     .select("id")
     .eq("study_id", studyId)
     .is("deleted_at", null)
-    .neq("id", newSectionId)
+    .neq("id", sectionId)
     .order("position", { ascending: false })
     .limit(1);
   const prev = prevSections?.[0];
-  if (prev) {
-    const { data: prevBlocks } = await supabase
-      .from("documents")
-      .select("content")
-      .eq("section_id", prev.id)
-      .eq("kind", "blocks")
-      .maybeSingle();
-    if (prevBlocks) {
-      specs = specsFromBlocksDoc(prevBlocks.content as unknown as PMDocJSON);
-    }
+  if (!prev) {
+    return [];
   }
-
-  if (specs.length === 0) {
-    const { data: study } = await supabase
-      .from("studies")
-      .select("genre_id")
-      .eq("id", studyId)
-      .maybeSingle();
-    if (study?.genre_id) {
-      const { data: templates } = await supabase
-        .from("genre_block_templates")
-        .select("id, title, subtitle, placeholder, default_content, lineage_id")
-        .eq("genre_id", study.genre_id)
-        .order("position", { ascending: true });
-      specs = (templates ?? []).map((t) => ({
-        title: t.title,
-        subtitle: t.subtitle,
-        placeholder: t.placeholder,
-        defaultContent: t.default_content as PMNodeJSON[] | null,
-        lineageId: t.lineage_id,
-        templateId: t.id,
-      }));
-    }
-  }
-
-  if (specs.length === 0) {
-    return;
-  }
-
-  await supabase
+  const { data: prevBlocks } = await supabase
     .from("documents")
-    .update({ content: blocksDocFromSpecs(specs) as unknown as Json })
-    .eq("section_id", newSectionId)
-    .eq("kind", "blocks");
+    .select("content")
+    .eq("section_id", prev.id)
+    .eq("kind", "blocks")
+    .maybeSingle();
+  if (!prevBlocks) {
+    return [];
+  }
+  return specsFromBlocksDoc(prevBlocks.content as unknown as PMDocJSON);
+}
+
+/**
+ * Block specs for the editor's "Use this study's template blocks" action: the
+ * study's source template's first-section blocks, else its genre default set.
+ */
+export async function getStudyTemplateBlockSpecs(
+  studyId: string,
+): Promise<BlockSpec[]> {
+  const { supabase } = await requireUser();
+  const { data: study } = await supabase
+    .from("studies")
+    .select("genre_id, source_template_id")
+    .eq("id", studyId)
+    .maybeSingle();
+  if (!study) {
+    return [];
+  }
+
+  if (study.source_template_id) {
+    const { data: tmpl } = await supabase
+      .from("study_templates")
+      .select("template_study_id")
+      .eq("id", study.source_template_id)
+      .maybeSingle();
+    if (tmpl) {
+      const { data: tmplSection } = await supabase
+        .from("sections")
+        .select("id")
+        .eq("study_id", tmpl.template_study_id)
+        .is("deleted_at", null)
+        .order("position", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (tmplSection) {
+        const { data: tmplBlocks } = await supabase
+          .from("documents")
+          .select("content")
+          .eq("section_id", tmplSection.id)
+          .eq("kind", "blocks")
+          .maybeSingle();
+        if (tmplBlocks) {
+          const specs = specsFromBlocksDoc(
+            tmplBlocks.content as unknown as PMDocJSON,
+          );
+          if (specs.length > 0) {
+            return specs;
+          }
+        }
+      }
+    }
+  }
+
+  if (study.genre_id) {
+    const { data: templates } = await supabase
+      .from("genre_block_templates")
+      .select("id, title, subtitle, placeholder, default_content, lineage_id")
+      .eq("genre_id", study.genre_id)
+      .order("position", { ascending: true });
+    return (templates ?? []).map((t) => ({
+      title: t.title,
+      subtitle: t.subtitle,
+      placeholder: t.placeholder,
+      defaultContent: t.default_content as PMNodeJSON[] | null,
+      lineageId: t.lineage_id,
+      templateId: t.id,
+    }));
+  }
+
+  return [];
 }
 
 /** Resolves the current user id, redirecting to login if unauthenticated. */
@@ -103,40 +132,45 @@ async function requireUser() {
   return { supabase, userId: user.id };
 }
 
-export async function createStudy(
-  title: string,
-  genreId: string | null,
-): Promise<void> {
-  const { supabase, userId } = await requireUser();
+export interface StudySelection {
+  kind: "book" | "custom" | "blank";
+  title: string;
+  /** 1..66, when kind === "book". */
+  bookOrdinal?: number;
+  /** study_templates.id, when kind === "custom". */
+  templateId?: string;
+}
 
-  const cleanTitle = title.trim() || "Untitled study";
-  const { data, error } = await supabase
-    .from("studies")
-    .insert({ owner_id: userId, title: cleanTitle, genre_id: genreId })
-    .select("id")
-    .single();
+/**
+ * Create a study from a Book / Custom / Blank selection. Resolution (org
+ * override → app default → genre-seeded fallback for books; visibility-gated
+ * instantiate for customs; empty for blank) lives in the SECURITY DEFINER
+ * `create_study_from_selection` RPC; we just derive the book's genre here.
+ */
+export async function createStudyFromSelection(
+  input: StudySelection,
+): Promise<void> {
+  const { supabase } = await requireUser();
+
+  let genreId: string | null = null;
+  if (input.kind === "book" && input.bookOrdinal != null) {
+    const slug = genreSlugForBook(input.bookOrdinal);
+    genreId = slug ? await getGenreIdBySlug(slug) : null;
+  }
+
+  const { data, error } = await supabase.rpc("create_study_from_selection", {
+    _kind: input.kind,
+    _title: input.title,
+    _book_ordinal: input.bookOrdinal ?? undefined,
+    _template_id: input.templateId ?? undefined,
+    _genre_id: genreId ?? undefined,
+  });
   if (error) {
     throw new Error(error.message);
   }
 
-  const studyId = data.id;
-
-  // Seed the study with a first section so there's somewhere to write.
-  const { data: section, error: sectionError } = await supabase
-    .from("sections")
-    .insert({ study_id: studyId, title: "Introduction", position: 0 })
-    .select("id")
-    .single();
-  if (sectionError) {
-    throw new Error(sectionError.message);
-  }
-
-  // Seed that first section's study blocks from the chosen genre template
-  // (no-op when no genre was picked).
-  await seedNewSectionBlocks(supabase, studyId, section.id);
-
   revalidatePath("/dashboard");
-  redirect(`/studies/${studyId}`);
+  redirect(`/studies/${data}`);
 }
 
 export async function createSection(studyId: string): Promise<void> {
@@ -161,7 +195,7 @@ export async function createSection(studyId: string): Promise<void> {
   }
 
   const sectionId = data.id;
-  await seedNewSectionBlocks(supabase, studyId, sectionId);
+  // New sections start empty; the editor's "Add blocks" button fills them.
   revalidatePath(`/studies/${studyId}`);
   redirect(`/studies/${studyId}/${sectionId}`);
 }

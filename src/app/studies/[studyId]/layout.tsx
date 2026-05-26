@@ -36,6 +36,7 @@ export default async function StudyLayout({
   const sections = await listSections(studyId);
   const trashedSections = isOwner ? await listTrashedSections(studyId) : [];
   const genres = isOwner ? await listGenres() : [];
+  const isTemplate = study.is_app_template || study.owner_org_id !== null;
   const { data: profile } = await supabase
     .from("profiles")
     .select("display_name, avatar_url")
@@ -56,7 +57,17 @@ export default async function StudyLayout({
           avatarUrl: profile?.avatar_url ?? null,
         }}
       />
-      <div className="flex-1 overflow-auto">{children}</div>
+      <div className="flex-1 overflow-auto">
+        {isTemplate ? (
+          <div className="border-b border-primary/20 bg-primary/5 px-6 py-2 text-sm text-muted-foreground">
+            You&rsquo;re editing the{" "}
+            {study.is_app_template ? "app default" : "organization"} template{" "}
+            <span className="font-medium text-foreground">{study.title}</span> —
+            changes affect future studies only.
+          </div>
+        ) : null}
+        {children}
+      </div>
     </div>
   );
 }
