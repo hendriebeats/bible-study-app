@@ -217,7 +217,10 @@ export function EditorProvider({
       if (!result.ok) {
         return { ok: false, error: result.error };
       }
-      const paragraphs = scriptureParagraphsToNodes(result.text, options);
+      const paragraphs = scriptureParagraphsToNodes(result.text, options, {
+        bookOrdinal: result.bookOrdinal,
+        startChapter: result.startChapter,
+      });
       if (paragraphs.length > 0) {
         const fragment = jsonToDoc({
           type: "doc",

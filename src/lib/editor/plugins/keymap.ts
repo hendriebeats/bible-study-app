@@ -14,6 +14,8 @@ import type { Command, Plugin } from "prosemirror-state";
 
 import { marks, nodes } from "../schema";
 import {
+  deleteSelectionWithVerses,
+  stickyVerseEnter,
   verseBackspace,
   verseDelete,
   verseRedo,
@@ -49,12 +51,16 @@ export function buildKeymaps(): Plugin[] {
     "Mod-Shift-s": toggleMark(marks.strikethrough),
     "Shift-Enter": insertHardBreak,
     "Mod-Enter": insertHardBreak,
-    Enter: splitListItem(nodes.listItem),
+    // Keep a verse marker attached to its verse on Enter, then fall through to
+    // the list-item split (and `baseKeymap`'s paragraph split) as before.
+    Enter: chainCommands(stickyVerseEnter, splitListItem(nodes.listItem)),
     Tab: sinkListItem(nodes.listItem),
     "Shift-Tab": liftListItem(nodes.listItem),
     // Keep protected verse numbers from being backspaced/deleted away.
     Backspace: verseBackspace,
     Delete: verseDelete,
+    // Deliberate escape-hatch: remove a selection including its verse markers.
+    "Mod-Shift-Backspace": deleteSelectionWithVerses,
   };
 
   return [keymap(bindings), keymap(baseKeymap)];

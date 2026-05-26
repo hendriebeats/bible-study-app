@@ -13,6 +13,7 @@ import {
   remoteCursor,
   remoteCursorKey,
 } from "@/lib/editor/plugins/remote-cursor";
+import { verseLabel } from "@/lib/editor/plugins/verse-label";
 import { schema } from "@/lib/editor/schema";
 import { jsonToDoc, jsonToStep } from "@/lib/editor/serialize";
 import type { PMDocJSON } from "@/lib/editor/types";
@@ -30,7 +31,7 @@ function viewerDoc(content: PMDocJSON) {
 function viewerState(content: PMDocJSON): EditorState {
   return EditorState.create({
     doc: viewerDoc(content),
-    plugins: [remoteCursor()],
+    plugins: [remoteCursor(), verseLabel()],
   });
 }
 

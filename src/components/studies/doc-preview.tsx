@@ -6,11 +6,15 @@ import { type DecorationSet, EditorView } from "prosemirror-view";
 import { useEffect, useRef } from "react";
 
 import { buildNodeViews } from "@/lib/editor/node-views";
+import { verseLabel } from "@/lib/editor/plugins/verse-label";
 
 function makeState(doc: Node, decorations?: DecorationSet): EditorState {
-  const plugins = decorations
-    ? [new Plugin({ props: { decorations: () => decorations } })]
-    : [];
+  const plugins = [
+    verseLabel(),
+    ...(decorations
+      ? [new Plugin({ props: { decorations: () => decorations } })]
+      : []),
+  ];
   return EditorState.create({ doc, plugins });
 }
 

@@ -1,7 +1,13 @@
 "use client";
 
-import { Bold, Italic, RemoveFormatting, Strikethrough } from "lucide-react";
-import { TextSelection } from "prosemirror-state";
+import {
+  Bold,
+  Italic,
+  RemoveFormatting,
+  Strikethrough,
+  Trash2,
+} from "lucide-react";
+import { type EditorState, TextSelection } from "prosemirror-state";
 import type { EditorView } from "prosemirror-view";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -12,7 +18,8 @@ import { Button } from "@/components/ui/button";
 import { clearFormatting, isMarkActive } from "@/lib/editor/commands";
 import type { FormatAction } from "@/lib/editor/format-actions";
 import { colorName } from "@/lib/editor/format-colors";
-import { marks } from "@/lib/editor/schema";
+import { deleteSelectionWithVerses } from "@/lib/editor/plugins/verse-guard";
+import { marks, nodes } from "@/lib/editor/schema";
 
 /** Gap (px) between the selection and the bubble. */
 const GAP = 8;
@@ -75,6 +82,19 @@ function actionLabel(action: FormatAction): string {
 
 function Divider() {
   return <span aria-hidden className="mx-0.5 h-5 w-px bg-border" />;
+}
+
+/** Whether the selection covers any protected verse marker. */
+function selectionCoversVerse(state: EditorState): boolean {
+  const { from, to } = state.selection;
+  let found = false;
+  state.doc.nodesBetween(from, to, (node) => {
+    if (node.type === nodes.verseNumber) {
+      found = true;
+    }
+    return !found;
+  });
+  return found;
 }
 
 /** A small visual for a recent action: a colour swatch, or the mark's glyph. */
@@ -241,6 +261,10 @@ export function SelectionBubble() {
 
   const shownRecents = recents.slice(0, RECENTS_SHOWN);
 
+  // When the selection covers a protected verse marker, offer the deliberate
+  // "Remove scripture" action (normal delete keeps the markers).
+  const hasVerse = selectionCoversVerse(activeState);
+
   return createPortal(
     <div
       ref={bubbleRef}
@@ -340,6 +364,23 @@ export function SelectionBubble() {
         >
           <RemoveFormatting className="size-4" />
         </Button>
+
+        {hasVerse ? (
+          <>
+            <Divider />
+            <Button
+              type="button"
+              size="icon-sm"
+              variant="ghost"
+              aria-label="Remove scripture"
+              onClick={() => {
+                runCommand(deleteSelectionWithVerses);
+              }}
+            >
+              <Trash2 className="size-4" />
+            </Button>
+          </>
+        ) : null}
       </div>
     </div>,
     document.body,

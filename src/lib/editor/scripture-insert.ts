@@ -16,6 +16,48 @@ interface InlineOptions {
 }
 
 /**
+ * The passage's location, threaded through the walk so each `verse_number` gets
+ * its structured `book`/`chapter`/`verse`. ESV only prints the chapter on the
+ * marker at a chapter boundary (`[3:16]`); a bare `[v]` belongs to whatever
+ * chapter is current, seeded from the parsed reference's start chapter.
+ */
+interface VerseLocation {
+  bookOrdinal: number | null;
+  /** Chapter the next bare `[v]` marker belongs to; bumped by each `[c:v]`. */
+  currentChapter: number | null;
+}
+
+/** Structured location passed in by the caller (from the parsed reference). */
+export interface ScriptureLocation {
+  bookOrdinal: number;
+  startChapter: number;
+}
+
+/** Stamp a verse_number's `chapter`/`verse` from its ESV marker, advancing the
+ * running chapter when the marker crosses a boundary (`[c:v]`). */
+function verseNumberNode(marker: string, loc: VerseLocation): PMNodeJSON {
+  let chapter = loc.currentChapter;
+  let verse: number | null = null;
+  const colon = marker.indexOf(":");
+  if (colon >= 0) {
+    const c = Number.parseInt(marker.slice(0, colon), 10);
+    const v = Number.parseInt(marker.slice(colon + 1), 10);
+    if (Number.isFinite(c)) {
+      chapter = c;
+      loc.currentChapter = c;
+    }
+    if (Number.isFinite(v)) verse = v;
+  } else {
+    const v = Number.parseInt(marker, 10);
+    if (Number.isFinite(v)) verse = v;
+  }
+  return {
+    type: "verse_number",
+    attrs: { n: marker, book: loc.bookOrdinal, chapter, verse },
+  };
+}
+
+/**
  * Push a run of text, wrapping the covenant name (LORD/GOD) in the `small_caps`
  * mark when enabled so it renders like a printed ESV. Heuristic: ESV only
  * uppercases these tokens for the divine name.
@@ -62,6 +104,7 @@ function buildLineInto(
   line: string,
   smallCaps: boolean,
   state: { afterMarker: boolean },
+  loc: VerseLocation,
 ): void {
   let lastIndex = 0;
   VERSE_MARKER.lastIndex = 0;
@@ -72,7 +115,7 @@ function buildLineInto(
       before = before.replace(/^\s+/, "");
     }
     pushText(content, before, smallCaps);
-    content.push({ type: "verse_number", attrs: { n: match[1] ?? "" } });
+    content.push(verseNumberNode(match[1] ?? "", loc));
     state.afterMarker = true;
     lastIndex = match.index + match[0].length;
   }
@@ -88,11 +131,21 @@ function buildLineInto(
  * block). With `preservePoetry`, single newlines become `hard_break` nodes so
  * Psalms/Proverbs keep their line structure; otherwise they collapse to spaces.
  */
-function buildInline(chunk: string, opts: InlineOptions): PMNodeJSON[] {
+function buildInline(
+  chunk: string,
+  opts: InlineOptions,
+  loc: VerseLocation,
+): PMNodeJSON[] {
   const content: PMNodeJSON[] = [];
   const state = { afterMarker: false };
   if (!opts.preservePoetry) {
-    buildLineInto(content, chunk.replace(/\n+/g, " "), opts.smallCaps, state);
+    buildLineInto(
+      content,
+      chunk.replace(/\n+/g, " "),
+      opts.smallCaps,
+      state,
+      loc,
+    );
     return content;
   }
   const lines = chunk.split("\n");
@@ -103,7 +156,7 @@ function buildInline(chunk: string, opts: InlineOptions): PMNodeJSON[] {
       // A hard break starts a fresh line, so don't trim its text as a hug.
       state.afterMarker = false;
     }
-    buildLineInto(content, trimmed, opts.smallCaps, state);
+    buildLineInto(content, trimmed, opts.smallCaps, state, loc);
   });
   return content;
 }
@@ -171,15 +224,23 @@ function splitByVerse(content: PMNodeJSON[]): PMNodeJSON[] {
 export function scriptureParagraphsToNodes(
   text: string,
   options?: Partial<ScriptureOptions>,
+  location?: ScriptureLocation,
 ): PMNodeJSON[] {
   const opts = normalizeScriptureOptions(options);
+  // Seed the running chapter from the parsed reference so the opening verse —
+  // whose ESV marker omits the chapter — still gets its structured location.
+  const loc: VerseLocation = {
+    bookOrdinal: location?.bookOrdinal ?? null,
+    currentChapter: location?.startChapter ?? null,
+  };
 
   if (opts.layout === "single-block") {
     // One continuous paragraph: all breaks collapse to spaces (poetry n/a).
-    const content = buildInline(text.replace(/\s*\n+\s*/g, " ").trim(), {
-      smallCaps: opts.smallCaps,
-      preservePoetry: false,
-    });
+    const content = buildInline(
+      text.replace(/\s*\n+\s*/g, " ").trim(),
+      { smallCaps: opts.smallCaps, preservePoetry: false },
+      loc,
+    );
     return hasVisibleContent(content) ? [{ type: "paragraph", content }] : [];
   }
 
@@ -193,7 +254,7 @@ export function scriptureParagraphsToNodes(
     if (para === "") {
       continue;
     }
-    const content = buildInline(para, inlineOpts);
+    const content = buildInline(para, inlineOpts, loc);
     if (opts.layout === "verse-per-line") {
       paragraphs.push(...splitByVerse(content));
     } else if (hasVisibleContent(content)) {

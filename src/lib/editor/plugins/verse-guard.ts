@@ -8,6 +8,7 @@ import {
   TextSelection,
   type Transaction,
 } from "prosemirror-state";
+import { canSplit } from "prosemirror-transform";
 
 import { nodes } from "../schema";
 
@@ -31,6 +32,46 @@ function versesInRange(doc: Node, from: number, to: number): Node[] {
     }
   });
   return verses;
+}
+
+/**
+ * Positions of verse_number atoms whose verse has no text left (the whole verse
+ * was deleted), so the lingering marker can be cleaned up. A marker "owns" the
+ * inline content after it until the next marker or the end of its textblock; if
+ * that span holds no non-whitespace text, the marker is orphaned. (Markers
+ * always carry their verse text, so a freshly inserted passage never has any.)
+ */
+function orphanedVersePositions(doc: Node): number[] {
+  const positions: number[] = [];
+  doc.descendants((node, pos) => {
+    if (!node.isTextblock) {
+      return true;
+    }
+    // Collect the inline children first so the marker/text bookkeeping below
+    // runs in a normal loop (a forEach closure would defeat narrowing).
+    const children: { child: Node; at: number }[] = [];
+    node.forEach((child, offset) => {
+      children.push({ child, at: pos + 1 + offset });
+    });
+    let markerPos: number | null = null;
+    let sawText = false;
+    for (const { child, at } of children) {
+      if (child.type === nodes.verseNumber) {
+        if (markerPos !== null && !sawText) {
+          positions.push(markerPos);
+        }
+        markerPos = at;
+        sawText = false;
+      } else if (child.isText && (child.text ?? "").trim() !== "") {
+        sawText = true;
+      }
+    }
+    if (markerPos !== null && !sawText) {
+      positions.push(markerPos);
+    }
+    return false; // textblocks don't nest textblocks
+  });
+  return positions;
 }
 
 /** Only rewrite ranges within a single textblock — multi-block ranges fall back
@@ -126,6 +167,63 @@ export const verseDelete: Command = chainCommands(
   hopVerse("after"),
 );
 
+/**
+ * Enter that keeps a verse marker attached to its verse. When the caret sits
+ * immediately to a marker's right (its `nodeBefore` is a verse_number), split
+ * *before* the marker so it travels down into the new block with the verse text
+ * — instead of being stranded on the old line. Splits one level deep normally,
+ * two when inside a list item (so a new bullet is created, mirroring
+ * `splitListItem`). Returns false otherwise so the default Enter handlers run.
+ */
+export const stickyVerseEnter: Command = (state, dispatch) => {
+  const sel = state.selection;
+  if (!(sel instanceof TextSelection) || !sel.$cursor) {
+    return false;
+  }
+  const $cursor = sel.$cursor;
+  const marker = $cursor.nodeBefore;
+  if (marker?.type !== nodes.verseNumber) {
+    return false;
+  }
+  const splitPos = $cursor.pos - marker.nodeSize;
+  const parentType = $cursor.node($cursor.depth - 1).type;
+  const depth = parentType === nodes.listItem ? 2 : 1;
+  if (!canSplit(state.doc, splitPos, depth)) {
+    return false; // let the default Enter handle it
+  }
+  if (dispatch) {
+    const tr = state.tr.split(splitPos, depth);
+    // The original caret pos maps to just after the marker in the new block.
+    const after = tr.mapping.map($cursor.pos);
+    tr.setSelection(TextSelection.create(tr.doc, after));
+    tr.setMeta("allowVerseEdit", true);
+    dispatch(tr.scrollIntoView());
+  }
+  return true;
+};
+
+/**
+ * Delete a non-empty selection INCLUDING any verse numbers it contains — the
+ * deliberate escape-hatch the guard otherwise blocks (`allowVerseEdit`). Lets a
+ * user remove scripture they added by mistake; surfaced in the selection bubble
+ * and bound to a keyboard shortcut. No-op on an empty selection.
+ */
+export const deleteSelectionWithVerses: Command = (state, dispatch) => {
+  const { from, to, empty } = state.selection;
+  if (empty) {
+    return false;
+  }
+  if (dispatch) {
+    dispatch(
+      state.tr
+        .delete(from, to)
+        .setMeta("allowVerseEdit", true)
+        .scrollIntoView(),
+    );
+  }
+  return true;
+};
+
 /** Undo/redo that flag their transactions so the guard allows the (legitimate)
  * verse-number changes an undo/redo of a scripture insertion makes. */
 export const verseUndo: Command = (state, dispatch, view) =>
@@ -170,6 +268,26 @@ export function verseGuard(): Plugin {
         return true;
       }
       return countVerses(tr.doc) >= before;
+    },
+    // Once a verse's text is fully deleted, drop its now-orphaned marker so the
+    // reference doesn't linger. Runs after the user's edit (which the guard
+    // above kept the marker through), and flags itself so that same guard lets
+    // the removal pass.
+    appendTransaction(transactions, _oldState, newState) {
+      if (!transactions.some((tr) => tr.docChanged)) {
+        return null;
+      }
+      const positions = orphanedVersePositions(newState.doc);
+      if (positions.length === 0) {
+        return null;
+      }
+      const tr = newState.tr;
+      for (const pos of positions.reverse()) {
+        const node = newState.doc.nodeAt(pos);
+        tr.delete(pos, pos + (node?.nodeSize ?? 1));
+      }
+      tr.setMeta("allowVerseEdit", true);
+      return tr;
     },
     props: {
       handleTextInput(view, from, to, text) {

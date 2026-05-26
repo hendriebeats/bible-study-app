@@ -33,6 +33,7 @@ import { buildInputRules } from "@/lib/editor/plugins/input-rules";
 import { buildKeymaps } from "@/lib/editor/plugins/keymap";
 import { placeholder as placeholderPlugin } from "@/lib/editor/plugins/placeholder";
 import { verseGuard } from "@/lib/editor/plugins/verse-guard";
+import { verseLabel } from "@/lib/editor/plugins/verse-label";
 import { nodes, schema } from "@/lib/editor/schema";
 import {
   docToJSON,
@@ -62,6 +63,7 @@ function createPlugins(placeholderText: string) {
     gapCursor(),
     history(),
     verseGuard(),
+    verseLabel(),
     placeholderPlugin(placeholderText),
   ];
 }

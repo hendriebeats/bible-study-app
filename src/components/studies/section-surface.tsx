@@ -1,15 +1,15 @@
 "use client";
 
-import { Columns2 } from "lucide-react";
-import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { renameSection } from "@/app/studies/actions";
 import { DocumentEditor } from "@/components/studies/document-editor";
 import { DocumentViewer } from "@/components/studies/document-viewer";
 import { EditorProvider } from "@/components/studies/editor-context";
-import { EditorToolbar } from "@/components/studies/editor-toolbar";
 import { SelectionBubble } from "@/components/studies/selection-bubble";
+import { useStudyChrome } from "@/components/studies/study-chrome-context";
+import { StudyToolbarPortal } from "@/components/studies/study-toolbar-portal";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import type { FormatRecents } from "@/lib/editor/format-actions";
@@ -21,11 +21,13 @@ import type {
 import type { ScriptureOptions } from "@/lib/scripture/options";
 
 /**
- * The section editing surface: the (owner-editable) section title plus the
- * section's two documents — Notes and Study blocks. Owners get the editable
- * `DocumentEditor`; group co-members get the read-only live `DocumentViewer`.
- * (RLS enforces that only the owner can write.) Each document scrolls in its
- * own pane — a preview of the dockable layout that Phase 3 introduces.
+ * The section editing surface: the section's two documents — Notes and Study
+ * blocks. Owners get the editable `DocumentEditor`; group co-members get the
+ * read-only live `DocumentViewer`. (RLS enforces that only the owner can write.)
+ *
+ * The section title and the formatting toolbar render up in the page chrome's
+ * top bar / toolbar row (via `StudyChrome`'s portal slots), so the body itself
+ * is just the full-bleed document stack.
  */
 export function SectionSurface({
   section,
@@ -51,6 +53,7 @@ export function SectionSurface({
   formatRecents: FormatRecents;
 }) {
   const [title, setTitle] = useState(section.title);
+  const chrome = useStudyChrome();
 
   function handleTitleBlur() {
     const next = title.trim() || "Untitled section";
@@ -59,6 +62,34 @@ export function SectionSurface({
     }
   }
 
+  // Publish this section's Compare target into the top bar (cleared on unmount /
+  // when navigating to a section without a comparison).
+  const compareHref = canCompare
+    ? `/studies/${section.study_id}/compare/${section.id}`
+    : null;
+  useEffect(() => {
+    chrome?.setCompareHref(compareHref);
+    return () => {
+      chrome?.setCompareHref(null);
+    };
+  }, [chrome, compareHref]);
+
+  // The editable (owner) / read-only (viewer) section title — rendered into the
+  // top-bar breadcrumb slot owned by `StudyChrome`.
+  const titleControl = isOwner ? (
+    <Input
+      value={title}
+      onChange={(event) => {
+        setTitle(event.target.value);
+      }}
+      onBlur={handleTitleBlur}
+      aria-label="Section title"
+      className="h-7 w-full min-w-0 border-0 bg-transparent px-0 text-sm font-medium shadow-none focus-visible:ring-0"
+    />
+  ) : (
+    <span className="block truncate text-sm font-medium">{section.title}</span>
+  );
+
   return (
     <EditorProvider
       sectionId={section.id}
@@ -66,41 +97,13 @@ export function SectionSurface({
       initialScriptureOptions={scriptureOptions}
       initialFormatRecents={formatRecents}
     >
-      <div className="flex flex-col gap-4">
-        <div className="flex items-center gap-3">
-          {isOwner ? (
-            <Input
-              value={title}
-              onChange={(event) => {
-                setTitle(event.target.value);
-              }}
-              onBlur={handleTitleBlur}
-              aria-label="Section title"
-              className="h-auto flex-1 border-0 bg-transparent px-0 text-2xl font-bold shadow-none focus-visible:ring-0"
-            />
-          ) : (
-            <h1 className="flex-1 text-2xl font-bold">{section.title}</h1>
-          )}
-          {canCompare && (
-            <Link
-              href={`/studies/${section.study_id}/compare/${section.id}`}
-              className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-sm font-medium hover:bg-muted"
-            >
-              <Columns2 className="size-4" />
-              Compare
-            </Link>
-          )}
-        </div>
+      {chrome?.titleSlot ? createPortal(titleControl, chrome.titleSlot) : null}
+      {isOwner ? <StudyToolbarPortal /> : null}
 
-        {/* One sticky toolbar that formats whichever editor is focused. It pins
-            to the top of the page's scroll area once the title scrolls away. */}
-        {isOwner ? (
-          <EditorToolbar className="sticky top-0 z-20 -mx-6 border-b bg-background/95 px-6 py-2 backdrop-blur-sm" />
-        ) : null}
+      {/* Minimal floating menu over a text selection (portals to body). */}
+      {isOwner ? <SelectionBubble /> : null}
 
-        {/* Minimal floating menu over a text selection (portals to body). */}
-        {isOwner ? <SelectionBubble /> : null}
-
+      <div className="flex flex-col gap-4 px-6 py-5">
         {isOwner && notesHistory ? (
           <DocumentEditor
             document={documents.notes}

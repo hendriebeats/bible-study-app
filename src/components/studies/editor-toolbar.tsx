@@ -46,11 +46,21 @@ interface ToolbarItem {
 }
 
 /**
- * The single, sticky formatting toolbar shared by a section's notes and study
- * blocks. It reads/acts on whichever editor is currently focused (via the
- * editor context) and routes "Add scripture" to the notes editor.
+ * The single formatting toolbar shared by a section's notes and study blocks.
+ * It reads/acts on whichever editor is currently focused (via the editor
+ * context) and routes "Add scripture" to the notes editor.
+ *
+ * `variant="bar"` drops the inner card chrome so the controls read as one flat
+ * full-width strip (used by the studies top-bar toolbar row); `variant="card"`
+ * keeps the bordered card look for standalone placements.
  */
-export function EditorToolbar({ className }: { className?: string }) {
+export function EditorToolbar({
+  className,
+  variant = "card",
+}: {
+  className?: string;
+  variant?: "card" | "bar";
+}) {
   const ctx = useEditorContext();
   const [scriptureOpen, setScriptureOpen] = useState(false);
 
@@ -130,7 +140,13 @@ export function EditorToolbar({ className }: { className?: string }) {
 
   return (
     <div className={className}>
-      <div className="flex flex-wrap items-center gap-1 rounded-md border bg-card p-1">
+      <div
+        className={
+          variant === "bar"
+            ? "flex flex-wrap items-center gap-1 px-2 py-1.5"
+            : "flex flex-wrap items-center gap-1 rounded-md border bg-card p-1"
+        }
+      >
         {groups.map((group, index) => (
           <div
             key={group[0]?.label ?? index}

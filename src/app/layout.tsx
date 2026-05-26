@@ -1,16 +1,23 @@
 import type { Metadata } from "next";
-import { Inter, Source_Serif_4 } from "next/font/google";
+import { Poppins, Source_Serif_4 } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { siteConfig } from "@/lib/site";
 import "./globals.css";
 
-const fontSans = Inter({
+// Poppins is the app-wide primary font (UI + notes). It isn't a variable font,
+// so weights/styles are listed explicitly; this covers font-normal/medium/
+// semibold/bold and their italics.
+const fontSans = Poppins({
   variable: "--font-sans",
   subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  style: ["normal", "italic"],
   display: "swap",
 });
 
+// Source Serif 4 is the scripture (and blockquote) face — a serif that reads as
+// clearly distinct from the Poppins UI. See the `:has(.scripture-verse)` rule.
 const fontSerif = Source_Serif_4({
   variable: "--font-serif",
   subsets: ["latin"],

@@ -288,7 +288,13 @@
     font-size: 0.68em;
     vertical-align: super;
     line-height: 0;
-    @apply mr-0.5 font-semibold text-primary;
+    /* `cursor-pointer` signals the marker is clickable (caret / BibleHub). */
+    @apply mr-0.5 cursor-pointer font-semibold text-primary;
+  }
+  /* A chapter-leading marker shows "chapter:verse" (e.g. 3:20); nudge it a touch
+     larger than a bare verse number so the colon stays legible. */
+  .scripture-verse--chapter {
+    font-size: 0.74em;
   }
   /* The covenant name (LORD/GOD) rendered in small caps, as printed ESVs do. */
   .divine-name {

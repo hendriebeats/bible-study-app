@@ -229,6 +229,10 @@ export type AddPassageResult =
       reference: string;
       version: string;
       text: string;
+      /** Parsed location so the client can stamp each verse marker's structured
+       * book/chapter/verse (the opening verse's ESV marker omits its chapter). */
+      bookOrdinal: number;
+      startChapter: number;
     }
   | { ok: false; error: string };
 
@@ -330,6 +334,8 @@ export async function addScripturePassage(
     reference: passage.reference,
     version: passage.version,
     text: passage.content,
+    bookOrdinal: parsed.bookOrdinal,
+    startChapter: parsed.startChapter,
   };
 }
 

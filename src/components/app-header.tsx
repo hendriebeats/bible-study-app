@@ -1,21 +1,10 @@
 import { BookOpen, ShieldAlert } from "lucide-react";
 import Link from "next/link";
 
-import { AppHeaderNotifications } from "@/components/app-header-notifications";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { HeaderActions } from "@/components/header-actions";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { UserMenu } from "@/components/user-menu";
 import { getInitials } from "@/lib/avatar";
-import {
-  listMyInvitations,
-  listMyLooseGroups,
-  listMyOwnedStudies,
-} from "@/lib/db/groups";
-import {
-  getMyOrgHeader,
-  listMyNotifications,
-  listPendingOrgReviews,
-} from "@/lib/db/organizations";
+import { getMyOrgHeader } from "@/lib/db/organizations";
 import { siteConfig } from "@/lib/site";
 import { createClient } from "@/lib/supabase/server";
 
@@ -29,31 +18,7 @@ export async function AppHeader() {
     return null;
   }
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("display_name, avatar_url, is_admin")
-    .eq("id", user.id)
-    .maybeSingle();
-
-  const isAdmin = profile?.is_admin ?? false;
-
-  const [
-    looseGroups,
-    invitations,
-    myStudies,
-    notifications,
-    org,
-    pendingOrgReviews,
-  ] = await Promise.all([
-    listMyLooseGroups(),
-    listMyInvitations(),
-    listMyOwnedStudies(),
-    listMyNotifications(),
-    getMyOrgHeader(),
-    isAdmin
-      ? listPendingOrgReviews()
-      : Promise.resolve([] as { id: string; name: string }[]),
-  ]);
+  const org = await getMyOrgHeader();
 
   return (
     <header className="flex h-16 items-center justify-between border-b border-border/60 px-4">
@@ -92,20 +57,7 @@ export async function AppHeader() {
         ) : null}
       </div>
       <div className="flex items-center gap-2">
-        <ThemeToggle />
-        <AppHeaderNotifications
-          looseGroups={looseGroups}
-          invitations={invitations}
-          myStudies={myStudies}
-          notifications={notifications}
-          pendingOrgReviews={pendingOrgReviews}
-        />
-        <UserMenu
-          displayName={profile?.display_name ?? ""}
-          email={user.email ?? ""}
-          avatarUrl={profile?.avatar_url ?? null}
-          isAdmin={profile?.is_admin ?? false}
-        />
+        <HeaderActions />
       </div>
     </header>
   );

@@ -84,21 +84,19 @@ export default async function SectionPage({
   ]);
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-6 py-8">
-      {/* key forces a fresh surface when switching sections */}
-      <SectionSurface
-        key={section.id}
-        section={section}
-        documents={documents}
-        notesHistory={notesHistory}
-        blocksHistory={blocksHistory}
-        hasPreviousSection={hasPreviousSection}
-        isOwner={isOwner}
-        canCompare={canCompare}
-        me={me}
-        scriptureOptions={scriptureOptions}
-        formatRecents={formatRecents}
-      />
-    </div>
+    /* key forces a fresh surface when switching sections */
+    <SectionSurface
+      key={section.id}
+      section={section}
+      documents={documents}
+      notesHistory={notesHistory}
+      blocksHistory={blocksHistory}
+      hasPreviousSection={hasPreviousSection}
+      isOwner={isOwner}
+      canCompare={canCompare}
+      me={me}
+      scriptureOptions={scriptureOptions}
+      formatRecents={formatRecents}
+    />
   );
 }

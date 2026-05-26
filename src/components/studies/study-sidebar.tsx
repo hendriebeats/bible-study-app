@@ -20,21 +20,18 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { UserMenu } from "@/components/user-menu";
 import type { Genre, SectionSummary, Study, TrashItem } from "@/lib/db/types";
 import { cn } from "@/lib/utils";
 
 export function StudySidebar({
   study,
   sections,
-  user,
   isOwner,
   trashedSections,
   genres,
 }: {
   study: Study;
   sections: SectionSummary[];
-  user: { displayName: string; email: string; avatarUrl: string | null };
   isOwner: boolean;
   trashedSections: TrashItem[];
   genres: Genre[];
@@ -43,7 +40,7 @@ export function StudySidebar({
   const [pending, startTransition] = useTransition();
 
   return (
-    <aside className="flex w-64 shrink-0 flex-col border-r bg-sidebar">
+    <aside className="flex h-full w-64 shrink-0 flex-col border-r bg-sidebar">
       <div className="border-b p-4">
         <Link
           href="/dashboard"
@@ -173,17 +170,6 @@ export function StudySidebar({
           />
         </div>
       ) : null}
-
-      <div className="flex items-center gap-2 border-t p-3">
-        <UserMenu
-          displayName={user.displayName}
-          email={user.email}
-          avatarUrl={user.avatarUrl}
-        />
-        <span className="min-w-0 truncate text-sm text-muted-foreground">
-          {user.displayName || user.email}
-        </span>
-      </div>
     </aside>
   );
 }
