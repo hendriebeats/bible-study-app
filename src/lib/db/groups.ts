@@ -107,6 +107,54 @@ export async function listMyOwnedStudies(): Promise<Study[]> {
   return data;
 }
 
+/** Groups the current user belongs to with no study attached yet ("loose"). */
+export async function listMyLooseGroups(): Promise<
+  { id: string; name: string }[]
+> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return [];
+  }
+  const { data, error } = await supabase
+    .from("group_study_members")
+    .select("group_studies(id, name)")
+    .eq("user_id", user.id)
+    .is("study_id", null);
+  if (error) {
+    throw new Error(error.message);
+  }
+  return data.map((row) => ({
+    id: row.group_studies.id,
+    name: row.group_studies.name,
+  }));
+}
+
+/** A pending group invitation addressed to the current user (by email). */
+export interface MyInvitation {
+  token: string;
+  groupName: string;
+  role: string;
+  expiresAt: string;
+}
+
+/** Pending invitations addressed to the current user's email (SECURITY DEFINER RPC). */
+export async function listMyInvitations(): Promise<MyInvitation[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("list_my_invitations");
+  if (error) {
+    throw new Error(error.message);
+  }
+  return data.map((row) => ({
+    token: row.token,
+    groupName: row.group_name,
+    role: row.invite_role,
+    expiresAt: row.expires_at,
+  }));
+}
+
 /** Whether the current user is an owner of the group. */
 export async function isGroupOwner(groupId: string): Promise<boolean> {
   const supabase = await createClient();

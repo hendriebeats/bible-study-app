@@ -95,12 +95,16 @@ async function requireUser() {
   return { supabase, userId: user.id };
 }
 
-export async function createStudy(): Promise<void> {
+export async function createStudy(
+  title: string,
+  genreId: string | null,
+): Promise<void> {
   const { supabase, userId } = await requireUser();
 
+  const cleanTitle = title.trim() || "Untitled study";
   const { data, error } = await supabase
     .from("studies")
-    .insert({ owner_id: userId, title: "Untitled study" })
+    .insert({ owner_id: userId, title: cleanTitle, genre_id: genreId })
     .select("id")
     .single();
   if (error) {
@@ -110,12 +114,18 @@ export async function createStudy(): Promise<void> {
   const studyId = data.id;
 
   // Seed the study with a first section so there's somewhere to write.
-  const { error: sectionError } = await supabase
+  const { data: section, error: sectionError } = await supabase
     .from("sections")
-    .insert({ study_id: studyId, title: "Introduction", position: 0 });
+    .insert({ study_id: studyId, title: "Introduction", position: 0 })
+    .select("id")
+    .single();
   if (sectionError) {
     throw new Error(sectionError.message);
   }
+
+  // Seed that first section's study blocks from the chosen genre template
+  // (no-op when no genre was picked).
+  await seedNewSectionBlocks(supabase, studyId, section.id);
 
   revalidatePath("/dashboard");
   redirect(`/studies/${studyId}`);

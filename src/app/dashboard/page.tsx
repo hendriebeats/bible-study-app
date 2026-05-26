@@ -1,14 +1,15 @@
 import type { Metadata } from "next";
-import { Plus, Users } from "lucide-react";
+import { Users } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { createStudy } from "@/app/studies/actions";
-import { StudyCard } from "@/components/studies/study-card";
-import { TrashButton } from "@/components/studies/trash-button";
 import { AppHeader } from "@/components/app-header";
+import { NewStudyDialog } from "@/components/studies/new-study-dialog";
+import { StudiesList } from "@/components/studies/studies-list";
+import { TrashButton } from "@/components/studies/trash-button";
 import { Button } from "@/components/ui/button";
-import { listStudies, listTrashedStudies } from "@/lib/db/studies";
+import { listGenres } from "@/lib/db/genres";
+import { listMyStudiesEnriched, listTrashedStudies } from "@/lib/db/studies";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = { title: "Your studies" };
@@ -22,8 +23,9 @@ export default async function DashboardPage() {
     redirect("/login");
   }
 
-  const [studies, trashedStudies] = await Promise.all([
-    listStudies(),
+  const [studies, genres, trashedStudies] = await Promise.all([
+    listMyStudiesEnriched(),
+    listGenres(),
     listTrashedStudies(),
   ]);
 
@@ -42,12 +44,7 @@ export default async function DashboardPage() {
               </Link>
             </Button>
             <TrashButton kind="study" items={trashedStudies} />
-            <form action={createStudy}>
-              <Button type="submit">
-                <Plus className="size-4" />
-                New study
-              </Button>
-            </form>
+            <NewStudyDialog genres={genres} />
           </div>
         </div>
 
@@ -61,11 +58,7 @@ export default async function DashboardPage() {
             </p>
           </div>
         ) : (
-          <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {studies.map((study) => (
-              <StudyCard key={study.id} study={study} />
-            ))}
-          </div>
+          <StudiesList items={studies} genres={genres} />
         )}
       </main>
     </div>

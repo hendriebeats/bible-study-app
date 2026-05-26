@@ -1,6 +1,6 @@
 "use client";
 
-import { LogOut, Settings } from "lucide-react";
+import { LogOut, Settings, Shield } from "lucide-react";
 import Link from "next/link";
 
 import { signOut } from "@/app/(auth)/actions";
@@ -20,10 +20,12 @@ export function UserMenu({
   displayName,
   email,
   avatarUrl,
+  isAdmin = false,
 }: {
   displayName: string;
   email: string;
   avatarUrl: string | null;
+  isAdmin?: boolean;
 }) {
   return (
     <DropdownMenu>
@@ -58,6 +60,14 @@ export function UserMenu({
             Account settings
           </Link>
         </DropdownMenuItem>
+        {isAdmin ? (
+          <DropdownMenuItem asChild>
+            <Link href="/admin">
+              <Shield className="size-4" />
+              Admin · Genres
+            </Link>
+          </DropdownMenuItem>
+        ) : null}
         <DropdownMenuSeparator />
         <form action={signOut}>
           <DropdownMenuItem asChild>

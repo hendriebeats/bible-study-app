@@ -718,6 +718,10 @@ export type Database = {
         Returns: number
       }
       archive_expired_trash: { Args: never; Returns: undefined }
+      attach_study_to_group: {
+        Args: { _group_study_id: string; _study_id?: string }
+        Returns: string
+      }
       can_read_document: { Args: { _document_id: string }; Returns: boolean }
       can_read_section: { Args: { _section_id: string }; Returns: boolean }
       can_read_study: { Args: { _study_id: string }; Returns: boolean }
@@ -730,6 +734,7 @@ export type Database = {
         Args: { _label?: string; _section_id: string }
         Returns: string
       }
+      decline_invitation: { Args: { _token: string }; Returns: undefined }
       get_invitation: {
         Args: { _token: string }
         Returns: {
@@ -746,6 +751,16 @@ export type Database = {
       is_group_owner: { Args: { _group_study_id: string }; Returns: boolean }
       is_section_owner: { Args: { _section_id: string }; Returns: boolean }
       is_study_owner: { Args: { _study_id: string }; Returns: boolean }
+      list_my_invitations: {
+        Args: never
+        Returns: {
+          expires_at: string
+          group_name: string
+          group_study_id: string
+          invite_role: string
+          token: string
+        }[]
+      }
       realtime_document_id: { Args: never; Returns: string }
       realtime_section_id: { Args: never; Returns: string }
       seed_my_group_study: {

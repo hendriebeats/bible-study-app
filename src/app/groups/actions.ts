@@ -192,6 +192,39 @@ export async function leaveGroup(groupId: string): Promise<ActionResult> {
 }
 
 /**
+ * Attach a study to the caller's "loose" membership in a group: either an
+ * existing owned study (`studyId`) or a fresh seed from the group's template
+ * (`null`). Resolves the notification prompt for groups with no study attached.
+ */
+export async function attachStudyToGroup(
+  groupId: string,
+  studyId: string | null,
+): Promise<ActionResult> {
+  const { supabase } = await requireUser();
+  const { error } = await supabase.rpc("attach_study_to_group", {
+    _group_study_id: groupId,
+    _study_id: studyId ?? undefined,
+  });
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+  revalidatePath("/dashboard");
+  revalidatePath("/groups");
+  return { ok: true };
+}
+
+/** Decline a pending invitation addressed to the current user. */
+export async function declineInvitation(token: string): Promise<ActionResult> {
+  const { supabase } = await requireUser();
+  const { error } = await supabase.rpc("decline_invitation", { _token: token });
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+  revalidatePath("/dashboard");
+  return { ok: true };
+}
+
+/**
  * Accept an invitation: attach an existing study, or seed one from the template.
  * Returns an error result on failure (so the UI can show expired/invalid), and
  * redirects to the group on success.

@@ -1,4 +1,4 @@
-import type { PMDocJSON } from "@/lib/editor/types";
+import { listGenres } from "@/lib/db/genres";
 import type {
   Section,
   SectionDocuments,
@@ -7,6 +7,7 @@ import type {
   StudyDocument,
   TrashItem,
 } from "@/lib/db/types";
+import type { PMDocJSON } from "@/lib/editor/types";
 import { createClient } from "@/lib/supabase/server";
 
 /** All active studies the current user can see (RLS: own + group co-members'). */
@@ -21,6 +22,136 @@ export async function listStudies(): Promise<Study[]> {
     throw new Error(error.message);
   }
   return data;
+}
+
+/** A co-member shown as an avatar on a group-attached study row. */
+export interface StudyCoMember {
+  display_name: string | null;
+  avatar_url: string | null;
+}
+
+/**
+ * A study enriched for the "Your studies" list: the study-type (genre) name,
+ * the group it's attached to (if any), and that group's co-members.
+ */
+export interface StudyListItem extends Study {
+  genreName: string | null;
+  group: { id: string; name: string } | null;
+  coMembers: StudyCoMember[];
+}
+
+/**
+ * The current user's OWN active studies, enriched with study-type name, group
+ * attachment, and co-member avatars. Batched to avoid N+1 (a fixed number of
+ * round-trips regardless of how many studies/groups are involved).
+ */
+export async function listMyStudiesEnriched(): Promise<StudyListItem[]> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return [];
+  }
+
+  // 1. My own active studies (group templates have owner_id null, so excluded).
+  const { data: studies, error } = await supabase
+    .from("studies")
+    .select("*")
+    .eq("owner_id", user.id)
+    .is("deleted_at", null)
+    .order("updated_at", { ascending: false });
+  if (error) {
+    throw new Error(error.message);
+  }
+  if (studies.length === 0) {
+    return [];
+  }
+
+  // 2. Genre id -> name, for the study-type badge.
+  const genres = await listGenres();
+  const genreNameById = new Map(genres.map((g) => [g.id, g.name]));
+
+  // 3. Which of my studies are attached to a group (my own membership rows).
+  const studyIds = studies.map((s) => s.id);
+  const { data: myMemberships, error: membershipError } = await supabase
+    .from("group_study_members")
+    .select("study_id, group_studies(id, name)")
+    .in("study_id", studyIds);
+  if (membershipError) {
+    throw new Error(membershipError.message);
+  }
+
+  const groupByStudyId = new Map<string, { id: string; name: string }>();
+  const groupIds = new Set<string>();
+  for (const row of myMemberships) {
+    if (row.study_id) {
+      groupByStudyId.set(row.study_id, {
+        id: row.group_studies.id,
+        name: row.group_studies.name,
+      });
+      groupIds.add(row.group_studies.id);
+    }
+  }
+
+  // 4. Co-members of those groups (everyone but me), in two batched queries.
+  const coMembersByGroupId = new Map<string, StudyCoMember[]>();
+  if (groupIds.size > 0) {
+    const { data: groupMembers, error: groupMembersError } = await supabase
+      .from("group_study_members")
+      .select("group_study_id, user_id")
+      .in("group_study_id", [...groupIds]);
+    if (groupMembersError) {
+      throw new Error(groupMembersError.message);
+    }
+
+    const otherIds = [
+      ...new Set(
+        groupMembers.map((m) => m.user_id).filter((id) => id !== user.id),
+      ),
+    ];
+    const profileById = new Map<string, StudyCoMember>();
+    if (otherIds.length > 0) {
+      const { data: profiles, error: profilesError } = await supabase
+        .from("profiles")
+        .select("id, display_name, avatar_url")
+        .in("id", otherIds);
+      if (profilesError) {
+        throw new Error(profilesError.message);
+      }
+      for (const p of profiles) {
+        profileById.set(p.id, {
+          display_name: p.display_name,
+          avatar_url: p.avatar_url,
+        });
+      }
+    }
+
+    for (const m of groupMembers) {
+      if (m.user_id === user.id) {
+        continue;
+      }
+      const profile = profileById.get(m.user_id);
+      if (!profile) {
+        continue;
+      }
+      const list = coMembersByGroupId.get(m.group_study_id) ?? [];
+      list.push(profile);
+      coMembersByGroupId.set(m.group_study_id, list);
+    }
+  }
+
+  return studies.map((study) => {
+    const group = groupByStudyId.get(study.id) ?? null;
+    return {
+      ...study,
+      genreName: study.genre_id
+        ? (genreNameById.get(study.genre_id) ?? null)
+        : null,
+      group,
+      coMembers: group ? (coMembersByGroupId.get(group.id) ?? []) : [],
+    };
+  });
 }
 
 /** The current user's trashed (soft-deleted, recoverable) studies. */
