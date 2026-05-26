@@ -1,3 +1,4 @@
+import { normalizeScriptureOptions } from "@/lib/scripture/options";
 import type { Passage, ScriptureProvider } from "@/lib/scripture/types";
 
 const ESV_TEXT_ENDPOINT = "https://api.esv.org/v3/passage/text/";
@@ -16,14 +17,21 @@ interface EsvTextResponse {
 export function createEsvProvider(apiKey: string): ScriptureProvider {
   return {
     version: "ESV",
-    async getPassage(reference: string): Promise<Passage> {
+    async getPassage(reference, options): Promise<Passage> {
+      const opts = normalizeScriptureOptions(options);
       const url = new URL(ESV_TEXT_ENDPOINT);
       url.searchParams.set("q", reference);
-      url.searchParams.set("include-headings", "false");
-      url.searchParams.set("include-footnotes", "false");
-      url.searchParams.set("include-passage-references", "false");
+      // Fixed params (not user options): verse numbers always on; footnotes and
+      // the "(ESV)" copyright line always off; headings off (not exposed) and
+      // passage-references off (the reference is shown by our own UI).
       url.searchParams.set("include-verse-numbers", "true");
-      url.searchParams.set("include-short-copyright", "true");
+      url.searchParams.set("include-footnotes", "false");
+      url.searchParams.set("include-footnote-body", "false");
+      url.searchParams.set("include-short-copyright", "false");
+      url.searchParams.set("include-headings", "false");
+      url.searchParams.set("include-passage-references", "false");
+      // User-configurable (each combination is its own fetch cache key).
+      url.searchParams.set("include-selahs", String(opts.includeSelahs));
 
       const response = await fetch(url, {
         headers: { Authorization: `Token ${apiKey}` },

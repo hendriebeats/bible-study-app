@@ -5,6 +5,7 @@ import { listCompareTargets } from "@/lib/db/compare";
 import { getGenreBlockTemplates } from "@/lib/db/genres";
 import { getDocumentHistory } from "@/lib/db/history";
 import { getSection, getSectionDocuments, getStudy } from "@/lib/db/studies";
+import { getScriptureOptions } from "@/lib/db/user-settings";
 import type { BlockSpec } from "@/lib/editor/blocks";
 import { createClient } from "@/lib/supabase/server";
 
@@ -81,6 +82,9 @@ export default async function SectionPage({
   // against (a co-member in one of this study's groups who has a study).
   const canCompare = (await listCompareTargets(studyId)).length > 0;
 
+  // The user's remembered scripture-insertion defaults (seed the insert panel).
+  const scriptureOptions = await getScriptureOptions();
+
   return (
     <div className="mx-auto w-full max-w-3xl px-6 py-8">
       {/* key forces a fresh surface when switching sections */}
@@ -94,6 +98,7 @@ export default async function SectionPage({
         isOwner={isOwner}
         canCompare={canCompare}
         me={me}
+        scriptureOptions={scriptureOptions}
       />
     </div>
   );

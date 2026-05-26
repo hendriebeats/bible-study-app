@@ -209,17 +209,26 @@ const nodeSpecs = baseNodeSpecs
   .addToEnd("scripture", scriptureSpec)
   .addToEnd("study_block", studyBlockSpec);
 
-const markSpecs = basicSchema.spec.marks.addToEnd("strikethrough", {
-  parseDOM: [
-    { tag: "s" },
-    { tag: "del" },
-    { tag: "strike" },
-    { style: "text-decoration=line-through" },
-  ],
-  toDOM() {
-    return ["s", 0];
-  },
-});
+const markSpecs = basicSchema.spec.marks
+  .addToEnd("strikethrough", {
+    parseDOM: [
+      { tag: "s" },
+      { tag: "del" },
+      { tag: "strike" },
+      { style: "text-decoration=line-through" },
+    ],
+    toDOM() {
+      return ["s", 0];
+    },
+  })
+  // Small caps for the covenant name (LORD/GOD) in inserted scripture, matching
+  // printed ESV typography. Applied only by scripture insertion, not the toolbar.
+  .addToEnd("small_caps", {
+    parseDOM: [{ tag: "span.divine-name" }],
+    toDOM() {
+      return ["span", { class: "divine-name" }, 0];
+    },
+  });
 
 export const schema = new Schema({ nodes: nodeSpecs, marks: markSpecs });
 
@@ -266,4 +275,5 @@ export const marks = {
   em: requireMark("em"),
   code: requireMark("code"),
   strikethrough: requireMark("strikethrough"),
+  smallCaps: requireMark("small_caps"),
 } as const;

@@ -13,6 +13,10 @@ import type { PMDocJSON, PMNodeJSON, SerializedStep } from "@/lib/editor/types";
 import { getGenreIdBySlug } from "@/lib/db/genres";
 import { getScriptureProvider } from "@/lib/scripture";
 import { genreSlugForBook } from "@/lib/scripture/books";
+import {
+  normalizeScriptureOptions,
+  type ScriptureOptions,
+} from "@/lib/scripture/options";
 import { parseReference } from "@/lib/scripture/reference";
 import type { Json } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
@@ -197,6 +201,7 @@ export type AddPassageResult =
 export async function addScripturePassage(
   sectionId: string,
   reference: string,
+  options?: ScriptureOptions,
 ): Promise<AddPassageResult> {
   const { supabase } = await requireUser();
 
@@ -210,7 +215,13 @@ export async function addScripturePassage(
 
   let passage;
   try {
-    passage = await getScriptureProvider().getPassage(reference);
+    // Options only shape the fetched/formatted text — never the verse-range
+    // sidecar below, which is derived from `parsed` so cross-study alignment
+    // stays independent of how the passage was formatted.
+    passage = await getScriptureProvider().getPassage(
+      reference,
+      normalizeScriptureOptions(options),
+    );
   } catch {
     return { ok: false, error: "Couldn’t fetch that passage from ESV." };
   }

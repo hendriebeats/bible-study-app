@@ -3,7 +3,12 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
+import {
+  normalizeScriptureOptions,
+  type ScriptureOptions,
+} from "@/lib/scripture/options";
 import { createAdminClient } from "@/lib/supabase/admin";
+import type { Json } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
 import { getSiteURL } from "@/lib/url";
 
@@ -148,6 +153,27 @@ export async function removeAvatar(): Promise<void> {
     throw new Error(error.message);
   }
   revalidatePath("/", "layout");
+}
+
+/**
+ * Persist the user's remembered scripture-insertion defaults. Normalizes the
+ * incoming options (trust boundary) before upserting their single settings row.
+ */
+export async function saveScriptureOptions(
+  options: ScriptureOptions,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { supabase, userId } = await requireUser();
+  const clean = normalizeScriptureOptions(options);
+  const { error } = await supabase
+    .from("user_settings")
+    .upsert(
+      { user_id: userId, scripture_options: clean as unknown as Json },
+      { onConflict: "user_id" },
+    );
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+  return { ok: true };
 }
 
 export async function signOutEverywhere(): Promise<void> {

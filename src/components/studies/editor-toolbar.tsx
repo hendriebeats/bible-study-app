@@ -17,11 +17,10 @@ import {
 import type { LucideIcon } from "lucide-react";
 import type { Command } from "prosemirror-state";
 import { useState } from "react";
-import { toast } from "sonner";
 
 import { useEditorContext } from "@/components/studies/editor-context";
+import { ScriptureInsertPanel } from "@/components/studies/scripture-insert-panel";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import {
   isAncestorActive,
@@ -53,13 +52,11 @@ interface ToolbarItem {
 export function EditorToolbar({ className }: { className?: string }) {
   const ctx = useEditorContext();
   const [scriptureOpen, setScriptureOpen] = useState(false);
-  const [scriptureRef, setScriptureRef] = useState("");
-  const [scriptureBusy, setScriptureBusy] = useState(false);
 
   if (!ctx) {
     return null;
   }
-  const { activeState, runCommand, insertScripture } = ctx;
+  const { activeState, runCommand } = ctx;
 
   const groups: ToolbarItem[][] = activeState
     ? [
@@ -130,22 +127,6 @@ export function EditorToolbar({ className }: { className?: string }) {
       ]
     : [];
 
-  async function submitScripture() {
-    const reference = scriptureRef.trim();
-    if (reference === "") {
-      return;
-    }
-    setScriptureBusy(true);
-    const result = await insertScripture(reference);
-    setScriptureBusy(false);
-    if (!result.ok) {
-      toast.error(result.error ?? "Couldn't add that passage.");
-      return;
-    }
-    setScriptureRef("");
-    setScriptureOpen(false);
-  }
-
   return (
     <div className={className}>
       <div className="flex flex-wrap items-center gap-1 rounded-md border bg-card p-1">
@@ -196,45 +177,11 @@ export function EditorToolbar({ className }: { className?: string }) {
         </Button>
       </div>
       {scriptureOpen ? (
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <Input
-            value={scriptureRef}
-            onChange={(event) => {
-              setScriptureRef(event.target.value);
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                void submitScripture();
-              }
-            }}
-            placeholder="e.g. John 3:1-21"
-            aria-label="Scripture reference"
-            className="h-8 max-w-xs"
-            autoFocus
-          />
-          <Button
-            type="button"
-            size="sm"
-            disabled={scriptureBusy}
-            onClick={() => {
-              void submitScripture();
-            }}
-          >
-            Add
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            onClick={() => {
-              setScriptureOpen(false);
-              setScriptureRef("");
-            }}
-          >
-            Cancel
-          </Button>
-        </div>
+        <ScriptureInsertPanel
+          onClose={() => {
+            setScriptureOpen(false);
+          }}
+        />
       ) : null}
     </div>
   );

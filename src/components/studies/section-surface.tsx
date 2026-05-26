@@ -17,6 +17,7 @@ import type {
   SectionDocuments,
 } from "@/lib/db/types";
 import type { BlockSpec } from "@/lib/editor/blocks";
+import type { ScriptureOptions } from "@/lib/scripture/options";
 
 /**
  * The section editing surface: the (owner-editable) section title plus the
@@ -34,6 +35,7 @@ export function SectionSurface({
   isOwner,
   canCompare,
   me,
+  scriptureOptions,
 }: {
   section: Section;
   documents: SectionDocuments;
@@ -43,6 +45,7 @@ export function SectionSurface({
   isOwner: boolean;
   canCompare: boolean;
   me: { id: string; name: string } | null;
+  scriptureOptions: ScriptureOptions;
 }) {
   const [title, setTitle] = useState(section.title);
 
@@ -54,7 +57,11 @@ export function SectionSurface({
   }
 
   return (
-    <EditorProvider sectionId={section.id}>
+    <EditorProvider
+      sectionId={section.id}
+      sectionTitle={section.title}
+      initialScriptureOptions={scriptureOptions}
+    >
       <div className="flex flex-col gap-4">
         <div className="flex items-center gap-3">
           {isOwner ? (

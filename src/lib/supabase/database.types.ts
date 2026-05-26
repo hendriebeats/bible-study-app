@@ -651,6 +651,24 @@ export type Database = {
           },
         ]
       }
+      user_settings: {
+        Row: {
+          scripture_options: Json
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          scripture_options?: Json
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          scripture_options?: Json
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       workspace_states: {
         Row: {
           layout: Json

@@ -290,4 +290,8 @@
     line-height: 0;
     @apply mr-0.5 font-semibold text-primary;
   }
+  /* The covenant name (LORD/GOD) rendered in small caps, as printed ESVs do. */
+  .divine-name {
+    font-variant: small-caps;
+  }
 }

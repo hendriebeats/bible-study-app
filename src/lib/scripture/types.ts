@@ -1,3 +1,5 @@
+import type { ScriptureOptions } from "@/lib/scripture/options";
+
 /** A resolved scripture passage, independent of the underlying translation. */
 export interface Passage {
   /** Canonical reference as resolved by the provider, e.g. "John 3:16–17". */
@@ -14,5 +16,5 @@ export interface Passage {
  */
 export interface ScriptureProvider {
   readonly version: string;
-  getPassage(reference: string): Promise<Passage>;
+  getPassage(reference: string, options?: ScriptureOptions): Promise<Passage>;
 }

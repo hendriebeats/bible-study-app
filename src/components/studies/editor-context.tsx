@@ -16,6 +16,8 @@ import {
 import { addScripturePassage } from "@/app/studies/actions";
 import { scriptureParagraphsToNodes } from "@/lib/editor/scripture-insert";
 import { jsonToDoc } from "@/lib/editor/serialize";
+import type { ScriptureOptions } from "@/lib/scripture/options";
+import { parseReference } from "@/lib/scripture/reference";
 
 export type EditorRole = "notes" | "blocks";
 
@@ -34,7 +36,14 @@ interface EditorContextValue {
   setActive: (view: EditorView, state: EditorState) => void;
   runCommand: (command: Command) => void;
   /** Insert an ESV passage as editable paragraphs into the notes editor. */
-  insertScripture: (reference: string) => Promise<ScriptureInsertResult>;
+  insertScripture: (
+    reference: string,
+    options: ScriptureOptions,
+  ) => Promise<ScriptureInsertResult>;
+  /** The user's remembered scripture-insertion defaults. */
+  scriptureOptions: ScriptureOptions;
+  /** The section title when it's itself a valid reference, else "" (for prefill). */
+  prefillReference: string;
 }
 
 const EditorContext = createContext<EditorContextValue | null>(null);
@@ -51,9 +60,13 @@ export function useEditorContext(): EditorContextValue | null {
  */
 export function EditorProvider({
   sectionId,
+  sectionTitle,
+  initialScriptureOptions,
   children,
 }: {
   sectionId: string;
+  sectionTitle: string;
+  initialScriptureOptions: ScriptureOptions;
   children: ReactNode;
 }) {
   const [activeView, setActiveView] = useState<EditorView | null>(null);
@@ -115,16 +128,19 @@ export function EditorProvider({
   }, []);
 
   const insertScripture = useCallback(
-    async (reference: string): Promise<ScriptureInsertResult> => {
+    async (
+      reference: string,
+      options: ScriptureOptions,
+    ): Promise<ScriptureInsertResult> => {
       const view = notesViewRef.current;
       if (!view) {
         return { ok: false, error: "Open the notes editor to add scripture." };
       }
-      const result = await addScripturePassage(sectionId, reference);
+      const result = await addScripturePassage(sectionId, reference, options);
       if (!result.ok) {
         return { ok: false, error: result.error };
       }
-      const paragraphs = scriptureParagraphsToNodes(result.text);
+      const paragraphs = scriptureParagraphsToNodes(result.text, options);
       if (paragraphs.length > 0) {
         const fragment = jsonToDoc({
           type: "doc",
@@ -140,6 +156,13 @@ export function EditorProvider({
     [sectionId],
   );
 
+  // When the section title is itself a valid reference (e.g. "John 3:1-21"),
+  // offer it to prefill the insert field so the user needn't retype it.
+  const prefillReference = useMemo(
+    () => (parseReference(sectionTitle) ? sectionTitle.trim() : ""),
+    [sectionTitle],
+  );
+
   const value = useMemo<EditorContextValue>(
     () => ({
       activeView,
@@ -149,6 +172,8 @@ export function EditorProvider({
       setActive,
       runCommand,
       insertScripture,
+      scriptureOptions: initialScriptureOptions,
+      prefillReference,
     }),
     [
       activeView,
@@ -158,6 +183,8 @@ export function EditorProvider({
       setActive,
       runCommand,
       insertScripture,
+      initialScriptureOptions,
+      prefillReference,
     ],
   );
 
