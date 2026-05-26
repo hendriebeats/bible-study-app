@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
+import type { PMNodeJSON } from "@/lib/editor/types";
+import type { Json } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
@@ -132,27 +134,33 @@ export async function addBlockTemplate(genreId: string): Promise<void> {
   const position = (maxRow?.position ?? -1) + 1;
   const { error } = await supabase
     .from("genre_block_templates")
-    .insert({ genre_id: genreId, label: "New block", prompt: null, position });
+    .insert({ genre_id: genreId, title: "New block", position });
   if (error) {
     throw new Error(error.message);
   }
   revalidatePath(`/admin/genres/${genreId}`);
 }
 
-/** Edit one block template's label / prompt. */
+/** Edit one block template's title / subtitle / placeholder / default content. */
 export async function updateBlockTemplate(
   templateId: string,
   genreId: string,
-  label: string,
-  prompt: string,
+  title: string,
+  subtitle: string,
+  placeholder: string,
+  defaultContent: PMNodeJSON[] | null,
 ): Promise<void> {
   const { supabase } = await requireAdmin();
-  const cleanPrompt = prompt.trim();
+  const cleanSubtitle = subtitle.trim();
+  const cleanPlaceholder = placeholder.trim();
+  const hasDefault = defaultContent !== null && defaultContent.length > 0;
   const { error } = await supabase
     .from("genre_block_templates")
     .update({
-      label: label.trim() || "Untitled block",
-      prompt: cleanPrompt === "" ? null : cleanPrompt,
+      title: title.trim() || "Untitled block",
+      subtitle: cleanSubtitle === "" ? null : cleanSubtitle,
+      placeholder: cleanPlaceholder === "" ? null : cleanPlaceholder,
+      default_content: hasDefault ? (defaultContent as unknown as Json) : null,
     })
     .eq("id", templateId);
   if (error) {

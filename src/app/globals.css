@@ -225,27 +225,48 @@
     border-radius: 2px;
     padding: 0 1px;
   }
-  /* Study blocks: labeled, templated work areas inside the blocks document. */
+  /* Study blocks: titled, templated work areas inside the blocks document.
+     Each block is its own container query (see the @container rule below) so the
+     header/body sit side-by-side when wide and stack when narrow — including in
+     narrow contexts like the compare columns, not just on small screens. */
   .study-block {
+    container-type: inline-size;
     @apply rounded-lg border bg-card p-3;
   }
   .study-block + .study-block {
     @apply mt-3;
   }
+  .study-block-layout {
+    @apply flex flex-col gap-2;
+  }
   .study-block-titlerow {
     @apply flex items-center gap-2;
   }
-  .study-block-label {
+  .study-block-title {
     @apply min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none;
   }
   .study-block-remove {
     @apply shrink-0 rounded px-1.5 text-lg leading-none text-muted-foreground hover:text-destructive;
   }
-  .study-block-prompt {
+  .study-block-subtitle {
     @apply mt-1 text-xs text-muted-foreground;
   }
   .study-block-body {
-    @apply mt-2;
+    @apply min-w-0;
+  }
+  /* Wide enough: title + subtitle in a fixed 250px column, body fills the rest. */
+  @container (min-width: 480px) {
+    .study-block-layout {
+      flex-direction: row;
+      gap: 1.25rem;
+    }
+    .study-block-header {
+      width: 250px;
+      flex-shrink: 0;
+    }
+    .study-block-body {
+      flex: 1 1 0%;
+    }
   }
   /* Scripture: a non-editable passage with superscript verse numbers. */
   .scripture {

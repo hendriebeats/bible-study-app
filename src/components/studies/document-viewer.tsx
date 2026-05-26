@@ -168,7 +168,7 @@ export function DocumentViewer({
   }, []);
 
   return (
-    <div className="flex h-full flex-col">
+    <div>
       <div className="mb-2 flex items-center gap-2">
         <h2 className="text-sm font-semibold text-muted-foreground">{label}</h2>
         <div className="ml-auto flex shrink-0 items-center gap-2">
@@ -193,7 +193,7 @@ export function DocumentViewer({
           </span>
         </div>
       </div>
-      <div ref={mountRef} className="mt-3 flex-1 overflow-auto" />
+      <div ref={mountRef} className="mt-3 min-h-32" />
     </div>
   );
 }

@@ -18,13 +18,20 @@ import { addListNodes } from "prosemirror-schema-list";
  *
  * Feature parity with the previous Tiptap StarterKit editor: headings,
  * bold/italic/strikethrough, bullet/ordered lists, blockquote, code, code
- * block, horizontal rule, hard break. Plus two study-specific block nodes:
- *   * `scripture` — raw passage text (no marks; protected from free editing by
- *     an editor plugin; highlights live in a separate decoration layer). Carries
- *     its reference so a copy can be re-seeded as clean text.
- *   * `study_block` — a labeled work area (Observation/Interpretation/…) holding
- *     the user's editable content. `lineageId` is the shared "slot" that lets
- *     blocks line up across members' studies.
+ * block, horizontal rule, hard break. Plus the study-specific nodes:
+ *   * `verse_number` — an inline atom rendered as a superscript verse number.
+ *     Inserted scripture lands as ordinary editable paragraphs with one of these
+ *     locked in front of each verse's first word (protected by the verse-guard
+ *     plugin so it can't be deleted/edited), so users can split, format, and
+ *     annotate the passage freely.
+ *   * `scripture` — LEGACY: the old non-editable passage atom. No longer
+ *     inserted, but kept registered (with its NodeView) so documents/steps saved
+ *     before editable scripture still deserialize and render. Never remove it.
+ *   * `study_block` — a titled work area (Observation/Interpretation/…) holding
+ *     the user's editable content. `title`/`subtitle` are admin-authored chrome;
+ *     `placeholder` is the suggested body text shown while the body is empty.
+ *     `lineageId` is the shared "slot" that lets blocks line up across members'
+ *     studies; `templateId` records the genre template it came from.
  */
 
 // `schema-basic` covers paragraphs, headings, blockquote, code/code_block,
@@ -37,12 +44,40 @@ const baseNodeSpecs = addListNodes(
 );
 
 /**
- * Scripture: a raw passage rendered as a single ATOM (a leaf with no editable
- * content). With no content, the verse text can't be typed into or corrupted —
- * users can only select/delete the whole passage (like an image). The raw ESV
- * text (with `[n]` verse markers) lives in the `text` attr; a NodeView renders
- * the markers as superscripts. reference/version/passageId travel as attrs so a
- * seeded copy can recreate clean text from the source.
+ * Verse number: an inline ATOM rendered as a `<sup>` superscript. It carries
+ * just the printed marker (`n`, e.g. "1" or "3:16") and no editable content, so
+ * it can't be typed into. The verse-guard plugin keeps it from being deleted and
+ * makes it "stick" to the following word; `selectable: false` stops it being
+ * click/drag-selected on its own.
+ */
+const verseNumberSpec: NodeSpec = {
+  group: "inline",
+  inline: true,
+  atom: true,
+  selectable: false,
+  attrs: {
+    n: { default: "" },
+  },
+  parseDOM: [
+    {
+      tag: "sup.scripture-verse",
+      getAttrs(dom) {
+        if (typeof dom === "string") return null;
+        return { n: dom.getAttribute("data-verse") ?? "" };
+      },
+    },
+  ],
+  toDOM(node) {
+    const attr = (node.attrs as { n: string }).n;
+    const n = typeof attr === "string" ? attr : "";
+    return ["sup", { class: "scripture-verse", "data-verse": n }, n];
+  },
+};
+
+/**
+ * Scripture: LEGACY non-editable passage atom (see the schema doc comment).
+ * Editable scripture now inserts ordinary paragraphs + {@link verseNumberSpec}
+ * instead; this spec stays only so older saved documents/steps keep working.
  */
 const scriptureSpec: NodeSpec = {
   group: "block",
@@ -95,10 +130,12 @@ const scriptureSpec: NodeSpec = {
 };
 
 /**
- * Study block: a labeled, templated work area. `content: "block+"` holds the
- * user's editable paragraphs/lists; the label + prompt render as non-editable
- * chrome. `lineageId` is the cross-study slot; `templateId` records the genre
- * template it came from.
+ * Study block: a titled, templated work area. `content: "block+"` holds the
+ * user's editable paragraphs/lists; the title + subtitle render as non-editable
+ * chrome and `placeholder` is the suggested text shown while the body is empty.
+ * `lineageId` is the cross-study slot; `templateId` records the genre template
+ * it came from. Legacy blocks stored `label`/`prompt`; parseDOM falls back to
+ * those so older documents still resolve a title/placeholder.
  */
 const studyBlockSpec: NodeSpec = {
   group: "block",
@@ -106,8 +143,9 @@ const studyBlockSpec: NodeSpec = {
   defining: true,
   isolating: true,
   attrs: {
-    label: { default: "" },
-    prompt: { default: "" },
+    title: { default: "" },
+    subtitle: { default: "" },
+    placeholder: { default: "" },
     lineageId: { default: null },
     templateId: { default: null },
   },
@@ -118,8 +156,15 @@ const studyBlockSpec: NodeSpec = {
       getAttrs(dom) {
         if (typeof dom === "string") return null;
         return {
-          label: dom.getAttribute("data-label") ?? "",
-          prompt: dom.getAttribute("data-prompt") ?? "",
+          title:
+            dom.getAttribute("data-title") ??
+            dom.getAttribute("data-label") ??
+            "",
+          subtitle: dom.getAttribute("data-subtitle") ?? "",
+          placeholder:
+            dom.getAttribute("data-placeholder") ??
+            dom.getAttribute("data-prompt") ??
+            "",
           lineageId: dom.getAttribute("data-lineage-id"),
           templateId: dom.getAttribute("data-template-id"),
         };
@@ -128,8 +173,9 @@ const studyBlockSpec: NodeSpec = {
   ],
   toDOM(node) {
     const attrs = node.attrs as {
-      label: string;
-      prompt: string;
+      title: string;
+      subtitle: string;
+      placeholder: string;
       lineageId: string | null;
       templateId: string | null;
     };
@@ -137,8 +183,9 @@ const studyBlockSpec: NodeSpec = {
       "section",
       {
         "data-study-block": "true",
-        "data-label": attrs.label,
-        "data-prompt": attrs.prompt,
+        "data-title": attrs.title,
+        "data-subtitle": attrs.subtitle,
+        "data-placeholder": attrs.placeholder,
         ...(attrs.lineageId === null
           ? {}
           : { "data-lineage-id": attrs.lineageId }),
@@ -149,8 +196,8 @@ const studyBlockSpec: NodeSpec = {
       },
       [
         "div",
-        { class: "study-block-label", contenteditable: "false" },
-        attrs.label,
+        { class: "study-block-title", contenteditable: "false" },
+        attrs.title,
       ],
       ["div", { class: "study-block-body" }, 0],
     ];
@@ -158,6 +205,7 @@ const studyBlockSpec: NodeSpec = {
 };
 
 const nodeSpecs = baseNodeSpecs
+  .addToEnd("verse_number", verseNumberSpec)
   .addToEnd("scripture", scriptureSpec)
   .addToEnd("study_block", studyBlockSpec);
 
@@ -207,6 +255,7 @@ export const nodes = {
   bulletList: requireNode("bullet_list"),
   orderedList: requireNode("ordered_list"),
   listItem: requireNode("list_item"),
+  verseNumber: requireNode("verse_number"),
   scripture: requireNode("scripture"),
   studyBlock: requireNode("study_block"),
 } as const;

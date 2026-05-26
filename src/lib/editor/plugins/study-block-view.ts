@@ -6,17 +6,35 @@ import type {
 } from "prosemirror-view";
 
 interface StudyBlockAttrs {
-  label: string;
-  prompt: string;
+  title: string;
+  subtitle: string;
+  placeholder: string;
   lineageId: string | null;
   templateId: string | null;
 }
 
+/** Read attrs with fallbacks for legacy blocks (label→title, prompt→placeholder). */
 function readAttrs(node: Node): StudyBlockAttrs {
-  const a = node.attrs as Partial<StudyBlockAttrs>;
+  const a = node.attrs as Partial<StudyBlockAttrs> & {
+    label?: unknown;
+    prompt?: unknown;
+  };
+  const title =
+    typeof a.title === "string" && a.title !== ""
+      ? a.title
+      : typeof a.label === "string"
+        ? a.label
+        : "";
+  const placeholder =
+    typeof a.placeholder === "string" && a.placeholder !== ""
+      ? a.placeholder
+      : typeof a.prompt === "string"
+        ? a.prompt
+        : "";
   return {
-    label: typeof a.label === "string" ? a.label : "",
-    prompt: typeof a.prompt === "string" ? a.prompt : "",
+    title,
+    subtitle: typeof a.subtitle === "string" ? a.subtitle : "",
+    placeholder,
     lineageId: typeof a.lineageId === "string" ? a.lineageId : null,
     templateId: typeof a.templateId === "string" ? a.templateId : null,
   };
@@ -25,8 +43,9 @@ function readAttrs(node: Node): StudyBlockAttrs {
 /** Keep the wrapper element's data-* attributes in sync with the node attrs. */
 function syncDataAttrs(el: HTMLElement, attrs: StudyBlockAttrs): void {
   el.setAttribute("data-study-block", "true");
-  el.setAttribute("data-label", attrs.label);
-  el.setAttribute("data-prompt", attrs.prompt);
+  el.setAttribute("data-title", attrs.title);
+  el.setAttribute("data-subtitle", attrs.subtitle);
+  el.setAttribute("data-placeholder", attrs.placeholder);
   if (attrs.lineageId === null) {
     el.removeAttribute("data-lineage-id");
   } else {
@@ -40,11 +59,13 @@ function syncDataAttrs(el: HTMLElement, attrs: StudyBlockAttrs): void {
 }
 
 /**
- * Renders a `study_block` as a labeled card: a (rename-able) label + optional
- * prompt as non-editable chrome, with the user's editable content in the body
- * (`contentDOM`). Owners get an inline-editable label and a remove button;
- * read-only viewers get neither. Label edits commit on blur as a single
- * `setNodeMarkup` step (so they flow through the normal persist/broadcast path).
+ * Renders a `study_block` as a titled card: a (rename-able) title + an optional
+ * subtitle as non-editable chrome, with the user's editable content in the body
+ * (`contentDOM`). The body's empty-state placeholder is rendered by the
+ * placeholder plugin (a decoration), not here. Owners get an inline-editable
+ * title and a remove button; read-only viewers get neither. Title edits commit
+ * on blur as a single `setNodeMarkup` step (so they flow through the normal
+ * persist/broadcast path).
  */
 export class StudyBlockView implements NodeView {
   public readonly dom: HTMLElement;
@@ -54,8 +75,8 @@ export class StudyBlockView implements NodeView {
   private readonly view: EditorView;
   private readonly getPos: () => number | undefined;
   private readonly header: HTMLElement;
-  private readonly labelInput: HTMLInputElement;
-  private readonly promptEl: HTMLParagraphElement;
+  private readonly titleInput: HTMLInputElement;
+  private readonly subtitleEl: HTMLParagraphElement;
 
   constructor(
     node: Node,
@@ -75,6 +96,11 @@ export class StudyBlockView implements NodeView {
     // round-trips losslessly (without these, a re-parse drops the attrs).
     syncDataAttrs(section, attrs);
 
+    // A container-query layout: header (title + subtitle) beside the body when
+    // the block is wide, stacked above it when narrow (see globals.css).
+    const layout = document.createElement("div");
+    layout.className = "study-block-layout";
+
     const header = document.createElement("div");
     header.className = "study-block-header";
     header.contentEditable = "false";
@@ -82,21 +108,21 @@ export class StudyBlockView implements NodeView {
     const titleRow = document.createElement("div");
     titleRow.className = "study-block-titlerow";
 
-    const labelInput = document.createElement("input");
-    labelInput.className = "study-block-label";
-    labelInput.value = attrs.label;
-    labelInput.placeholder = "Block label";
-    labelInput.readOnly = !editable;
-    labelInput.addEventListener("blur", () => {
-      this.commitLabel();
+    const titleInput = document.createElement("input");
+    titleInput.className = "study-block-title";
+    titleInput.value = attrs.title;
+    titleInput.placeholder = "Block title";
+    titleInput.readOnly = !editable;
+    titleInput.addEventListener("blur", () => {
+      this.commitTitle();
     });
-    labelInput.addEventListener("keydown", (event) => {
+    titleInput.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
         event.preventDefault();
-        labelInput.blur();
+        titleInput.blur();
       }
     });
-    titleRow.appendChild(labelInput);
+    titleRow.appendChild(titleInput);
 
     if (editable) {
       const remove = document.createElement("button");
@@ -110,39 +136,40 @@ export class StudyBlockView implements NodeView {
       titleRow.appendChild(remove);
     }
 
-    const promptEl = document.createElement("p");
-    promptEl.className = "study-block-prompt";
-    promptEl.textContent = attrs.prompt;
-    promptEl.style.display = attrs.prompt ? "" : "none";
+    const subtitleEl = document.createElement("p");
+    subtitleEl.className = "study-block-subtitle";
+    subtitleEl.textContent = attrs.subtitle;
+    subtitleEl.style.display = attrs.subtitle ? "" : "none";
 
     header.appendChild(titleRow);
-    header.appendChild(promptEl);
+    header.appendChild(subtitleEl);
 
     const body = document.createElement("div");
     body.className = "study-block-body";
 
-    section.appendChild(header);
-    section.appendChild(body);
+    layout.appendChild(header);
+    layout.appendChild(body);
+    section.appendChild(layout);
 
     this.dom = section;
     this.contentDOM = body;
     this.header = header;
-    this.labelInput = labelInput;
-    this.promptEl = promptEl;
+    this.titleInput = titleInput;
+    this.subtitleEl = subtitleEl;
   }
 
-  private commitLabel(): void {
+  private commitTitle(): void {
     const pos = this.getPos();
     if (pos == null) {
       return;
     }
     const attrs = readAttrs(this.node);
-    if (this.labelInput.value === attrs.label) {
+    if (this.titleInput.value === attrs.title) {
       return;
     }
     const tr = this.view.state.tr.setNodeMarkup(pos, undefined, {
       ...this.node.attrs,
-      label: this.labelInput.value,
+      title: this.titleInput.value,
     });
     this.view.dispatch(tr);
   }
@@ -165,11 +192,11 @@ export class StudyBlockView implements NodeView {
     this.node = node;
     const attrs = readAttrs(node);
     syncDataAttrs(this.dom, attrs);
-    if (document.activeElement !== this.labelInput) {
-      this.labelInput.value = attrs.label;
+    if (document.activeElement !== this.titleInput) {
+      this.titleInput.value = attrs.title;
     }
-    this.promptEl.textContent = attrs.prompt;
-    this.promptEl.style.display = attrs.prompt ? "" : "none";
+    this.subtitleEl.textContent = attrs.subtitle;
+    this.subtitleEl.style.display = attrs.subtitle ? "" : "none";
     return true;
   }
 

@@ -14,6 +14,20 @@ export async function listGenres(): Promise<Genre[]> {
   return data;
 }
 
+/** A genre's id by its stable slug (for mapping a book's fixed genre → genre row). */
+export async function getGenreIdBySlug(slug: string): Promise<string | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("genres")
+    .select("id")
+    .eq("slug", slug)
+    .maybeSingle();
+  if (error) {
+    throw new Error(error.message);
+  }
+  return data?.id ?? null;
+}
+
 /** A single genre by id (for the admin editor). */
 export async function getGenre(genreId: string): Promise<Genre | null> {
   const supabase = await createClient();
@@ -51,11 +65,13 @@ export async function getGenreBlockTemplates(
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("genre_block_templates")
-    .select("id, genre_id, label, prompt, position, lineage_id")
+    .select(
+      "id, genre_id, title, subtitle, placeholder, default_content, position, lineage_id",
+    )
     .eq("genre_id", genreId)
     .order("position", { ascending: true });
   if (error) {
     throw new Error(error.message);
   }
-  return data;
+  return data as GenreBlockTemplate[];
 }

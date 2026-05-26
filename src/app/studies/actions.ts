@@ -9,8 +9,10 @@ import {
   specsFromBlocksDoc,
   type BlockSpec,
 } from "@/lib/editor/blocks";
-import type { PMDocJSON, SerializedStep } from "@/lib/editor/types";
+import type { PMDocJSON, PMNodeJSON, SerializedStep } from "@/lib/editor/types";
+import { getGenreIdBySlug } from "@/lib/db/genres";
 import { getScriptureProvider } from "@/lib/scripture";
+import { genreSlugForBook } from "@/lib/scripture/books";
 import { parseReference } from "@/lib/scripture/reference";
 import type { Json } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
@@ -60,12 +62,14 @@ async function seedNewSectionBlocks(
     if (study?.genre_id) {
       const { data: templates } = await supabase
         .from("genre_block_templates")
-        .select("id, label, prompt, lineage_id")
+        .select("id, title, subtitle, placeholder, default_content, lineage_id")
         .eq("genre_id", study.genre_id)
         .order("position", { ascending: true });
       specs = (templates ?? []).map((t) => ({
-        label: t.label,
-        prompt: t.prompt,
+        title: t.title,
+        subtitle: t.subtitle,
+        placeholder: t.placeholder,
+        defaultContent: t.default_content as PMNodeJSON[] | null,
         lineageId: t.lineage_id,
         templateId: t.id,
       }));
@@ -240,6 +244,33 @@ export async function addScripturePassage(
     .single();
   if (error) {
     return { ok: false, error: error.message };
+  }
+
+  // Auto-suggest the study's genre from the book's fixed genre — but only when
+  // the study has none yet, so a user's manual choice is never overridden. The
+  // first passage added thus picks the matching block template for new sections.
+  const { data: section } = await supabase
+    .from("sections")
+    .select("study_id")
+    .eq("id", sectionId)
+    .maybeSingle();
+  if (section) {
+    const { data: study } = await supabase
+      .from("studies")
+      .select("id, genre_id")
+      .eq("id", section.study_id)
+      .maybeSingle();
+    if (study?.genre_id === null) {
+      const slug = genreSlugForBook(parsed.bookOrdinal);
+      const genreId = slug ? await getGenreIdBySlug(slug) : null;
+      if (genreId) {
+        await supabase
+          .from("studies")
+          .update({ genre_id: genreId })
+          .eq("id", study.id);
+        revalidatePath(`/studies/${study.id}`);
+      }
+    }
   }
 
   return {

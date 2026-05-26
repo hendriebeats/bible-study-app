@@ -224,6 +224,111 @@ export const BOOKS: readonly BibleBook[] = [
   },
 ];
 
+/**
+ * The seven literary-genre slugs the app organizes study templates around (they
+ * match the genres seeded in the admin genre library).
+ */
+export type GenreSlug =
+  | "law"
+  | "narrative"
+  | "wisdom"
+  | "prophecy"
+  | "apocalyptic"
+  | "gospel"
+  | "epistle";
+
+/**
+ * Each canonical book's FIXED genre, keyed by ordinal. The 66 books each belong
+ * to one genre; this association is fixed (not user-chosen). A few books span
+ * categories — this follows a common Protestant classification: the Pentateuch
+ * (Genesis–Deuteronomy) is `law`, Jonah is `narrative` (a narrative about a
+ * prophet), Lamentations is `prophecy`, and Daniel + Revelation are
+ * `apocalyptic`.
+ */
+const GENRE_BY_ORDINAL: Readonly<Record<number, GenreSlug>> = {
+  // Law / Torah (1–5)
+  1: "law",
+  2: "law",
+  3: "law",
+  4: "law",
+  5: "law",
+  // Narrative / History — OT (6–17)
+  6: "narrative",
+  7: "narrative",
+  8: "narrative",
+  9: "narrative",
+  10: "narrative",
+  11: "narrative",
+  12: "narrative",
+  13: "narrative",
+  14: "narrative",
+  15: "narrative",
+  16: "narrative",
+  17: "narrative",
+  // Wisdom / Poetry (18–22)
+  18: "wisdom",
+  19: "wisdom",
+  20: "wisdom",
+  21: "wisdom",
+  22: "wisdom",
+  // Major prophets (23–26; Lamentations is 25)
+  23: "prophecy",
+  24: "prophecy",
+  25: "prophecy",
+  26: "prophecy",
+  // Daniel — apocalyptic (27)
+  27: "apocalyptic",
+  // Minor prophets (28–39), except Jonah (32) which is narrative
+  28: "prophecy",
+  29: "prophecy",
+  30: "prophecy",
+  31: "prophecy",
+  32: "narrative",
+  33: "prophecy",
+  34: "prophecy",
+  35: "prophecy",
+  36: "prophecy",
+  37: "prophecy",
+  38: "prophecy",
+  39: "prophecy",
+  // Gospels (40–43)
+  40: "gospel",
+  41: "gospel",
+  42: "gospel",
+  43: "gospel",
+  // Acts — narrative (44)
+  44: "narrative",
+  // Epistles (45–65)
+  45: "epistle",
+  46: "epistle",
+  47: "epistle",
+  48: "epistle",
+  49: "epistle",
+  50: "epistle",
+  51: "epistle",
+  52: "epistle",
+  53: "epistle",
+  54: "epistle",
+  55: "epistle",
+  56: "epistle",
+  57: "epistle",
+  58: "epistle",
+  59: "epistle",
+  60: "epistle",
+  61: "epistle",
+  62: "epistle",
+  63: "epistle",
+  64: "epistle",
+  65: "epistle",
+  // Revelation — apocalyptic (66)
+  66: "apocalyptic",
+};
+
+/** The fixed genre slug for a book ordinal (1–66), or null if out of range. */
+export function genreSlugForBook(ordinal: number): GenreSlug | null {
+  return GENRE_BY_ORDINAL[ordinal] ?? null;
+}
+
 /** Normalize a book token for matching: lowercase, strip all non-alphanumerics. */
 export function normalizeBookToken(token: string): string {
   return token.toLowerCase().replace(/[^a-z0-9]/g, "");

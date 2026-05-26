@@ -7,6 +7,8 @@ import { useState } from "react";
 import { renameSection } from "@/app/studies/actions";
 import { DocumentEditor } from "@/components/studies/document-editor";
 import { DocumentViewer } from "@/components/studies/document-viewer";
+import { EditorProvider } from "@/components/studies/editor-context";
+import { EditorToolbar } from "@/components/studies/editor-toolbar";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import type {
@@ -52,33 +54,39 @@ export function SectionSurface({
   }
 
   return (
-    <div className="flex h-full flex-col gap-4 overflow-y-auto">
-      <div className="flex items-center gap-3">
-        {isOwner ? (
-          <Input
-            value={title}
-            onChange={(event) => {
-              setTitle(event.target.value);
-            }}
-            onBlur={handleTitleBlur}
-            aria-label="Section title"
-            className="h-auto flex-1 border-0 bg-transparent px-0 text-2xl font-bold shadow-none focus-visible:ring-0"
-          />
-        ) : (
-          <h1 className="flex-1 text-2xl font-bold">{section.title}</h1>
-        )}
-        {canCompare && (
-          <Link
-            href={`/studies/${section.study_id}/compare/${section.id}`}
-            className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-sm font-medium hover:bg-muted"
-          >
-            <Columns2 className="size-4" />
-            Compare
-          </Link>
-        )}
-      </div>
+    <EditorProvider sectionId={section.id}>
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center gap-3">
+          {isOwner ? (
+            <Input
+              value={title}
+              onChange={(event) => {
+                setTitle(event.target.value);
+              }}
+              onBlur={handleTitleBlur}
+              aria-label="Section title"
+              className="h-auto flex-1 border-0 bg-transparent px-0 text-2xl font-bold shadow-none focus-visible:ring-0"
+            />
+          ) : (
+            <h1 className="flex-1 text-2xl font-bold">{section.title}</h1>
+          )}
+          {canCompare && (
+            <Link
+              href={`/studies/${section.study_id}/compare/${section.id}`}
+              className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-sm font-medium hover:bg-muted"
+            >
+              <Columns2 className="size-4" />
+              Compare
+            </Link>
+          )}
+        </div>
 
-      <div className="h-96 shrink-0">
+        {/* One sticky toolbar that formats whichever editor is focused. It pins
+            to the top of the page's scroll area once the title scrolls away. */}
+        {isOwner ? (
+          <EditorToolbar className="sticky top-0 z-20 -mx-6 border-b bg-background/95 px-6 py-2 backdrop-blur-sm" />
+        ) : null}
+
         {isOwner && notesHistory ? (
           <DocumentEditor
             document={documents.notes}
@@ -90,11 +98,9 @@ export function SectionSurface({
         ) : (
           <DocumentViewer document={documents.notes} me={me} label="Notes" />
         )}
-      </div>
 
-      <Separator />
+        <Separator />
 
-      <div className="h-72 shrink-0">
         {isOwner && blocksHistory ? (
           <DocumentEditor
             document={documents.blocks}
@@ -112,6 +118,6 @@ export function SectionSurface({
           />
         )}
       </div>
-    </div>
+    </EditorProvider>
   );
 }

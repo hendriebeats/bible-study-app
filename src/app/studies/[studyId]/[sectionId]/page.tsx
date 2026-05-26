@@ -36,8 +36,10 @@ export default async function SectionPage({
   // The study's genre default blocks, for the blocks editor's "reset to default".
   const defaultBlocks: BlockSpec[] = study?.genre_id
     ? (await getGenreBlockTemplates(study.genre_id)).map((t) => ({
-        label: t.label,
-        prompt: t.prompt,
+        title: t.title,
+        subtitle: t.subtitle,
+        placeholder: t.placeholder,
+        defaultContent: t.default_content,
         lineageId: t.lineage_id,
         templateId: t.id,
       }))
@@ -80,7 +82,7 @@ export default async function SectionPage({
   const canCompare = (await listCompareTargets(studyId)).length > 0;
 
   return (
-    <div className="mx-auto h-full w-full max-w-3xl px-6 py-8">
+    <div className="mx-auto w-full max-w-3xl px-6 py-8">
       {/* key forces a fresh surface when switching sections */}
       <SectionSurface
         key={section.id}

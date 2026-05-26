@@ -115,32 +115,38 @@ export type Database = {
       genre_block_templates: {
         Row: {
           created_at: string
+          default_content: Json | null
           genre_id: string
           id: string
-          label: string
           lineage_id: string
+          placeholder: string | null
           position: number
-          prompt: string | null
+          subtitle: string | null
+          title: string
           updated_at: string
         }
         Insert: {
           created_at?: string
+          default_content?: Json | null
           genre_id: string
           id?: string
-          label: string
           lineage_id?: string
+          placeholder?: string | null
           position?: number
-          prompt?: string | null
+          subtitle?: string | null
+          title: string
           updated_at?: string
         }
         Update: {
           created_at?: string
+          default_content?: Json | null
           genre_id?: string
           id?: string
-          label?: string
           lineage_id?: string
+          placeholder?: string | null
           position?: number
-          prompt?: string | null
+          subtitle?: string | null
+          title?: string
           updated_at?: string
         }
         Relationships: [

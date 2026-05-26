@@ -1,4 +1,4 @@
-import type { PMDocJSON, SerializedStep } from "@/lib/editor/types";
+import type { PMDocJSON, PMNodeJSON, SerializedStep } from "@/lib/editor/types";
 
 export interface Profile {
   id: string;
@@ -62,8 +62,12 @@ export interface Genre {
 export interface GenreBlockTemplate {
   id: string;
   genre_id: string;
-  label: string;
-  prompt: string | null;
+  title: string;
+  subtitle: string | null;
+  /** Suggested body text shown while the block body is empty. */
+  placeholder: string | null;
+  /** Optional rich-text body (ProseMirror block nodes) seeded into new blocks. */
+  default_content: PMNodeJSON[] | null;
   position: number;
   lineage_id: string;
 }

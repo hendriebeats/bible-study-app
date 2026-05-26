@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronDown, ChevronUp, Plus, Trash2 } from "lucide-react";
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import {
@@ -10,9 +10,11 @@ import {
   moveBlockTemplate,
   updateBlockTemplate,
 } from "@/app/admin/actions";
+import { DefaultContentEditor } from "@/components/admin/default-content-editor";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { GenreBlockTemplate } from "@/lib/db/types";
+import type { PMNodeJSON } from "@/lib/editor/types";
 
 export function BlockTemplateEditor({
   genreId,
@@ -75,15 +77,23 @@ function BlockTemplateRow({
   isFirst: boolean;
   isLast: boolean;
 }) {
-  const [label, setLabel] = useState(template.label);
-  const [prompt, setPrompt] = useState(template.prompt ?? "");
+  const [title, setTitle] = useState(template.title);
+  const [subtitle, setSubtitle] = useState(template.subtitle ?? "");
+  const [placeholder, setPlaceholder] = useState(template.placeholder ?? "");
+  const defaultContentRef = useRef<PMNodeJSON[] | null>(
+    template.default_content,
+  );
   const [pending, startTransition] = useTransition();
 
-  function save() {
-    if (label === template.label && prompt === (template.prompt ?? "")) {
-      return;
-    }
-    void updateBlockTemplate(template.id, genreId, label, prompt).catch(() => {
+  function persist() {
+    void updateBlockTemplate(
+      template.id,
+      genreId,
+      title,
+      subtitle,
+      placeholder,
+      defaultContentRef.current,
+    ).catch(() => {
       toast.error("Couldn't save this block.");
     });
   }
@@ -137,25 +147,47 @@ function BlockTemplateRow({
 
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         <Input
-          value={label}
+          value={title}
           onChange={(event) => {
-            setLabel(event.target.value);
+            setTitle(event.target.value);
           }}
-          onBlur={save}
-          aria-label="Block label"
-          placeholder="Block label (e.g. Observation)"
+          onBlur={persist}
+          aria-label="Block title"
+          placeholder="Block title (e.g. Observation)"
           className="font-medium"
         />
-        <textarea
-          value={prompt}
+        <Input
+          value={subtitle}
           onChange={(event) => {
-            setPrompt(event.target.value);
+            setSubtitle(event.target.value);
           }}
-          onBlur={save}
-          aria-label="Block prompt"
-          placeholder="Prompt or guiding question (optional)…"
+          onBlur={persist}
+          aria-label="Block subtitle"
+          placeholder="Subtitle (optional)"
+          className="text-sm"
+        />
+        <textarea
+          value={placeholder}
+          onChange={(event) => {
+            setPlaceholder(event.target.value);
+          }}
+          onBlur={persist}
+          aria-label="Body placeholder"
+          placeholder="Body placeholder — suggested text shown until the writer types (optional)…"
           className="min-h-14 w-full rounded-md border bg-transparent px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
+        <div className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-muted-foreground">
+            Default content (optional) — pre-fills the block body
+          </span>
+          <DefaultContentEditor
+            value={template.default_content}
+            onChange={(content) => {
+              defaultContentRef.current = content;
+              persist();
+            }}
+          />
+        </div>
       </div>
 
       <button

@@ -4,7 +4,6 @@ import {
   exitCode,
   toggleMark,
 } from "prosemirror-commands";
-import { redo, undo } from "prosemirror-history";
 import { keymap } from "prosemirror-keymap";
 import {
   liftListItem,
@@ -14,6 +13,12 @@ import {
 import type { Command, Plugin } from "prosemirror-state";
 
 import { marks, nodes } from "../schema";
+import {
+  verseBackspace,
+  verseDelete,
+  verseRedo,
+  verseUndo,
+} from "./verse-guard";
 
 /**
  * Keyboard bindings, highest-priority first. `undo`/`redo` drive the persistent
@@ -36,9 +41,9 @@ export function buildKeymaps(): Plugin[] {
   );
 
   const bindings: Record<string, Command> = {
-    "Mod-z": undo,
-    "Mod-y": redo,
-    "Shift-Mod-z": redo,
+    "Mod-z": verseUndo,
+    "Mod-y": verseRedo,
+    "Shift-Mod-z": verseRedo,
     "Mod-b": toggleMark(marks.strong),
     "Mod-i": toggleMark(marks.em),
     "Mod-Shift-s": toggleMark(marks.strikethrough),
@@ -47,6 +52,9 @@ export function buildKeymaps(): Plugin[] {
     Enter: splitListItem(nodes.listItem),
     Tab: sinkListItem(nodes.listItem),
     "Shift-Tab": liftListItem(nodes.listItem),
+    // Keep protected verse numbers from being backspaced/deleted away.
+    Backspace: verseBackspace,
+    Delete: verseDelete,
   };
 
   return [keymap(bindings), keymap(baseKeymap)];
