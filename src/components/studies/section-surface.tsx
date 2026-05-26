@@ -9,8 +9,10 @@ import { DocumentEditor } from "@/components/studies/document-editor";
 import { DocumentViewer } from "@/components/studies/document-viewer";
 import { EditorProvider } from "@/components/studies/editor-context";
 import { EditorToolbar } from "@/components/studies/editor-toolbar";
+import { SelectionBubble } from "@/components/studies/selection-bubble";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
+import type { FormatRecents } from "@/lib/editor/format-actions";
 import type {
   DocumentHistory,
   Section,
@@ -35,6 +37,7 @@ export function SectionSurface({
   canCompare,
   me,
   scriptureOptions,
+  formatRecents,
 }: {
   section: Section;
   documents: SectionDocuments;
@@ -45,6 +48,7 @@ export function SectionSurface({
   canCompare: boolean;
   me: { id: string; name: string } | null;
   scriptureOptions: ScriptureOptions;
+  formatRecents: FormatRecents;
 }) {
   const [title, setTitle] = useState(section.title);
 
@@ -60,6 +64,7 @@ export function SectionSurface({
       sectionId={section.id}
       sectionTitle={section.title}
       initialScriptureOptions={scriptureOptions}
+      initialFormatRecents={formatRecents}
     >
       <div className="flex flex-col gap-4">
         <div className="flex items-center gap-3">
@@ -92,6 +97,9 @@ export function SectionSurface({
         {isOwner ? (
           <EditorToolbar className="sticky top-0 z-20 -mx-6 border-b bg-background/95 px-6 py-2 backdrop-blur-sm" />
         ) : null}
+
+        {/* Minimal floating menu over a text selection (portals to body). */}
+        {isOwner ? <SelectionBubble /> : null}
 
         {isOwner && notesHistory ? (
           <DocumentEditor

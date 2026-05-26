@@ -4,7 +4,7 @@ import { SectionSurface } from "@/components/studies/section-surface";
 import { listCompareTargets } from "@/lib/db/compare";
 import { getDocumentHistory } from "@/lib/db/history";
 import { getSection, getSectionDocuments } from "@/lib/db/studies";
-import { getScriptureOptions } from "@/lib/db/user-settings";
+import { getFormatRecents, getScriptureOptions } from "@/lib/db/user-settings";
 import { createClient } from "@/lib/supabase/server";
 
 export default async function SectionPage({
@@ -76,8 +76,12 @@ export default async function SectionPage({
   // against (a co-member in one of this study's groups who has a study).
   const canCompare = (await listCompareTargets(studyId)).length > 0;
 
-  // The user's remembered scripture-insertion defaults (seed the insert panel).
-  const scriptureOptions = await getScriptureOptions();
+  // The user's remembered scripture-insertion defaults (seed the insert panel)
+  // and recently-used formatting (seed the selection bubble's quick action).
+  const [scriptureOptions, formatRecents] = await Promise.all([
+    getScriptureOptions(),
+    getFormatRecents(),
+  ]);
 
   return (
     <div className="mx-auto w-full max-w-3xl px-6 py-8">
@@ -93,6 +97,7 @@ export default async function SectionPage({
         canCompare={canCompare}
         me={me}
         scriptureOptions={scriptureOptions}
+        formatRecents={formatRecents}
       />
     </div>
   );

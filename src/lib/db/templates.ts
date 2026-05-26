@@ -13,6 +13,7 @@ export async function listAvailableCustomTemplates(): Promise<StudyTemplate[]> {
     .select(TEMPLATE_COLS)
     .eq("type", "custom")
     .eq("enabled", true)
+    .order("position", { ascending: true })
     .order("name", { ascending: true });
   if (error) {
     throw new Error(error.message);
@@ -59,7 +60,7 @@ export async function listOrgTemplates(
     .from("study_templates")
     .select(TEMPLATE_COLS)
     .eq("organization_id", orgId)
-    .order("type", { ascending: true })
+    .order("position", { ascending: true })
     .order("name", { ascending: true });
   if (error) {
     throw new Error(error.message);

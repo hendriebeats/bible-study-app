@@ -147,9 +147,15 @@ export interface StudySelection {
  * instantiate for customs; empty for blank) lives in the SECURITY DEFINER
  * `create_study_from_selection` RPC; we just derive the book's genre here.
  */
+/** Returns where to navigate; the client pushes there (avoids a NEXT_REDIRECT
+ * throw surfacing as a toast when called imperatively). */
+export type NavResult =
+  | { ok: true; path: string }
+  | { ok: false; error: string };
+
 export async function createStudyFromSelection(
   input: StudySelection,
-): Promise<void> {
+): Promise<NavResult> {
   const { supabase } = await requireUser();
 
   let genreId: string | null = null;
@@ -166,11 +172,11 @@ export async function createStudyFromSelection(
     _genre_id: genreId ?? undefined,
   });
   if (error) {
-    throw new Error(error.message);
+    return { ok: false, error: error.message };
   }
 
   revalidatePath("/dashboard");
-  redirect(`/studies/${data}`);
+  return { ok: true, path: `/studies/${data}` };
 }
 
 export async function createSection(studyId: string): Promise<void> {

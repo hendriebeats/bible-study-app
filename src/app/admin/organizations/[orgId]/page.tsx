@@ -47,9 +47,9 @@ export default async function AdminOrgReviewPage({
       </div>
 
       <dl className="grid gap-4 rounded-lg border p-4 sm:grid-cols-2">
-        <Field label="Official name" value={org.verification_official_name} />
-        <Field label="Website" value={org.verification_website} />
-        <Field label="Contact email" value={org.verification_contact_email} />
+        <Field label="Name" value={org.name} />
+        <Field label="Website" value={org.website} />
+        <Field label="Contact email" value={org.contact_email} />
         <Field label="Address" value={place || null} />
         <div className="sm:col-span-2">
           <Field label="Note" value={org.verification_note} />

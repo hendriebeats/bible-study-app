@@ -294,4 +294,13 @@
   .divine-name {
     font-variant: small-caps;
   }
+  /* Highlight + text colour marks. The colour itself rides in an inline style
+     (the doc stores a literal so it renders the same in the editor, the
+     read-only viewer, and history previews); these rules are just the shared
+     chrome. `mark` has a default UA background we override via the inline style. */
+  .ProseMirror mark[data-highlight] {
+    border-radius: 2px;
+    padding: 0 1px;
+    color: inherit;
+  }
 }

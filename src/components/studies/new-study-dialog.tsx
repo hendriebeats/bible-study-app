@@ -1,6 +1,7 @@
 "use client";
 
 import { Plus, Search } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
 
@@ -20,13 +21,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { OrgBookContext } from "@/lib/db/templates";
 import type { StudyTemplate } from "@/lib/db/types";
-import { BOOKS } from "@/lib/scripture/books";
+import {
+  NEW_TESTAMENT_BOOKS,
+  OLD_TESTAMENT_BOOKS,
+  type BibleBook,
+} from "@/lib/scripture/books";
 import { cn } from "@/lib/utils";
 
 type Tab = "book" | "custom" | "blank";
-
-const OLD_TESTAMENT = BOOKS.filter((b) => b.ordinal <= 39);
-const NEW_TESTAMENT = BOOKS.filter((b) => b.ordinal >= 40);
 
 export function NewStudyDialog({
   customTemplates,
@@ -42,6 +44,7 @@ export function NewStudyDialog({
   const [templateId, setTemplateId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [pending, startTransition] = useTransition();
+  const router = useRouter();
 
   const overridden = new Set(orgContext.overriddenOrdinals);
   const disabled = new Set(orgContext.disabledOrdinals);
@@ -59,11 +62,14 @@ export function NewStudyDialog({
     return null;
   }
 
-  const { ot, nt } = useMemo(() => {
+  const { nt, ot } = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const match = (list: typeof BOOKS) =>
+    const match = (list: readonly BibleBook[]) =>
       q === "" ? list : list.filter((b) => b.name.toLowerCase().includes(q));
-    return { ot: match(OLD_TESTAMENT), nt: match(NEW_TESTAMENT) };
+    return {
+      nt: match(NEW_TESTAMENT_BOOKS),
+      ot: match(OLD_TESTAMENT_BOOKS),
+    };
   }, [query]);
 
   const canCreate =
@@ -90,10 +96,12 @@ export function NewStudyDialog({
         title: name.trim(),
         bookOrdinal: tab === "book" ? (bookOrdinal ?? undefined) : undefined,
         templateId: tab === "custom" ? (templateId ?? undefined) : undefined,
-      }).catch((error: unknown) => {
-        toast.error(
-          error instanceof Error ? error.message : "Couldn't create the study.",
-        );
+      }).then((result) => {
+        if (result.ok) {
+          router.push(result.path);
+        } else {
+          toast.error(result.error);
+        }
       });
     });
   }
@@ -160,8 +168,8 @@ export function NewStudyDialog({
               </div>
               <div className="max-h-56 overflow-auto rounded-md border">
                 {[
-                  { label: "Old Testament", books: ot },
                   { label: "New Testament", books: nt },
+                  { label: "Old Testament", books: ot },
                 ].map((group) =>
                   group.books.length === 0 ? null : (
                     <div key={group.label}>

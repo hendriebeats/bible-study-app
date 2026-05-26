@@ -94,6 +94,19 @@ export default async function OrganizationsPage() {
           {place ? (
             <p className="mt-1 text-xs text-muted-foreground">{place}</p>
           ) : null}
+          <div className="mt-1 flex flex-wrap gap-x-3 text-xs text-muted-foreground">
+            {org.website ? (
+              <a
+                href={org.website}
+                target="_blank"
+                rel="noreferrer"
+                className="hover:text-foreground hover:underline"
+              >
+                {org.website.replace(/^https?:\/\//, "")}
+              </a>
+            ) : null}
+            {org.contact_email ? <span>{org.contact_email}</span> : null}
+          </div>
         </div>
       </div>
 

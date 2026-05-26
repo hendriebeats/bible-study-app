@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
@@ -12,6 +13,7 @@ export function NewAppTemplateForm({ genres }: { genres: Genre[] }) {
   const [name, setName] = useState("");
   const [genreId, setGenreId] = useState("");
   const [pending, startTransition] = useTransition();
+  const router = useRouter();
 
   return (
     <form
@@ -26,12 +28,12 @@ export function NewAppTemplateForm({ genres }: { genres: Genre[] }) {
           void createAppCustomTemplate(
             clean,
             genreId === "" ? null : genreId,
-          ).catch((error: unknown) => {
-            toast.error(
-              error instanceof Error
-                ? error.message
-                : "Couldn't create the template.",
-            );
+          ).then((result) => {
+            if (result.ok) {
+              router.push(result.path);
+            } else {
+              toast.error(result.error);
+            }
           });
         });
       }}

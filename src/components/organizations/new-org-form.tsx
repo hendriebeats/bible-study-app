@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
@@ -12,6 +13,7 @@ export function NewOrgForm() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [pending, startTransition] = useTransition();
+  const router = useRouter();
 
   return (
     <form
@@ -25,15 +27,13 @@ export function NewOrgForm() {
           return;
         }
         startTransition(() => {
-          void createOrganization(cleanName, cleanDesc).catch(
-            (error: unknown) => {
-              toast.error(
-                error instanceof Error
-                  ? error.message
-                  : "Couldn't create the organization.",
-              );
-            },
-          );
+          void createOrganization(cleanName, cleanDesc).then((result) => {
+            if (result.ok) {
+              router.push(result.path);
+            } else {
+              toast.error(result.error);
+            }
+          });
         });
       }}
     >

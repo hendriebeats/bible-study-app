@@ -4,6 +4,10 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import {
+  type FormatRecents,
+  normalizeFormatRecents,
+} from "@/lib/editor/format-actions";
+import {
   normalizeScriptureOptions,
   type ScriptureOptions,
 } from "@/lib/scripture/options";
@@ -168,6 +172,28 @@ export async function saveScriptureOptions(
     .from("user_settings")
     .upsert(
       { user_id: userId, scripture_options: clean as unknown as Json },
+      { onConflict: "user_id" },
+    );
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+  return { ok: true };
+}
+
+/**
+ * Persist the user's recently-used formatting actions (the selection bubble's
+ * quick action). Normalizes first (trust boundary + palette allow-list) before
+ * upserting their single settings row.
+ */
+export async function saveFormatRecents(
+  recents: FormatRecents,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { supabase, userId } = await requireUser();
+  const clean = normalizeFormatRecents(recents);
+  const { error } = await supabase
+    .from("user_settings")
+    .upsert(
+      { user_id: userId, format_recents: clean as unknown as Json },
       { onConflict: "user_id" },
     );
   if (error) {

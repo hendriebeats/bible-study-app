@@ -224,6 +224,20 @@ export const BOOKS: readonly BibleBook[] = [
   },
 ];
 
+/** Books 40–66, sorted alphabetically by name (for grouped pickers). */
+export const NEW_TESTAMENT_BOOKS: readonly BibleBook[] = BOOKS.filter(
+  (b) => b.ordinal >= 40,
+)
+  .slice()
+  .sort((a, b) => a.name.localeCompare(b.name));
+
+/** Books 1–39, sorted alphabetically by name (for grouped pickers). */
+export const OLD_TESTAMENT_BOOKS: readonly BibleBook[] = BOOKS.filter(
+  (b) => b.ordinal <= 39,
+)
+  .slice()
+  .sort((a, b) => a.name.localeCompare(b.name));
+
 /**
  * The seven literary-genre slugs the app organizes study templates around (they
  * match the genres seeded in the admin genre library).

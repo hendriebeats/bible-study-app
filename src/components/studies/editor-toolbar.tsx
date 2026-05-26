@@ -18,6 +18,7 @@ import type { LucideIcon } from "lucide-react";
 import type { Command } from "prosemirror-state";
 import { useState } from "react";
 
+import { ColorControl } from "@/components/studies/color-control";
 import { useEditorContext } from "@/components/studies/editor-context";
 import { ScriptureInsertPanel } from "@/components/studies/scripture-insert-panel";
 import { Button } from "@/components/ui/button";
@@ -160,6 +161,9 @@ export function EditorToolbar({ className }: { className?: string }) {
             ))}
           </div>
         ))}
+        <Separator orientation="vertical" className="mx-1 h-6" />
+        <ColorControl kind="highlight" size="icon" />
+        <ColorControl kind="text" size="icon" />
         <Separator orientation="vertical" className="mx-1 h-6" />
         <Button
           type="button"

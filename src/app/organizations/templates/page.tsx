@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { OrgTemplateManager } from "@/components/organizations/org-template-manager";
-import { TemplateLibraryControls } from "@/components/organizations/template-library-controls";
+import { OrgBooksManager } from "@/components/organizations/org-books-manager";
+import { OrgCustomTemplates } from "@/components/organizations/org-custom-templates";
 import {
   Card,
   CardContent,
@@ -29,11 +29,18 @@ export default async function OrgTemplatesPage() {
   }
   const orgId = membership.organizationId;
 
-  const [ctx, templates, genres] = await Promise.all([
-    getOrgBookContext(),
+  const [orgTemplates, genres, ctx] = await Promise.all([
     listOrgTemplates(orgId),
     listGenres(),
+    getOrgBookContext(),
   ]);
+
+  const customTemplates = orgTemplates.filter((t) => t.type === "custom");
+  const overrides = orgTemplates.flatMap((t) =>
+    t.type === "book" && t.book_ordinal !== null
+      ? [{ ordinal: t.book_ordinal, templateStudyId: t.template_study_id }]
+      : [],
+  );
 
   return (
     <div className="grid gap-6">
@@ -46,43 +53,40 @@ export default async function OrgTemplatesPage() {
         </Link>
         <h1 className="mt-2 text-2xl font-bold tracking-tight">Templates</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Shape what your members get when they create a study. Editing a
-          template affects future studies only.
+          Choose what your members start from when they create a study. Editing
+          a template only affects studies created afterward.
         </p>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Your templates</CardTitle>
+          <CardTitle>Books</CardTitle>
           <CardDescription>
-            Custom templates and per-book overrides. Open one to edit it in the
-            normal editor.
+            Each book is <strong>Default</strong> (the app template),{" "}
+            <strong>Override</strong> (your own), or <strong>Disabled</strong>{" "}
+            (members get a plain genre starter).
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <OrgTemplateManager
-            templates={templates}
-            genres={genres}
-            overriddenOrdinals={ctx.overriddenOrdinals}
+          <OrgBooksManager
+            orgId={orgId}
+            usesDefaults={ctx.usesDefaults}
+            overrides={overrides}
+            disabledOrdinals={ctx.disabledOrdinals}
           />
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Default library</CardTitle>
+          <CardTitle>Custom templates</CardTitle>
           <CardDescription>
-            Control whether members can use the app&rsquo;s default book
-            templates.
+            Templates not tied to a book. The order here is the order members
+            see in the create dialog.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <TemplateLibraryControls
-            orgId={orgId}
-            usesDefaults={ctx.usesDefaults}
-            disabledOrdinals={ctx.disabledOrdinals}
-            overriddenOrdinals={ctx.overriddenOrdinals}
-          />
+          <OrgCustomTemplates templates={customTemplates} genres={genres} />
         </CardContent>
       </Card>
     </div>

@@ -1,4 +1,9 @@
 import {
+  DEFAULT_FORMAT_RECENTS,
+  type FormatRecents,
+  normalizeFormatRecents,
+} from "@/lib/editor/format-actions";
+import {
   DEFAULT_SCRIPTURE_OPTIONS,
   normalizeScriptureOptions,
   type ScriptureOptions,
@@ -26,5 +31,29 @@ export async function getScriptureOptions(): Promise<ScriptureOptions> {
     .maybeSingle();
   return normalizeScriptureOptions(
     data?.scripture_options as Partial<ScriptureOptions> | null,
+  );
+}
+
+/**
+ * The current user's recently-used formatting actions (the bubble's quick
+ * action). Falls back to {@link DEFAULT_FORMAT_RECENTS} when the user is
+ * unauthenticated, has no settings row, or the stored jsonb is an older/partial
+ * shape — and drops any entry whose colour isn't an allow-listed palette value.
+ */
+export async function getFormatRecents(): Promise<FormatRecents> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return DEFAULT_FORMAT_RECENTS;
+  }
+  const { data } = await supabase
+    .from("user_settings")
+    .select("format_recents")
+    .eq("user_id", user.id)
+    .maybeSingle();
+  return normalizeFormatRecents(
+    data?.format_recents as { actions?: unknown } | null,
   );
 }

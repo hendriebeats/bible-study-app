@@ -88,41 +88,6 @@ export type Database = {
           },
         ]
       }
-      document_highlights: {
-        Row: {
-          created_at: string
-          document_id: string
-          id: string
-          ranges: Json
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          created_at?: string
-          document_id: string
-          id?: string
-          ranges?: Json
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          created_at?: string
-          document_id?: string
-          id?: string
-          ranges?: Json
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "document_highlights_document_id_fkey"
-            columns: ["document_id"]
-            isOneToOne: false
-            referencedRelation: "documents"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       documents: {
         Row: {
           content: Json
@@ -590,6 +555,7 @@ export type Database = {
       organizations: {
         Row: {
           city: string | null
+          contact_email: string | null
           country: string | null
           created_at: string
           created_by: string | null
@@ -601,18 +567,17 @@ export type Database = {
           region: string | null
           updated_at: string
           use_default_template_library: boolean
-          verification_contact_email: string | null
           verification_note: string | null
-          verification_official_name: string | null
           verification_reject_reason: string | null
           verification_reviewed_at: string | null
           verification_reviewed_by: string | null
           verification_status: Database["public"]["Enums"]["org_verification_status"]
-          verification_website: string | null
           visibility: Database["public"]["Enums"]["org_visibility"]
+          website: string | null
         }
         Insert: {
           city?: string | null
+          contact_email?: string | null
           country?: string | null
           created_at?: string
           created_by?: string | null
@@ -624,18 +589,17 @@ export type Database = {
           region?: string | null
           updated_at?: string
           use_default_template_library?: boolean
-          verification_contact_email?: string | null
           verification_note?: string | null
-          verification_official_name?: string | null
           verification_reject_reason?: string | null
           verification_reviewed_at?: string | null
           verification_reviewed_by?: string | null
           verification_status?: Database["public"]["Enums"]["org_verification_status"]
-          verification_website?: string | null
           visibility?: Database["public"]["Enums"]["org_visibility"]
+          website?: string | null
         }
         Update: {
           city?: string | null
+          contact_email?: string | null
           country?: string | null
           created_at?: string
           created_by?: string | null
@@ -647,15 +611,13 @@ export type Database = {
           region?: string | null
           updated_at?: string
           use_default_template_library?: boolean
-          verification_contact_email?: string | null
           verification_note?: string | null
-          verification_official_name?: string | null
           verification_reject_reason?: string | null
           verification_reviewed_at?: string | null
           verification_reviewed_by?: string | null
           verification_status?: Database["public"]["Enums"]["org_verification_status"]
-          verification_website?: string | null
           visibility?: Database["public"]["Enums"]["org_visibility"]
+          website?: string | null
         }
         Relationships: []
       }
@@ -1092,16 +1054,19 @@ export type Database = {
       }
       user_settings: {
         Row: {
+          format_recents: Json
           scripture_options: Json
           updated_at: string
           user_id: string
         }
         Insert: {
+          format_recents?: Json
           scripture_options?: Json
           updated_at?: string
           user_id: string
         }
         Update: {
+          format_recents?: Json
           scripture_options?: Json
           updated_at?: string
           user_id?: string
@@ -1311,15 +1276,7 @@ export type Database = {
       shares_org_with_user: { Args: { _user_id: string }; Returns: boolean }
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
-      submit_org_verification: {
-        Args: {
-          _contact_email: string
-          _note: string
-          _official_name: string
-          _website: string
-        }
-        Returns: undefined
-      }
+      submit_org_verification: { Args: { _note?: string }; Returns: undefined }
     }
     Enums: {
       document_kind: "notes" | "blocks"

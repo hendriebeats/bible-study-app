@@ -69,17 +69,17 @@ export async function rejectOrgVerification(
 export async function createAppCustomTemplate(
   name: string,
   genreId: string | null,
-): Promise<void> {
+): Promise<{ ok: true; path: string } | { ok: false; error: string }> {
   const { supabase } = await requireAdmin();
   const { data, error } = await supabase.rpc("create_app_custom_template", {
     _name: name,
     _genre_id: genreId ?? undefined,
   });
   if (error) {
-    throw new Error(error.message);
+    return { ok: false, error: error.message };
   }
   revalidatePath("/admin/templates");
-  redirect(`/studies/${data}`);
+  return { ok: true, path: `/studies/${data}` };
 }
 
 /** Delete a template by its backing study (cascades the registry row). */
@@ -93,6 +93,33 @@ export async function deleteTemplate(
     .eq("id", templateStudyId);
   if (error) {
     return { ok: false, error: error.message };
+  }
+  revalidatePath("/admin/templates");
+  return { ok: true };
+}
+
+/** Rename/describe an app template (updates the registry + backing study title). */
+export async function updateAppTemplateMeta(
+  templateId: string,
+  templateStudyId: string,
+  name: string,
+  description: string,
+): Promise<ActionResult> {
+  const { supabase } = await requireAdmin();
+  const clean = name.trim() || "Template";
+  const { error } = await supabase
+    .from("study_templates")
+    .update({ name: clean, description: description.trim() || null })
+    .eq("id", templateId);
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+  const { error: titleError } = await supabase
+    .from("studies")
+    .update({ title: clean })
+    .eq("id", templateStudyId);
+  if (titleError) {
+    return { ok: false, error: titleError.message };
   }
   revalidatePath("/admin/templates");
   return { ok: true };

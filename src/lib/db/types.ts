@@ -89,12 +89,11 @@ export interface Organization {
   city: string | null;
   region: string | null;
   country: string | null;
+  website: string | null;
+  contact_email: string | null;
   visibility: OrgVisibility;
   join_policy: OrgJoinPolicy;
   verification_status: OrgVerificationStatus;
-  verification_official_name: string | null;
-  verification_website: string | null;
-  verification_contact_email: string | null;
   verification_note: string | null;
   verification_reviewed_at: string | null;
   verification_reject_reason: string | null;

@@ -44,11 +44,36 @@ const baseNodeSpecs = addListNodes(
 );
 
 /**
- * Verse number: an inline ATOM rendered as a `<sup>` superscript. It carries
- * just the printed marker (`n`, e.g. "1" or "3:16") and no editable content, so
- * it can't be typed into. The verse-guard plugin keeps it from being deleted and
- * makes it "stick" to the following word; `selectable: false` stops it being
- * click/drag-selected on its own.
+ * Attributes carried by a {@link verseNumberSpec} node. `n` is the printed
+ * marker text exactly as ESV emits it ("1" or "3:16") — the fallback label and
+ * what lands on the clipboard. `book`/`chapter`/`verse` are the structured
+ * location (book ordinal 1–66 + chapter/verse numbers) stamped at insertion
+ * time; they power the contextual `chapter:verse` display and the BibleHub link.
+ * All three are `null` on markers inserted before this was added (back-compat).
+ */
+export interface VerseNumberAttrs {
+  n: string;
+  book: number | null;
+  chapter: number | null;
+  verse: number | null;
+}
+
+/** Parse a numeric DOM attribute, returning null when absent or non-numeric. */
+function numAttr(dom: HTMLElement, name: string): number | null {
+  const raw = dom.getAttribute(name);
+  if (raw == null || raw === "") return null;
+  const value = Number.parseInt(raw, 10);
+  return Number.isFinite(value) ? value : null;
+}
+
+/**
+ * Verse number: an inline ATOM rendered as a `<sup>` superscript. It carries the
+ * printed marker (`n`) plus its structured `book`/`chapter`/`verse` location and
+ * no editable content, so it can't be typed into. The verse-guard plugin keeps
+ * it from being deleted and makes it "stick" to the following word;
+ * `selectable: false` stops it being click/drag-selected on its own. The live
+ * label (e.g. `3:20` for a chapter's first verse) is computed by the verse-label
+ * decoration plugin + VerseNumberView, not stored here.
  */
 const verseNumberSpec: NodeSpec = {
   group: "inline",
@@ -57,20 +82,36 @@ const verseNumberSpec: NodeSpec = {
   selectable: false,
   attrs: {
     n: { default: "" },
+    book: { default: null },
+    chapter: { default: null },
+    verse: { default: null },
   },
   parseDOM: [
     {
       tag: "sup.scripture-verse",
       getAttrs(dom) {
         if (typeof dom === "string") return null;
-        return { n: dom.getAttribute("data-verse") ?? "" };
+        return {
+          n: dom.getAttribute("data-verse") ?? "",
+          book: numAttr(dom, "data-book"),
+          chapter: numAttr(dom, "data-chapter"),
+          verse: numAttr(dom, "data-vn"),
+        };
       },
     },
   ],
   toDOM(node) {
-    const attr = (node.attrs as { n: string }).n;
-    const n = typeof attr === "string" ? attr : "";
-    return ["sup", { class: "scripture-verse", "data-verse": n }, n];
+    const attrs = node.attrs as VerseNumberAttrs;
+    const label =
+      attrs.n !== "" ? attrs.n : attrs.verse != null ? String(attrs.verse) : "";
+    const out: Record<string, string> = {
+      class: "scripture-verse",
+      "data-verse": label,
+    };
+    if (attrs.book != null) out["data-book"] = String(attrs.book);
+    if (attrs.chapter != null) out["data-chapter"] = String(attrs.chapter);
+    if (attrs.verse != null) out["data-vn"] = String(attrs.verse);
+    return ["sup", out, label];
   },
 };
 
@@ -228,6 +269,64 @@ const markSpecs = basicSchema.spec.marks
     toDOM() {
       return ["span", { class: "divine-name" }, 0];
     },
+  })
+  // Highlight (background) + text colour. Shared document formatting (they ride
+  // the step log / version history like any other mark). The colour is a raw
+  // value (an oklch() literal from format-colors.ts) baked into the inline
+  // `style`, so the doc renders identically in the editor, the read-only viewer,
+  // and history previews — none of which carry app/theme context. `inclusive:
+  // false` stops the colour bleeding onto text typed right after the run.
+  // Only palette values ever reach `color` (the command + normalizer enforce
+  // the allow-list), which is also what keeps the inline style injection-safe.
+  .addToEnd("highlight", {
+    attrs: { color: { default: "" } },
+    inclusive: false,
+    parseDOM: [
+      {
+        tag: "mark[data-highlight]",
+        getAttrs(dom) {
+          if (typeof dom === "string") return null;
+          return { color: dom.getAttribute("data-color") ?? "" };
+        },
+      },
+    ],
+    toDOM(mark) {
+      const color = (mark.attrs as { color: string }).color;
+      return [
+        "mark",
+        {
+          "data-highlight": "true",
+          "data-color": color,
+          style: `background-color:${color}`,
+        },
+        0,
+      ];
+    },
+  })
+  .addToEnd("text_color", {
+    attrs: { color: { default: "" } },
+    inclusive: false,
+    parseDOM: [
+      {
+        tag: "span[data-text-color]",
+        getAttrs(dom) {
+          if (typeof dom === "string") return null;
+          return { color: dom.getAttribute("data-color") ?? "" };
+        },
+      },
+    ],
+    toDOM(mark) {
+      const color = (mark.attrs as { color: string }).color;
+      return [
+        "span",
+        {
+          "data-text-color": "true",
+          "data-color": color,
+          style: `color:${color}`,
+        },
+        0,
+      ];
+    },
   });
 
 export const schema = new Schema({ nodes: nodeSpecs, marks: markSpecs });
@@ -276,4 +375,6 @@ export const marks = {
   code: requireMark("code"),
   strikethrough: requireMark("strikethrough"),
   smallCaps: requireMark("small_caps"),
+  highlight: requireMark("highlight"),
+  textColor: requireMark("text_color"),
 } as const;

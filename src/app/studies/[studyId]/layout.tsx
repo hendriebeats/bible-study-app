@@ -1,3 +1,5 @@
+import { Layers } from "lucide-react";
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import type { ReactNode } from "react";
 
@@ -59,11 +61,24 @@ export default async function StudyLayout({
       />
       <div className="flex-1 overflow-auto">
         {isTemplate ? (
-          <div className="border-b border-primary/20 bg-primary/5 px-6 py-2 text-sm text-muted-foreground">
-            You&rsquo;re editing the{" "}
-            {study.is_app_template ? "app default" : "organization"} template{" "}
-            <span className="font-medium text-foreground">{study.title}</span> —
-            changes affect future studies only.
+          <div className="flex items-center gap-3 border-b border-primary/30 bg-primary/10 px-6 py-2.5 text-sm">
+            <Layers className="size-4 shrink-0 text-primary" />
+            <span className="min-w-0 flex-1">
+              You&rsquo;re editing the{" "}
+              {study.is_app_template ? "app default" : "organization"} template{" "}
+              <span className="font-medium">{study.title}</span>. Changes apply
+              to future studies only.
+            </span>
+            <Link
+              href={
+                study.is_app_template
+                  ? "/admin/templates"
+                  : "/organizations/templates"
+              }
+              className="shrink-0 font-medium text-primary hover:underline"
+            >
+              ← Back to templates
+            </Link>
           </div>
         ) : null}
         {children}

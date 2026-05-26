@@ -8,16 +8,49 @@ import {
   type ReactNode,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
 
+import { saveFormatRecents } from "@/app/account/actions";
 import { addScripturePassage } from "@/app/studies/actions";
+import {
+  setHighlight,
+  setTextColor,
+  toggleBold,
+  toggleItalic,
+  toggleStrike,
+} from "@/lib/editor/commands";
+import {
+  type FormatAction,
+  type FormatRecents,
+  pushRecent,
+} from "@/lib/editor/format-actions";
 import { scriptureParagraphsToNodes } from "@/lib/editor/scripture-insert";
 import { jsonToDoc } from "@/lib/editor/serialize";
 import type { ScriptureOptions } from "@/lib/scripture/options";
 import { parseReference } from "@/lib/scripture/reference";
+
+/** Map a recents entry to the ProseMirror command that performs it. */
+function commandForAction(action: FormatAction): Command {
+  switch (action.type) {
+    case "highlight":
+      return setHighlight(action.color);
+    case "textColor":
+      return setTextColor(action.color);
+    case "bold":
+      return toggleBold;
+    case "italic":
+      return toggleItalic;
+    case "strike":
+      return toggleStrike;
+  }
+}
+
+/** Debounce window before persisting recents to the user's account. */
+const RECENTS_SAVE_DELAY_MS = 800;
 
 export type EditorRole = "notes" | "blocks";
 
@@ -44,6 +77,10 @@ interface EditorContextValue {
   scriptureOptions: ScriptureOptions;
   /** The section title when it's itself a valid reference, else "" (for prefill). */
   prefillReference: string;
+  /** Recently-used formatting actions (most-recent first) for the bubble's quick action. */
+  formatRecents: FormatAction[];
+  /** Run a formatting action on the active editor AND bump it to the front of recents. */
+  runFormatAction: (action: FormatAction) => void;
 }
 
 const EditorContext = createContext<EditorContextValue | null>(null);
@@ -62,11 +99,13 @@ export function EditorProvider({
   sectionId,
   sectionTitle,
   initialScriptureOptions,
+  initialFormatRecents,
   children,
 }: {
   sectionId: string;
   sectionTitle: string;
   initialScriptureOptions: ScriptureOptions;
+  initialFormatRecents: FormatRecents;
   children: ReactNode;
 }) {
   const [activeView, setActiveView] = useState<EditorView | null>(null);
@@ -127,6 +166,44 @@ export function EditorProvider({
     view.focus();
   }, []);
 
+  // Recently-used formatting (the bubble's quick action). Optimistic local
+  // state for instant swatch feedback; a debounced upsert persists it to the
+  // account. The ref always holds the latest list so the debounced/unmount save
+  // sends the freshest value regardless of React's batching.
+  const [formatRecents, setFormatRecents] = useState<FormatAction[]>(
+    initialFormatRecents.actions,
+  );
+  const recentsRef = useRef<FormatAction[]>(initialFormatRecents.actions);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const runFormatAction = useCallback(
+    (action: FormatAction) => {
+      runCommand(commandForAction(action));
+      const next = pushRecent(recentsRef.current, action);
+      recentsRef.current = next;
+      setFormatRecents(next);
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+      }
+      saveTimerRef.current = setTimeout(() => {
+        saveTimerRef.current = null;
+        void saveFormatRecents({ actions: recentsRef.current });
+      }, RECENTS_SAVE_DELAY_MS);
+    },
+    [runCommand],
+  );
+
+  // Flush a pending recents save when the surface unmounts (e.g. navigating
+  // sections) so the last change isn't lost.
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+        void saveFormatRecents({ actions: recentsRef.current });
+      }
+    };
+  }, []);
+
   const insertScripture = useCallback(
     async (
       reference: string,
@@ -174,6 +251,8 @@ export function EditorProvider({
       insertScripture,
       scriptureOptions: initialScriptureOptions,
       prefillReference,
+      formatRecents,
+      runFormatAction,
     }),
     [
       activeView,
@@ -185,6 +264,8 @@ export function EditorProvider({
       insertScripture,
       initialScriptureOptions,
       prefillReference,
+      formatRecents,
+      runFormatAction,
     ],
   );
 

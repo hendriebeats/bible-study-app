@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
-import { BookOpen, FileText, Layers } from "lucide-react";
+import { BookOpen, Layers } from "lucide-react";
 import Link from "next/link";
 
 import { NewAppTemplateForm } from "@/components/admin/new-app-template-form";
 import { DeleteTemplateButton } from "@/components/templates/delete-template-button";
+import { TemplateMetaEditor } from "@/components/templates/template-meta-editor";
 import { listGenres } from "@/lib/db/genres";
 import {
   listAppBookTemplates,
@@ -75,23 +76,30 @@ export default async function AdminTemplatesPage() {
             No custom templates yet.
           </p>
         ) : (
-          <ul className="grid gap-1">
+          <ul className="grid gap-2">
             {customTemplates.map((t) => (
-              <li
-                key={t.id}
-                className="flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm"
-              >
-                <FileText className="size-4 shrink-0 text-muted-foreground" />
-                <Link
-                  href={`/studies/${t.template_study_id}`}
-                  className="min-w-0 flex-1 truncate hover:underline"
-                >
-                  {t.name}
-                </Link>
-                <DeleteTemplateButton
+              <li key={t.id} className="grid gap-2 rounded-md border p-3">
+                <TemplateMetaEditor
+                  templateId={t.id}
                   templateStudyId={t.template_study_id}
+                  name={t.name}
+                  description={t.description}
                   scope="app"
                 />
+                <div className="flex items-center gap-3 text-sm">
+                  <Link
+                    href={`/studies/${t.template_study_id}`}
+                    className="text-primary hover:underline"
+                  >
+                    Open in editor
+                  </Link>
+                  <span className="ml-auto">
+                    <DeleteTemplateButton
+                      templateStudyId={t.template_study_id}
+                      scope="app"
+                    />
+                  </span>
+                </div>
               </li>
             ))}
           </ul>

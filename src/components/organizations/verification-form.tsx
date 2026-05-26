@@ -6,23 +6,16 @@ import { toast } from "sonner";
 import { submitOrgVerification } from "@/app/organizations/actions";
 import { OrgStatusBadge } from "@/components/organizations/org-status-badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { Organization } from "@/lib/db/types";
 
 export function VerificationForm({ org }: { org: Organization }) {
-  const [officialName, setOfficialName] = useState(
-    org.verification_official_name ?? "",
-  );
-  const [website, setWebsite] = useState(org.verification_website ?? "");
-  const [contactEmail, setContactEmail] = useState(
-    org.verification_contact_email ?? "",
-  );
   const [note, setNote] = useState(org.verification_note ?? "");
   const [pending, startTransition] = useTransition();
 
   const isPending = org.verification_status === "pending";
   const isVerified = org.verification_status === "verified";
+  const missingContact = !org.contact_email?.trim();
 
   return (
     <div className="grid gap-4">
@@ -39,24 +32,15 @@ export function VerificationForm({ org }: { org: Organization }) {
 
       {isVerified ? (
         <p className="text-sm text-muted-foreground">
-          Your organization is verified. You can list it publicly in settings.
+          Your organization is verified. You can list it publicly above.
         </p>
       ) : (
         <form
           className="grid gap-4"
           onSubmit={(event) => {
             event.preventDefault();
-            if (officialName.trim() === "" || contactEmail.trim() === "") {
-              toast.error("Official name and contact email are required.");
-              return;
-            }
             startTransition(() => {
-              void submitOrgVerification({
-                officialName,
-                website,
-                contactEmail,
-                note,
-              }).then((result) => {
+              void submitOrgVerification(note).then((result) => {
                 if (result.ok) {
                   toast.success("Submitted for review.");
                 } else {
@@ -67,44 +51,18 @@ export function VerificationForm({ org }: { org: Organization }) {
           }}
         >
           <p className="text-sm text-muted-foreground">
-            Submit your organization&apos;s details for review by our team.
+            We&rsquo;ll submit your profile — name, address, website, and
+            contact email — for review.
             {isPending
-              ? " Your submission is being reviewed — you can update and resubmit."
-              : ""}
+              ? " Your submission is being reviewed; you can add a note and resubmit."
+              : " Make sure those are filled in the Profile section above."}
           </p>
-          <div className="grid gap-2">
-            <Label htmlFor="v-name">Official name</Label>
-            <Input
-              id="v-name"
-              value={officialName}
-              onChange={(event) => {
-                setOfficialName(event.target.value);
-              }}
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="v-website">Website</Label>
-            <Input
-              id="v-website"
-              type="url"
-              placeholder="https://"
-              value={website}
-              onChange={(event) => {
-                setWebsite(event.target.value);
-              }}
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="v-email">Contact email</Label>
-            <Input
-              id="v-email"
-              type="email"
-              value={contactEmail}
-              onChange={(event) => {
-                setContactEmail(event.target.value);
-              }}
-            />
-          </div>
+          {missingContact ? (
+            <p className="rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
+              Tip: add a contact email to your profile so reviewers can reach
+              you.
+            </p>
+          ) : null}
           <div className="grid gap-2">
             <Label htmlFor="v-note">Anything else? (optional)</Label>
             <textarea

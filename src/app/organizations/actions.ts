@@ -10,6 +10,15 @@ import { getSiteURL } from "@/lib/url";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
+/**
+ * For actions that previously redirected: return the destination so the client
+ * navigates with the router. (A server-side redirect() throws NEXT_REDIRECT,
+ * which an imperative `.catch` would surface as a spurious "NEXT_REDIRECT" toast.)
+ */
+export type NavResult =
+  | { ok: true; path: string }
+  | { ok: false; error: string };
+
 async function requireUser() {
   const supabase = await createClient();
   const {
@@ -25,17 +34,17 @@ async function requireUser() {
 export async function createOrganization(
   name: string,
   description: string,
-): Promise<void> {
+): Promise<NavResult> {
   const { supabase } = await requireUser();
   const { error } = await supabase.rpc("create_organization", {
     _name: name,
     _description: description,
   });
   if (error) {
-    throw new Error(error.message);
+    return { ok: false, error: error.message };
   }
   revalidatePath("/organizations");
-  redirect("/organizations");
+  return { ok: true, path: "/organizations" };
 }
 
 /** Update an org's public profile (admins, by RLS). */
@@ -47,6 +56,8 @@ export async function updateOrgBranding(
     city: string;
     region: string;
     country: string;
+    website: string;
+    contactEmail: string;
   },
 ): Promise<ActionResult> {
   const { supabase } = await requireUser();
@@ -58,6 +69,8 @@ export async function updateOrgBranding(
       city: fields.city.trim() || null,
       region: fields.region.trim() || null,
       country: fields.country.trim() || null,
+      website: fields.website.trim() || null,
+      contact_email: fields.contactEmail.trim() || null,
     })
     .eq("id", orgId);
   if (error) {
@@ -305,19 +318,14 @@ export async function leaveOrganization(): Promise<ActionResult> {
   return { ok: true };
 }
 
-/** Submit the verification dossier (admins) -> status 'pending'. */
-export async function submitOrgVerification(fields: {
-  officialName: string;
-  website: string;
-  contactEmail: string;
-  note: string;
-}): Promise<ActionResult> {
+/** Submit for verification (admins) -> status 'pending'. Identity comes from
+ * the org profile; only an optional note is collected here. */
+export async function submitOrgVerification(
+  note: string,
+): Promise<ActionResult> {
   const { supabase } = await requireUser();
   const { error } = await supabase.rpc("submit_org_verification", {
-    _official_name: fields.officialName,
-    _website: fields.website,
-    _contact_email: fields.contactEmail,
-    _note: fields.note,
+    _note: note.trim() === "" ? undefined : note.trim(),
   });
   if (error) {
     return { ok: false, error: error.message };
@@ -417,7 +425,7 @@ export async function createOrgTemplate(input: {
   bookOrdinal?: number;
   name?: string;
   genreId?: string | null;
-}): Promise<void> {
+}): Promise<NavResult> {
   const { supabase } = await requireUser();
   const { data, error } = await supabase.rpc("create_org_template", {
     _type: input.type,
@@ -426,10 +434,10 @@ export async function createOrgTemplate(input: {
     _genre_id: input.genreId ?? undefined,
   });
   if (error) {
-    throw new Error(error.message);
+    return { ok: false, error: error.message };
   }
   revalidatePath("/organizations/templates");
-  redirect(`/studies/${data}`);
+  return { ok: true, path: `/studies/${data}` };
 }
 
 /** Delete an org template by its backing study (cascades the registry row). */
@@ -443,6 +451,146 @@ export async function deleteOrgTemplate(
     .eq("id", templateStudyId);
   if (error) {
     return { ok: false, error: error.message };
+  }
+  revalidatePath("/organizations/templates");
+  return { ok: true };
+}
+
+/** Rename/describe an org template (updates the registry + backing study title). */
+export async function updateOrgTemplateMeta(
+  templateId: string,
+  templateStudyId: string,
+  name: string,
+  description: string,
+): Promise<ActionResult> {
+  const { supabase } = await requireUser();
+  const clean = name.trim() || "Template";
+  const { error } = await supabase
+    .from("study_templates")
+    .update({ name: clean, description: description.trim() || null })
+    .eq("id", templateId);
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+  const { error: titleError } = await supabase
+    .from("studies")
+    .update({ title: clean })
+    .eq("id", templateStudyId);
+  if (titleError) {
+    return { ok: false, error: titleError.message };
+  }
+  revalidatePath("/organizations/templates");
+  return { ok: true };
+}
+
+/**
+ * Customize a book for the org: clear any "disabled" state, create an override
+ * template, and open it in the editor. (A book is never both disabled + override.)
+ */
+export async function customizeOrgBook(
+  orgId: string,
+  bookOrdinal: number,
+): Promise<NavResult> {
+  const { supabase } = await requireUser();
+  await supabase
+    .from("org_disabled_book_templates")
+    .delete()
+    .eq("organization_id", orgId)
+    .eq("book_ordinal", bookOrdinal);
+  const { data, error } = await supabase.rpc("create_org_template", {
+    _type: "book",
+    _book_ordinal: bookOrdinal,
+  });
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+  revalidatePath("/organizations/templates");
+  return { ok: true, path: `/studies/${data}` };
+}
+
+/** Reset a book to the app default: drop any override + re-enable it. */
+export async function resetOrgBook(
+  orgId: string,
+  bookOrdinal: number,
+): Promise<ActionResult> {
+  const { supabase } = await requireUser();
+  const { data: override } = await supabase
+    .from("study_templates")
+    .select("template_study_id")
+    .eq("organization_id", orgId)
+    .eq("type", "book")
+    .eq("book_ordinal", bookOrdinal)
+    .maybeSingle();
+  if (override) {
+    const { error } = await supabase
+      .from("studies")
+      .delete()
+      .eq("id", override.template_study_id);
+    if (error) {
+      return { ok: false, error: error.message };
+    }
+  }
+  const { error: enableError } = await supabase
+    .from("org_disabled_book_templates")
+    .delete()
+    .eq("organization_id", orgId)
+    .eq("book_ordinal", bookOrdinal);
+  if (enableError) {
+    return { ok: false, error: enableError.message };
+  }
+  revalidatePath("/organizations/templates");
+  return { ok: true };
+}
+
+/** Reorder an org custom template (up/down) — sets the order members see. */
+export async function moveOrgTemplate(
+  templateId: string,
+  direction: "up" | "down",
+): Promise<ActionResult> {
+  const { supabase } = await requireUser();
+  const { data: target, error: targetError } = await supabase
+    .from("study_templates")
+    .select("organization_id, type")
+    .eq("id", templateId)
+    .maybeSingle();
+  if (targetError) {
+    return { ok: false, error: targetError.message };
+  }
+  if (target?.type !== "custom" || !target.organization_id) {
+    return { ok: false, error: "Not a reorderable template." };
+  }
+
+  const { data: siblings, error: sibsError } = await supabase
+    .from("study_templates")
+    .select("id")
+    .eq("organization_id", target.organization_id)
+    .eq("type", "custom")
+    .order("position", { ascending: true })
+    .order("name", { ascending: true });
+  if (sibsError) {
+    return { ok: false, error: sibsError.message };
+  }
+
+  const ids = siblings.map((s) => s.id);
+  const idx = ids.indexOf(templateId);
+  const swap = direction === "up" ? idx - 1 : idx + 1;
+  const a = ids[idx];
+  const b = ids[swap];
+  if (a === undefined || b === undefined) {
+    return { ok: true };
+  }
+  ids[idx] = b;
+  ids[swap] = a;
+
+  // Write sequential positions (normalizes any ties from older rows).
+  const results = await Promise.all(
+    ids.map((id, i) =>
+      supabase.from("study_templates").update({ position: i }).eq("id", id),
+    ),
+  );
+  const failed = results.find((r) => r.error);
+  if (failed?.error) {
+    return { ok: false, error: failed.error.message };
   }
   revalidatePath("/organizations/templates");
   return { ok: true };

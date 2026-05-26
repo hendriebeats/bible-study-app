@@ -15,6 +15,8 @@ export function OrgBrandingForm({ org }: { org: Organization }) {
   const [city, setCity] = useState(org.city ?? "");
   const [region, setRegion] = useState(org.region ?? "");
   const [country, setCountry] = useState(org.country ?? "");
+  const [website, setWebsite] = useState(org.website ?? "");
+  const [contactEmail, setContactEmail] = useState(org.contact_email ?? "");
   const [pending, startTransition] = useTransition();
 
   return (
@@ -33,6 +35,8 @@ export function OrgBrandingForm({ org }: { org: Organization }) {
             city,
             region,
             country,
+            website,
+            contactEmail,
           }).then((result) => {
             if (result.ok) {
               toast.success("Saved.");
@@ -95,6 +99,31 @@ export function OrgBrandingForm({ org }: { org: Organization }) {
             value={country}
             onChange={(event) => {
               setCountry(event.target.value);
+            }}
+          />
+        </div>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <div className="grid gap-2">
+          <Label htmlFor="b-website">Website</Label>
+          <Input
+            id="b-website"
+            type="url"
+            placeholder="https://"
+            value={website}
+            onChange={(event) => {
+              setWebsite(event.target.value);
+            }}
+          />
+        </div>
+        <div className="grid gap-2">
+          <Label htmlFor="b-contact">Contact email</Label>
+          <Input
+            id="b-contact"
+            type="email"
+            value={contactEmail}
+            onChange={(event) => {
+              setContactEmail(event.target.value);
             }}
           />
         </div>
