@@ -5,9 +5,10 @@ import { EditorState } from "prosemirror-state";
 import { EditorView } from "prosemirror-view";
 import { useEffect, useRef, useState } from "react";
 
-import { fetchSectionHead } from "@/app/studies/actions";
+import { fetchDocumentHead } from "@/app/studies/actions";
 import { PresenceAvatars } from "@/components/studies/presence-avatars";
-import type { Section } from "@/lib/db/types";
+import type { StudyDocument } from "@/lib/db/types";
+import { buildNodeViews } from "@/lib/editor/node-views";
 import {
   remoteCursor,
   remoteCursorKey,
@@ -15,11 +16,11 @@ import {
 import { schema } from "@/lib/editor/schema";
 import { jsonToDoc, jsonToStep } from "@/lib/editor/serialize";
 import type { PMDocJSON } from "@/lib/editor/types";
-import { openSectionChannel } from "@/lib/realtime/section-channel";
+import { openDocumentChannel } from "@/lib/realtime/document-channel";
 import type {
   ConnectionStatus,
   PresenceMember,
-} from "@/lib/realtime/section-channel";
+} from "@/lib/realtime/document-channel";
 
 function viewerDoc(content: PMDocJSON) {
   const doc = jsonToDoc(content);
@@ -41,20 +42,22 @@ const STATUS_LABEL: Record<ConnectionStatus, string> = {
 };
 
 /**
- * Read-only live view of a section a co-member doesn't own. Mirrors the
+ * Read-only live view of one document a co-member doesn't own. Mirrors the
  * writer's edits and labeled cursor via Supabase Realtime; the editor isn't
  * editable. Shows who else is reading along and the connection's health.
  */
-export function SectionViewer({
-  section,
+export function DocumentViewer({
+  document: doc,
   me,
+  label,
 }: {
-  section: Section;
+  document: StudyDocument;
   me: { id: string; name: string } | null;
+  label: string;
 }) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
-  const versionRef = useRef(section.current_version);
+  const versionRef = useRef(doc.current_version);
   const [members, setMembers] = useState<PresenceMember[]>([]);
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
 
@@ -65,8 +68,9 @@ export function SectionViewer({
     }
 
     const view = new EditorView(mount, {
-      state: viewerState(section.content),
+      state: viewerState(doc.content),
       editable: () => false,
+      nodeViews: buildNodeViews(false),
       dispatchTransaction(transaction) {
         const current = viewRef.current;
         if (!current) {
@@ -78,7 +82,7 @@ export function SectionViewer({
     viewRef.current = view;
 
     async function resync() {
-      const head = await fetchSectionHead(section.id);
+      const head = await fetchDocumentHead(doc.id);
       const current = viewRef.current;
       if (!head || !current) {
         return;
@@ -89,8 +93,8 @@ export function SectionViewer({
 
     let channel: RealtimeChannel | undefined;
     let disposed = false;
-    void openSectionChannel(
-      section.id,
+    void openDocumentChannel(
+      doc.id,
       {
         onSteps({ base, steps, version }) {
           const current = viewRef.current;
@@ -159,14 +163,14 @@ export function SectionViewer({
       view.destroy();
       viewRef.current = null;
     };
-    // Mounted once per section (route remounts via key={section.id}).
+    // Mounted once per document (remounted via key={document.id}).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
     <div className="flex h-full flex-col">
-      <div className="mb-3 flex items-center gap-2">
-        <h1 className="text-2xl font-bold">{section.title}</h1>
+      <div className="mb-2 flex items-center gap-2">
+        <h2 className="text-sm font-semibold text-muted-foreground">{label}</h2>
         <div className="ml-auto flex shrink-0 items-center gap-2">
           <PresenceAvatars
             members={members.filter((member) => member.userId !== me?.id)}
@@ -189,7 +193,7 @@ export function SectionViewer({
           </span>
         </div>
       </div>
-      <div ref={mountRef} className="mt-4 flex-1 overflow-auto" />
+      <div ref={mountRef} className="mt-3 flex-1 overflow-auto" />
     </div>
   );
 }

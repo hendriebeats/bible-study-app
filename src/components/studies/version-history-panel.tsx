@@ -3,13 +3,13 @@
 import { RotateCcw, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
-import { fetchSectionTimeline } from "@/app/studies/actions";
+import { fetchDocumentTimeline } from "@/app/studies/actions";
 import { DocPreview } from "@/components/studies/doc-preview";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
-import type { SectionTimeline } from "@/lib/db/types";
+import type { DocumentTimeline } from "@/lib/db/types";
 import { diffSince, reconstructDoc } from "@/lib/editor/history-view";
 import { docToJSON } from "@/lib/editor/serialize";
 import type { PMDocJSON } from "@/lib/editor/types";
@@ -22,24 +22,24 @@ function formatTime(iso: string): string {
 }
 
 export function VersionHistoryPanel({
-  sectionId,
+  documentId,
   headVersion,
   onRestore,
   onClose,
 }: {
-  sectionId: string;
+  documentId: string;
   headVersion: number;
   onRestore: (doc: PMDocJSON) => void;
   onClose: () => void;
 }) {
-  const [timeline, setTimeline] = useState<SectionTimeline | null>(null);
+  const [timeline, setTimeline] = useState<DocumentTimeline | null>(null);
   const [version, setVersion] = useState(headVersion);
   const [compareVersion, setCompareVersion] = useState(headVersion);
   const [showDiff, setShowDiff] = useState(false);
 
   useEffect(() => {
     let active = true;
-    void fetchSectionTimeline(sectionId).then((loaded) => {
+    void fetchDocumentTimeline(documentId).then((loaded) => {
       if (active) {
         setTimeline(loaded);
       }
@@ -47,7 +47,7 @@ export function VersionHistoryPanel({
     return () => {
       active = false;
     };
-  }, [sectionId]);
+  }, [documentId]);
 
   // Close the panel on Escape (it only mounts while open).
   useEffect(() => {

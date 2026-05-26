@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { Plus } from "lucide-react";
+import { Plus, Users } from "lucide-react";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { createStudy } from "@/app/studies/actions";
@@ -34,6 +35,12 @@ export default async function DashboardPage() {
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold tracking-tight">Your studies</h1>
           <div className="flex items-center gap-2">
+            <Button variant="outline" asChild>
+              <Link href="/groups">
+                <Users className="size-4" />
+                Group studies
+              </Link>
+            </Button>
             <TrashButton kind="study" items={trashedStudies} />
             <form action={createStudy}>
               <Button type="submit">

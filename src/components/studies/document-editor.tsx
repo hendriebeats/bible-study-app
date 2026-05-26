@@ -4,6 +4,7 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 import { gapCursor } from "prosemirror-gapcursor";
 import { closeHistory, history, redo, undo } from "prosemirror-history";
 import {
+  BookOpen,
   Bold,
   Heading1,
   Heading2,
@@ -12,8 +13,10 @@ import {
   Italic,
   List,
   ListOrdered,
+  Plus,
   Quote,
   Redo,
+  RotateCcw,
   Strikethrough,
   Undo,
 } from "lucide-react";
@@ -25,17 +28,18 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import {
-  appendSectionSteps,
-  createSectionCheckpoint,
-  fetchSectionHead,
-  renameSection,
+  addScripturePassage,
+  appendDocumentSteps,
+  createDocumentCheckpoint,
+  fetchDocumentHead,
 } from "@/app/studies/actions";
 import { PresenceAvatars } from "@/components/studies/presence-avatars";
 import { VersionHistoryPanel } from "@/components/studies/version-history-panel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
-import type { Section, SectionHistory } from "@/lib/db/types";
+import type { DocumentHistory, StudyDocument } from "@/lib/db/types";
+import { blocksDocFromSpecs, type BlockSpec } from "@/lib/editor/blocks";
 import {
   isAncestorActive,
   isBlockActive,
@@ -48,9 +52,10 @@ import {
   toggleOrderedList,
   toggleStrike,
 } from "@/lib/editor/commands";
+import { buildNodeViews } from "@/lib/editor/node-views";
 import { buildInputRules } from "@/lib/editor/plugins/input-rules";
 import { buildKeymaps } from "@/lib/editor/plugins/keymap";
-import { placeholder } from "@/lib/editor/plugins/placeholder";
+import { placeholder as placeholderPlugin } from "@/lib/editor/plugins/placeholder";
 import { marks, nodes, schema } from "@/lib/editor/schema";
 import {
   docToJSON,
@@ -63,9 +68,9 @@ import {
   broadcastCursor,
   broadcastSteps,
   colorForId,
-  openSectionChannel,
-} from "@/lib/realtime/section-channel";
-import type { PresenceMember } from "@/lib/realtime/section-channel";
+  openDocumentChannel,
+} from "@/lib/realtime/document-channel";
+import type { PresenceMember } from "@/lib/realtime/document-channel";
 
 const AUTOSAVE_DELAY_MS = 1200;
 /** Snapshot a checkpoint after this many new steps, to bound replay length. */
@@ -73,13 +78,13 @@ const CHECKPOINT_EVERY = 50;
 
 type SaveStatus = "idle" | "saving" | "saved";
 
-function createPlugins() {
+function createPlugins(placeholderText: string) {
   return [
     buildInputRules(),
     ...buildKeymaps(),
     gapCursor(),
     history(),
-    placeholder("Start writing your study notes…"),
+    placeholderPlugin(placeholderText),
   ];
 }
 
@@ -97,11 +102,15 @@ function initialDoc(content: PMDocJSON) {
  * groups roughly at the granularity the edits were made. Any replay failure
  * falls back to the materialized head doc with no history (doc stays correct).
  */
-function buildInitialState(bundle: SectionHistory, headContent: PMDocJSON) {
+function buildInitialState(
+  bundle: DocumentHistory,
+  headContent: PMDocJSON,
+  placeholderText: string,
+) {
   try {
     let state = EditorState.create({
       doc: initialDoc(bundle.baseDoc),
-      plugins: createPlugins(),
+      plugins: createPlugins(placeholderText),
     });
     let prevCreatedAt: string | null = null;
     for (const row of bundle.steps) {
@@ -117,7 +126,7 @@ function buildInitialState(bundle: SectionHistory, headContent: PMDocJSON) {
   } catch {
     return EditorState.create({
       doc: initialDoc(headContent),
-      plugins: createPlugins(),
+      plugins: createPlugins(placeholderText),
     });
   }
 }
@@ -235,29 +244,43 @@ function Toolbar({
   );
 }
 
-export function SectionEditor({
-  section,
-  history: sectionHistory,
+/**
+ * Editable, autosaving editor for ONE document (notes or blocks) the user owns.
+ * Persists ProseMirror steps via the document RPCs with optimistic concurrency,
+ * broadcasts them + the cursor to read-along viewers, snapshots checkpoints,
+ * and offers per-document version history. The section title lives one level up.
+ */
+export function DocumentEditor({
+  document: doc,
+  history: docHistory,
   me,
+  label,
+  placeholder,
+  defaultBlocks,
 }: {
-  section: Section;
-  history: SectionHistory;
+  document: StudyDocument;
+  history: DocumentHistory;
   me: { id: string; name: string } | null;
+  label: string;
+  placeholder: string;
+  defaultBlocks?: BlockSpec[];
 }) {
-  const [title, setTitle] = useState(section.title);
   const [status, setStatus] = useState<SaveStatus>("idle");
   const [editorState, setEditorState] = useState<EditorState | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyHead, setHistoryHead] = useState(0);
   const [members, setMembers] = useState<PresenceMember[]>([]);
+  const [scriptureOpen, setScriptureOpen] = useState(false);
+  const [scriptureRef, setScriptureRef] = useState("");
+  const [scriptureBusy, setScriptureBusy] = useState(false);
   const viewRef = useRef<EditorView | null>(null);
   const mountRef = useRef<HTMLDivElement | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Persistence state (refs so the editor view's callbacks always see current
   // values without re-creating the view).
-  const lastVersionRef = useRef(sectionHistory.headVersion);
-  const lastCheckpointRef = useRef(sectionHistory.baseVersion);
+  const lastVersionRef = useRef(docHistory.headVersion);
+  const lastCheckpointRef = useRef(docHistory.baseVersion);
   const pendingStepsRef = useRef<SerializedStep[]>([]);
   const flushingRef = useRef(false);
 
@@ -274,8 +297,8 @@ export function SectionEditor({
     // and join presence so the owner can see who's reading along.
     let channel: RealtimeChannel | undefined;
     let disposed = false;
-    void openSectionChannel(
-      section.id,
+    void openDocumentChannel(
+      doc.id,
       {
         onPresence: (next) => {
           if (!disposed) {
@@ -306,8 +329,8 @@ export function SectionEditor({
       const base = lastVersionRef.current;
       const newDoc = docToJSON(view.state.doc);
       try {
-        const result = await appendSectionSteps(
-          section.id,
+        const result = await appendDocumentSteps(
+          doc.id,
           base,
           batch,
           newDoc,
@@ -317,14 +340,14 @@ export function SectionEditor({
           // Another writer (the owner's other tab) advanced the doc. Discard our
           // stale pending edits and rebuild from the server head in place — no
           // jarring full-page reload.
-          const head = await fetchSectionHead(section.id);
+          const head = await fetchDocumentHead(doc.id);
           if (head) {
             pendingStepsRef.current = [];
             lastVersionRef.current = head.version;
             lastCheckpointRef.current = head.version;
             const fresh = EditorState.create({
               doc: initialDoc(head.content),
-              plugins: createPlugins(),
+              plugins: createPlugins(placeholder),
             });
             view.updateState(fresh);
             setEditorState(fresh);
@@ -354,7 +377,7 @@ export function SectionEditor({
         }
         if (result.version - lastCheckpointRef.current >= CHECKPOINT_EVERY) {
           lastCheckpointRef.current = result.version;
-          void createSectionCheckpoint(section.id).catch(() => undefined);
+          void createDocumentCheckpoint(doc.id).catch(() => undefined);
         }
       } catch {
         // Keep the steps and let the next change (or blur) retry. Surface a
@@ -414,7 +437,8 @@ export function SectionEditor({
     }
 
     const view = new EditorView(mount, {
-      state: buildInitialState(sectionHistory, section.content),
+      state: buildInitialState(docHistory, doc.content, placeholder),
+      nodeViews: buildNodeViews(true),
       dispatchTransaction(transaction) {
         const current = viewRef.current;
         if (!current) {
@@ -462,7 +486,7 @@ export function SectionEditor({
       view.destroy();
       viewRef.current = null;
     };
-    // Editor is created once per section (the route remounts via key={section.id}).
+    // Editor is created once per document (remounted via key={document.id}).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -472,6 +496,82 @@ export function SectionEditor({
       return;
     }
     command(view.state, view.dispatch, view);
+    view.focus();
+  }
+
+  // Append a new (empty, rename-able) study block. If the doc is still just the
+  // placeholder paragraph, replace it so the blocks doc holds only blocks.
+  function addBlock() {
+    const view = viewRef.current;
+    if (!view) {
+      return;
+    }
+    const block = nodes.studyBlock.createAndFill({
+      label: "New block",
+      prompt: "",
+      lineageId: null,
+      templateId: null,
+    });
+    if (!block) {
+      return;
+    }
+    const { doc: current } = view.state;
+    const first = current.firstChild;
+    const isLonePlaceholder =
+      current.childCount === 1 &&
+      first?.type === nodes.paragraph &&
+      first.content.size === 0;
+    const tr = isLonePlaceholder
+      ? view.state.tr.replaceWith(0, current.content.size, block)
+      : view.state.tr.insert(current.content.size, block);
+    view.dispatch(tr);
+    view.focus();
+  }
+
+  // Look up a reference's ESV text and insert it as a (non-editable) scripture
+  // atom at the cursor. The text + reference persist in the node's attrs.
+  async function insertScripture() {
+    const view = viewRef.current;
+    const reference = scriptureRef.trim();
+    if (!view || reference === "") {
+      return;
+    }
+    setScriptureBusy(true);
+    const result = await addScripturePassage(doc.section_id, reference);
+    setScriptureBusy(false);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
+    }
+    const node = nodes.scripture.create({
+      reference: result.reference,
+      version: result.version,
+      passageId: result.passageId,
+      text: result.text,
+    });
+    view.dispatch(view.state.tr.replaceSelectionWith(node));
+    view.focus();
+    setScriptureRef("");
+    setScriptureOpen(false);
+  }
+
+  // Replace the blocks doc with the study's genre default set. Flows through the
+  // normal step pipeline (persisted, broadcast, undoable).
+  function resetToDefault() {
+    const view = viewRef.current;
+    if (!view || !defaultBlocks || defaultBlocks.length === 0) {
+      return;
+    }
+    const node = jsonToDoc(blocksDocFromSpecs(defaultBlocks));
+    const tr = view.state.tr.replaceWith(
+      0,
+      view.state.doc.content.size,
+      node.content,
+    );
+    if (tr.docChanged) {
+      view.dispatch(tr);
+      toast.success("Blocks reset to the study default.");
+    }
     view.focus();
   }
 
@@ -508,28 +608,13 @@ export function SectionEditor({
     view.focus();
   }
 
-  function handleTitleBlur() {
-    const next = title.trim() || "Untitled section";
-    if (next !== section.title) {
-      void renameSection(section.id, section.study_id, next);
-    }
-  }
-
   const statusLabel =
     status === "saving" ? "Saving…" : status === "saved" ? "Saved" : "";
 
   return (
     <div className="flex h-full flex-col">
-      <div className="mb-3 flex items-center gap-3">
-        <Input
-          value={title}
-          onChange={(event) => {
-            setTitle(event.target.value);
-          }}
-          onBlur={handleTitleBlur}
-          aria-label="Section title"
-          className="h-auto border-0 bg-transparent px-0 text-2xl font-bold shadow-none focus-visible:ring-0"
-        />
+      <div className="mb-2 flex items-center gap-3">
+        <h2 className="text-sm font-semibold text-muted-foreground">{label}</h2>
         <div className="ml-auto flex shrink-0 items-center gap-2">
           <PresenceAvatars
             members={members.filter((member) => member.userId !== me?.id)}
@@ -556,10 +641,85 @@ export function SectionEditor({
         </div>
       </div>
       <Toolbar state={editorState} onCommand={runCommand} />
-      <div ref={mountRef} className="mt-4 flex-1 overflow-auto" />
+      <div ref={mountRef} className="mt-3 flex-1 overflow-auto" />
+      {doc.kind === "notes" ? (
+        <div className="mt-2 shrink-0">
+          {scriptureOpen ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                value={scriptureRef}
+                onChange={(event) => {
+                  setScriptureRef(event.target.value);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void insertScripture();
+                  }
+                }}
+                placeholder="e.g. John 3:1-21"
+                aria-label="Scripture reference"
+                className="h-8 max-w-xs"
+              />
+              <Button
+                type="button"
+                size="sm"
+                disabled={scriptureBusy}
+                onClick={() => {
+                  void insertScripture();
+                }}
+              >
+                Add
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setScriptureOpen(false);
+                  setScriptureRef("");
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+          ) : (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setScriptureOpen(true);
+              }}
+            >
+              <BookOpen className="size-4" />
+              Add scripture
+            </Button>
+          )}
+        </div>
+      ) : null}
+      {doc.kind === "blocks" ? (
+        <div className="mt-2 flex shrink-0 items-center gap-1">
+          <Button type="button" size="sm" variant="ghost" onClick={addBlock}>
+            <Plus className="size-4" />
+            Add block
+          </Button>
+          {defaultBlocks && defaultBlocks.length > 0 ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={resetToDefault}
+            >
+              <RotateCcw className="size-4" />
+              Reset to default
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
       {historyOpen ? (
         <VersionHistoryPanel
-          sectionId={section.id}
+          documentId={doc.id}
           headVersion={historyHead}
           onRestore={applyRestore}
           onClose={() => {

@@ -1,6 +1,6 @@
 "use client";
 
-import type { PresenceMember } from "@/lib/realtime/section-channel";
+import type { PresenceMember } from "@/lib/realtime/document-channel";
 
 /**
  * A small stack of colored avatars for the people currently on a section

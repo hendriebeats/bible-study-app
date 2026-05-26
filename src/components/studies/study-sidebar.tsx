@@ -10,6 +10,7 @@ import {
   createSection,
   deleteSection,
   restoreSection,
+  setStudyGenre,
 } from "@/app/studies/actions";
 import { TrashButton } from "@/components/studies/trash-button";
 import { Button } from "@/components/ui/button";
@@ -20,7 +21,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { UserMenu } from "@/components/user-menu";
-import type { SectionSummary, Study, TrashItem } from "@/lib/db/types";
+import type { Genre, SectionSummary, Study, TrashItem } from "@/lib/db/types";
 import { cn } from "@/lib/utils";
 
 export function StudySidebar({
@@ -29,12 +30,14 @@ export function StudySidebar({
   user,
   isOwner,
   trashedSections,
+  genres,
 }: {
   study: Study;
   sections: SectionSummary[];
   user: { displayName: string; email: string; avatarUrl: string | null };
   isOwner: boolean;
   trashedSections: TrashItem[];
+  genres: Genre[];
 }) {
   const pathname = usePathname();
   const [pending, startTransition] = useTransition();
@@ -51,6 +54,37 @@ export function StudySidebar({
         </Link>
         <p className="mt-2 truncate font-semibold">{study.title}</p>
       </div>
+
+      {isOwner ? (
+        <div className="border-b px-4 py-3">
+          <label
+            htmlFor="study-genre"
+            className="text-xs font-medium text-muted-foreground"
+          >
+            Genre
+          </label>
+          <select
+            id="study-genre"
+            value={study.genre_id ?? ""}
+            disabled={pending}
+            onChange={(event) => {
+              const value =
+                event.target.value === "" ? null : event.target.value;
+              startTransition(() => {
+                void setStudyGenre(study.id, value);
+              });
+            }}
+            className="mt-1 w-full rounded-md border bg-background px-2 py-1 text-sm"
+          >
+            <option value="">No genre</option>
+            {genres.map((genre) => (
+              <option key={genre.id} value={genre.id}>
+                {genre.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
 
       <nav className="flex-1 overflow-auto p-2">
         <ul className="grid gap-1">

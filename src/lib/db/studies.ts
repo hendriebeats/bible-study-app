@@ -1,5 +1,12 @@
 import type { PMDocJSON } from "@/lib/editor/types";
-import type { Section, SectionSummary, Study, TrashItem } from "@/lib/db/types";
+import type {
+  Section,
+  SectionDocuments,
+  SectionSummary,
+  Study,
+  StudyDocument,
+  TrashItem,
+} from "@/lib/db/types";
 import { createClient } from "@/lib/supabase/server";
 
 /** All active studies the current user can see (RLS: own + group co-members'). */
@@ -101,4 +108,44 @@ export async function getSection(sectionId: string): Promise<Section | null> {
     content: data.content as unknown as PMDocJSON,
     current_version: data.current_version,
   };
+}
+
+/**
+ * A section's `notes` + `blocks` documents (the live content streams). Returns
+ * null if the section is missing either document (shouldn't happen — both are
+ * created with the section).
+ */
+export async function getSectionDocuments(
+  sectionId: string,
+): Promise<SectionDocuments | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("documents")
+    .select("id, section_id, kind, content, current_version")
+    .eq("section_id", sectionId);
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  let notes: StudyDocument | undefined;
+  let blocks: StudyDocument | undefined;
+  for (const row of data) {
+    const doc: StudyDocument = {
+      id: row.id,
+      section_id: row.section_id,
+      kind: row.kind,
+      content: row.content as unknown as PMDocJSON,
+      current_version: row.current_version,
+    };
+    if (row.kind === "notes") {
+      notes = doc;
+    } else {
+      blocks = doc;
+    }
+  }
+
+  if (!notes || !blocks) {
+    return null;
+  }
+  return { notes, blocks };
 }

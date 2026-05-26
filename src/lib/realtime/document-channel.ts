@@ -35,7 +35,7 @@ export function colorForId(id: string): string {
   return CURSOR_COLORS[hash % CURSOR_COLORS.length] ?? "#1971c2";
 }
 
-/** Someone currently on the section (the writer or a read-along viewer). */
+/** Someone currently on the document (the writer or a read-along viewer). */
 export interface PresenceMember {
   userId: string;
   name: string;
@@ -44,7 +44,7 @@ export interface PresenceMember {
 }
 
 /** Who this client is, for presence tracking + a labeled remote cursor. */
-export interface SectionIdentity {
+export interface DocumentIdentity {
   userId: string;
   name: string;
   isOwner: boolean;
@@ -61,7 +61,7 @@ interface PresenceMeta {
   [key: string]: string | boolean;
 }
 
-export interface SectionChannelHandlers {
+export interface DocumentChannelHandlers {
   onSteps?: (payload: StepsPayload) => void;
   onCursor?: (payload: CursorPayload) => void;
   onPresence?: (members: PresenceMember[]) => void;
@@ -69,7 +69,7 @@ export interface SectionChannelHandlers {
 }
 
 /**
- * Open a Supabase Realtime broadcast channel for a section. The writer sends
+ * Open a Supabase Realtime broadcast channel for a document. The writer sends
  * steps + cursor; read-only viewers receive them. `self: false` so the writer
  * doesn't echo its own messages. The DB step log remains the durable source of
  * truth — broadcast is just the low-latency path (viewers resync on gaps).
@@ -78,14 +78,14 @@ export interface SectionChannelHandlers {
  * who's here) and reports subscription health via `onStatus`.
  *
  * The channel is `private`, so access is gated by RLS on `realtime.messages`
- * (see the realtime-authorization migration): only the section owner may send,
+ * (see the realtime-documents migration): only the document owner may send,
  * and only readers may receive. We authenticate the socket with the user's JWT
  * before subscribing; supabase-js keeps it current on token refresh.
  */
-export async function openSectionChannel(
-  sectionId: string,
-  handlers: SectionChannelHandlers,
-  identity?: SectionIdentity,
+export async function openDocumentChannel(
+  documentId: string,
+  handlers: DocumentChannelHandlers,
+  identity?: DocumentIdentity,
 ): Promise<RealtimeChannel> {
   const supabase = createClient();
   const {
@@ -95,7 +95,7 @@ export async function openSectionChannel(
     await supabase.realtime.setAuth(session.access_token);
   }
 
-  const channel = supabase.channel(`section:${sectionId}`, {
+  const channel = supabase.channel(`document:${documentId}`, {
     config: {
       broadcast: { self: false },
       private: true,

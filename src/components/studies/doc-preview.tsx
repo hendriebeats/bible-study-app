@@ -5,6 +5,8 @@ import { EditorState, Plugin } from "prosemirror-state";
 import { type DecorationSet, EditorView } from "prosemirror-view";
 import { useEffect, useRef } from "react";
 
+import { buildNodeViews } from "@/lib/editor/node-views";
+
 function makeState(doc: Node, decorations?: DecorationSet): EditorState {
   const plugins = decorations
     ? [new Plugin({ props: { decorations: () => decorations } })]
@@ -35,6 +37,7 @@ export function DocPreview({
     const view = new EditorView(mount, {
       state: makeState(doc, decorations),
       editable: () => false,
+      nodeViews: buildNodeViews(false),
     });
     viewRef.current = view;
     return () => {

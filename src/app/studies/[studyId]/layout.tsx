@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import type { ReactNode } from "react";
 
 import { StudySidebar } from "@/components/studies/study-sidebar";
+import { listGenres } from "@/lib/db/genres";
 import { getStudy, listSections, listTrashedSections } from "@/lib/db/studies";
 import { createClient } from "@/lib/supabase/server";
 
@@ -27,9 +28,14 @@ export default async function StudyLayout({
     notFound();
   }
 
-  const isOwner = study.owner_id === user.id;
+  // Ownership covers personal owner AND group owners of a group's template.
+  const { data: ownerFlag } = await supabase.rpc("is_study_owner", {
+    _study_id: studyId,
+  });
+  const isOwner = ownerFlag ?? false;
   const sections = await listSections(studyId);
   const trashedSections = isOwner ? await listTrashedSections(studyId) : [];
+  const genres = isOwner ? await listGenres() : [];
   const { data: profile } = await supabase
     .from("profiles")
     .select("display_name, avatar_url")
@@ -43,6 +49,7 @@ export default async function StudyLayout({
         sections={sections}
         isOwner={isOwner}
         trashedSections={trashedSections}
+        genres={genres}
         user={{
           displayName: profile?.display_name ?? "",
           email: user.email ?? "",

@@ -4,15 +4,15 @@ import { Transform } from "prosemirror-transform";
 import { Decoration, DecorationSet } from "prosemirror-view";
 
 import { EMPTY_DOC } from "@/lib/db/types";
-import type { SectionCheckpointRow, SectionStepRow } from "@/lib/db/types";
+import type { DocumentCheckpointRow, DocumentStepRow } from "@/lib/db/types";
 
 import { jsonToDoc, jsonToStep } from "./serialize";
 
 function nearestCheckpoint(
   version: number,
-  checkpoints: SectionCheckpointRow[],
-): SectionCheckpointRow | null {
-  let best: SectionCheckpointRow | null = null;
+  checkpoints: DocumentCheckpointRow[],
+): DocumentCheckpointRow | null {
+  let best: DocumentCheckpointRow | null = null;
   for (const checkpoint of checkpoints) {
     if (
       checkpoint.version <= version &&
@@ -31,8 +31,8 @@ function nearestCheckpoint(
  */
 export function reconstructDoc(
   version: number,
-  checkpoints: SectionCheckpointRow[],
-  steps: SectionStepRow[],
+  checkpoints: DocumentCheckpointRow[],
+  steps: DocumentStepRow[],
 ): Node {
   const checkpoint = nearestCheckpoint(version, checkpoints);
   const baseVersion = checkpoint?.version ?? 0;
@@ -53,7 +53,7 @@ export function reconstructDoc(
  */
 export function diffSince(
   fromDoc: Node,
-  steps: SectionStepRow[],
+  steps: DocumentStepRow[],
 ): { doc: Node; decorations: DecorationSet } {
   const transform = new Transform(fromDoc);
   for (const row of steps) {
