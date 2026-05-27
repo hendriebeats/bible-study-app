@@ -4,6 +4,8 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 import { gapCursor } from "prosemirror-gapcursor";
 import { closeHistory, history, undo } from "prosemirror-history";
 import { ChevronDown, History, Plus } from "lucide-react";
+import { keymap } from "prosemirror-keymap";
+import type { Node } from "prosemirror-model";
 import { EditorState } from "prosemirror-state";
 import { tableEditing } from "prosemirror-tables";
 import { EditorView } from "prosemirror-view";
@@ -29,10 +31,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { DocumentHistory, StudyDocument } from "@/lib/db/types";
 import { blocksDocFromSpecs, type BlockSpec } from "@/lib/editor/blocks";
+import { selectCurrentBlock } from "@/lib/editor/commands";
 import { buildNodeViews } from "@/lib/editor/node-views";
 import { buildInputRules } from "@/lib/editor/plugins/input-rules";
 import { buildKeymaps } from "@/lib/editor/plugins/keymap";
 import { blockHandle } from "@/lib/editor/plugins/block-handle";
+import { blocksSelectionGuard } from "@/lib/editor/plugins/blocks-selection-guard";
+import { blocksStructureGuard } from "@/lib/editor/plugins/blocks-structure-guard";
 import { noteAnchors } from "@/lib/editor/plugins/note-anchors";
 import { notesIndexGuard } from "@/lib/editor/plugins/notes-index-guard";
 import { placeholder as placeholderPlugin } from "@/lib/editor/plugins/placeholder";
@@ -67,8 +72,10 @@ const CHECKPOINT_EVERY = 50;
 
 type SaveStatus = "idle" | "saving" | "saved";
 
-function createPlugins(placeholderText: string) {
-  return [
+type EditorRole = "notes" | "blocks";
+
+function createPlugins(placeholderText: string, role: EditorRole) {
+  const plugins = [
     // Highest priority: section-wide Cmd-Z/Cmd-Y across both editors, falling
     // through to the per-editor undo in buildKeymaps when nothing is tracked.
     sectionUndoKeymap(),
@@ -88,12 +95,36 @@ function createPlugins(placeholderText: string) {
     notesIndexGuard(),
     placeholderPlugin(placeholderText),
   ];
+  // The blocks doc is locked to study blocks + the pinned notes index (no
+  // freeform text, no bulk-deleting blocks); the Study Body stays freeform.
+  if (role === "blocks") {
+    // Prepend so ⌘A selects the current block, beating baseKeymap's selectAll.
+    plugins.unshift(keymap({ "Mod-a": selectCurrentBlock }));
+    plugins.push(blocksStructureGuard(), blocksSelectionGuard());
+  }
+  return plugins;
 }
 
 function initialDoc(content: PMDocJSON) {
   const doc = jsonToDoc(content);
   // Defensive: the schema requires at least one block; fall back to a paragraph.
   return doc.childCount > 0 ? doc : (schema.topNodeType.createAndFill() ?? doc);
+}
+
+/**
+ * Does the blocks doc hold real structure (a study block or the pinned notes
+ * index), vs. just the empty placeholder paragraph? Drives both the editor's
+ * editability and the empty-state prompt so the blocks area never accepts
+ * freeform text when there's nothing in it.
+ */
+function hasBlocksStructure(doc: Node): boolean {
+  for (let i = 0; i < doc.childCount; i++) {
+    const type = doc.child(i).type;
+    if (type === nodes.studyBlock || type === nodes.notesIndex) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -108,11 +139,12 @@ function buildInitialState(
   bundle: DocumentHistory,
   headContent: PMDocJSON,
   placeholderText: string,
+  role: EditorRole,
 ) {
   try {
     let state = EditorState.create({
       doc: initialDoc(bundle.baseDoc),
-      plugins: createPlugins(placeholderText),
+      plugins: createPlugins(placeholderText, role),
     });
     let prevCreatedAt: string | null = null;
     for (const row of bundle.steps) {
@@ -131,7 +163,7 @@ function buildInitialState(
   } catch {
     return EditorState.create({
       doc: initialDoc(headContent),
-      plugins: createPlugins(placeholderText),
+      plugins: createPlugins(placeholderText, role),
     });
   }
 }
@@ -171,6 +203,12 @@ export function DocumentEditor({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyHead, setHistoryHead] = useState(0);
   const [addingBlocks, setAddingBlocks] = useState(false);
+  // The blocks editor shows a non-editable prompt (instead of an editable
+  // surface) until it holds a study block or the notes index — so a fresh
+  // section never has freeform text. Always false for the Study Body.
+  const [blocksEmpty, setBlocksEmpty] = useState(
+    () => doc.kind === "blocks" && !hasBlocksStructure(initialDoc(doc.content)),
+  );
   const [members, setMembers] = useState<PresenceMember[]>([]);
   const viewRef = useRef<EditorView | null>(null);
   const mountRef = useRef<HTMLDivElement | null>(null);
@@ -253,7 +291,7 @@ export function DocumentEditor({
             lastCheckpointRef.current = head.version;
             const fresh = EditorState.create({
               doc: initialDoc(head.content),
-              plugins: createPlugins(placeholder),
+              plugins: createPlugins(placeholder, role),
             });
             view.updateState(fresh);
             editorRef.current?.setActive(view, fresh);
@@ -343,8 +381,9 @@ export function DocumentEditor({
     }
 
     const view = new EditorView(mount, {
-      state: buildInitialState(docHistory, doc.content, placeholder),
+      state: buildInitialState(docHistory, doc.content, placeholder, role),
       nodeViews: buildNodeViews(true),
+      editable: (state) => role !== "blocks" || hasBlocksStructure(state.doc),
       dispatchTransaction(transaction) {
         const current = viewRef.current;
         if (!current) {
@@ -357,6 +396,11 @@ export function DocumentEditor({
         editorRef.current?.setActive(current, next);
         // Track this edit in the section-wide undo order.
         recordUndo(current, next);
+        if (transaction.docChanged && role === "blocks") {
+          // Toggle the empty-state prompt / editability as blocks come and go.
+          const empty = !hasBlocksStructure(next.doc);
+          setBlocksEmpty((prev) => (prev === empty ? prev : empty));
+        }
         if (transaction.docChanged) {
           for (const step of transaction.steps) {
             pendingStepsRef.current.push(stepToJSON(step));
@@ -567,7 +611,12 @@ export function DocumentEditor({
           )}
         </div>
       </div>
-      <div ref={mountRef} className="min-h-32" />
+      <div ref={mountRef} className={blocksEmpty ? "hidden" : "min-h-32"} />
+      {doc.kind === "blocks" && blocksEmpty ? (
+        <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+          No study blocks yet. Use “Add block” below to begin.
+        </div>
+      ) : null}
       {doc.kind === "blocks" ? (
         <div className="mt-2 flex items-center gap-1">
           <Button type="button" size="sm" variant="ghost" onClick={addBlock}>

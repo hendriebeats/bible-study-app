@@ -2,6 +2,7 @@ import { Plugin, TextSelection } from "prosemirror-state";
 
 import { attachReorderHandle } from "../../dnd/pointer-reorder";
 import { reorderSiblings } from "../reorder-node";
+import { nodes } from "../schema";
 
 /** Window event the handle fires (with `{ x, y }`) to open the React block menu. */
 export const BLOCK_MENU_EVENT = "pm-block-menu";
@@ -39,7 +40,19 @@ export function blockHandle(): Plugin {
       let currentPos: number | null = null;
       let currentDom: HTMLElement | null = null;
 
-      const hide = () => {
+      // Hide on a short delay, not instantly: the handle sits in the negative-
+      // left gutter OUTSIDE the wrapper, so moving the pointer off the text and
+      // across the gap to reach it fires the wrapper's mouseleave mid-travel.
+      // The delay (plus the handle's own mouseenter cancelling it) lets the
+      // pointer land on the handle before it vanishes.
+      let hideTimer: ReturnType<typeof setTimeout> | null = null;
+      const cancelHide = () => {
+        if (hideTimer) {
+          clearTimeout(hideTimer);
+          hideTimer = null;
+        }
+      };
+      const hideNow = () => {
         // Don't retract the handle mid-drag (the drag uses window listeners).
         if (document.body.classList.contains("reorder-active")) {
           return;
@@ -47,6 +60,13 @@ export function blockHandle(): Plugin {
         handle.style.display = "none";
         currentPos = null;
         currentDom = null;
+      };
+      const scheduleHide = () => {
+        if (document.body.classList.contains("reorder-active")) {
+          return;
+        }
+        cancelHide();
+        hideTimer = setTimeout(hideNow, 300);
       };
 
       const onMouseMove = (event: MouseEvent) => {
@@ -57,6 +77,8 @@ export function blockHandle(): Plugin {
         if (document.body.classList.contains("reorder-active")) {
           return;
         }
+        // Pointer is back inside the editor — keep the handle alive.
+        cancelHide();
         const found = view.posAtCoords({
           left: event.clientX,
           top: event.clientY,
@@ -85,12 +107,25 @@ export function blockHandle(): Plugin {
       // same set the menu's Move up/down walks, which stays as the keyboard path).
       const detachReorder = attachReorderHandle({
         handle,
-        getItem: () => currentDom,
+        // The pinned notes index is not draggable (and nothing can be dropped
+        // above it — see the clamp below).
+        getItem: () =>
+          currentDom && !currentDom.matches("[data-notes-index]")
+            ? currentDom
+            : null,
         getSiblings: () => Array.from(view.dom.children) as HTMLElement[],
         onReorder: (from, to) => {
-          if (currentPos !== null) {
-            reorderSiblings(view, currentPos, from, to);
+          if (currentPos === null) {
+            return;
           }
+          const indexPinned =
+            view.state.doc.firstChild?.type === nodes.notesIndex;
+          reorderSiblings(
+            view,
+            currentPos,
+            from,
+            Math.max(to, indexPinned ? 1 : 0),
+          );
         },
       });
 
@@ -113,16 +148,21 @@ export function blockHandle(): Plugin {
       };
 
       handle.addEventListener("click", onClick);
+      handle.addEventListener("mouseenter", cancelHide);
+      handle.addEventListener("mouseleave", scheduleHide);
       wrapper?.addEventListener("mousemove", onMouseMove);
-      wrapper?.addEventListener("mouseleave", hide);
+      wrapper?.addEventListener("mouseleave", scheduleHide);
       wrapper?.appendChild(handle);
 
       return {
         destroy() {
+          cancelHide();
           detachReorder();
           handle.removeEventListener("click", onClick);
+          handle.removeEventListener("mouseenter", cancelHide);
+          handle.removeEventListener("mouseleave", scheduleHide);
           wrapper?.removeEventListener("mousemove", onMouseMove);
-          wrapper?.removeEventListener("mouseleave", hide);
+          wrapper?.removeEventListener("mouseleave", scheduleHide);
           handle.remove();
         },
       };

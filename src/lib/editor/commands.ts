@@ -270,9 +270,14 @@ function moveBlock(dir: -1 | 1): Command {
     if (target < 0 || target >= state.doc.childCount) {
       return false;
     }
+    const block = state.doc.child(index);
+    const sibling = state.doc.child(target);
+    // The notes index is pinned to the top: it can't be moved, and no block can
+    // move above it.
+    if (block.type === nodes.notesIndex || sibling.type === nodes.notesIndex) {
+      return false;
+    }
     if (dispatch) {
-      const block = state.doc.child(index);
-      const sibling = state.doc.child(target);
       const blockStart = $from.before(1);
       const insertAt =
         dir === -1
@@ -427,6 +432,31 @@ export function allowVerseEdit(command: Command): Command {
 export const moveBlockUp: Command = moveBlock(-1);
 /** Move the current top-level block down one position. */
 export const moveBlockDown: Command = moveBlock(1);
+
+/**
+ * Select the content of the top-level block the cursor is in — a study block's
+ * body, the notes index's entries, or a stray paragraph. Bound to Mod-a in the
+ * locked blocks editor so "select all" stays scoped to one block instead of
+ * spanning the whole document. (When focus is in a block's title `<input>`, this
+ * never fires — the header is non-editable and `StudyBlockView.stopEvent` hides
+ * its events from ProseMirror — so the title keeps its native select-all.)
+ */
+export const selectCurrentBlock: Command = (state, dispatch) => {
+  const { $from } = state.selection;
+  if ($from.depth < 1) {
+    return false;
+  }
+  const before = $from.before(1);
+  const node = state.doc.child($from.index(0));
+  if (dispatch) {
+    const selection = TextSelection.between(
+      state.doc.resolve(before + 1),
+      state.doc.resolve(before + node.nodeSize - 1),
+    );
+    dispatch(state.tr.setSelection(selection).scrollIntoView());
+  }
+  return true;
+};
 
 /**
  * Delete the top-level block containing the selection. If it's the only block,
