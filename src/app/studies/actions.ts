@@ -7,6 +7,7 @@ import type { DocumentTimeline } from "@/lib/db/types";
 import { specsFromBlocksDoc, type BlockSpec } from "@/lib/editor/blocks";
 import type { PMDocJSON, PMNodeJSON, SerializedStep } from "@/lib/editor/types";
 import { getGenreIdBySlug } from "@/lib/db/genres";
+import { listStudyGroupLinks } from "@/lib/db/groups";
 import { getScriptureProvider } from "@/lib/scripture";
 import { genreSlugForBook } from "@/lib/scripture/books";
 import {
@@ -520,17 +521,49 @@ export async function restoreSection(
   revalidatePath(`/studies/${studyId}`);
 }
 
-/** Soft-delete a whole study into the Trash (recoverable; archived after 30 days). */
-export async function deleteStudy(studyId: string): Promise<void> {
+/**
+ * What happens to the caller's group membership(s) when they trash a study
+ * that's attached to one or more groups:
+ *   - "keep"   stay a member; keep the link (restoring re-attaches the study)
+ *   - "detach" stay a member but unlink this study (become a "loose" member)
+ *   - "leave"  also leave the group(s)
+ * Studies attached to no group always use "keep" (the link clause is a no-op).
+ */
+export type DeleteStudyMode = "keep" | "detach" | "leave";
+
+export type DeleteStudyResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * Soft-delete a whole study into the Trash (recoverable; archived after 30
+ * days), applying the chosen disposition to any group memberships in a single
+ * transaction. "leave" can fail if the caller is a group's last owner — the DB
+ * rolls back the whole thing (study stays un-trashed) and we surface the error.
+ */
+export async function deleteStudy(
+  studyId: string,
+  mode: DeleteStudyMode = "keep",
+): Promise<DeleteStudyResult> {
   const { supabase } = await requireUser();
-  const { error } = await supabase
-    .from("studies")
-    .update({ deleted_at: new Date().toISOString() })
-    .eq("id", studyId);
+  const { error } = await supabase.rpc("delete_study_with_disposition", {
+    _study_id: studyId,
+    _mode: mode,
+  });
   if (error) {
-    throw new Error(error.message);
+    return { ok: false, error: error.message };
   }
   revalidatePath("/dashboard");
+  revalidatePath("/groups");
+  return { ok: true };
+}
+
+/**
+ * Groups the current user has this study attached to — for the delete prompt
+ * that lets them choose what happens to their membership(s). Empty when the
+ * study isn't shared anywhere.
+ */
+export async function getStudyGroupLinks(studyId: string) {
+  await requireUser();
+  return listStudyGroupLinks(studyId);
 }
 
 /** Restore a soft-deleted study from the Trash. */

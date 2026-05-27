@@ -9,6 +9,7 @@ import {
   Italic,
   List,
   ListOrdered,
+  MessageSquarePlus,
   Quote,
   Redo,
   Strikethrough,
@@ -17,7 +18,8 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { Command } from "prosemirror-state";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
+import { toast } from "sonner";
 
 import { ColorControl } from "@/components/studies/color-control";
 import { useEditorContext } from "@/components/studies/editor-context";
@@ -61,9 +63,12 @@ interface ToolbarItem {
 export function EditorToolbar({
   className,
   variant = "card",
+  trailing,
 }: {
   className?: string;
   variant?: "card" | "bar";
+  /** Extra controls pinned to the end of the bar (e.g. the group members menu). */
+  trailing?: ReactNode;
 }) {
   const ctx = useEditorContext();
   const [scriptureOpen, setScriptureOpen] = useState(false);
@@ -71,7 +76,14 @@ export function EditorToolbar({
   if (!ctx) {
     return null;
   }
-  const { activeState, runCommand } = ctx;
+  const { activeState, runCommand, createNote } = ctx;
+
+  function handleAddNote() {
+    const result = createNote();
+    if (!result.ok) {
+      toast.info(result.error ?? "Select some text to add a note.");
+    }
+  }
 
   const groups: ToolbarItem[][] = activeState
     ? [
@@ -206,8 +218,27 @@ export function EditorToolbar({
           <BookOpen className="size-4" />
           Scripture
         </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          disabled={activeState === null}
+          onMouseDown={(event) => {
+            event.preventDefault();
+          }}
+          onClick={handleAddNote}
+        >
+          <MessageSquarePlus className="size-4" />
+          Note
+        </Button>
         <Separator orientation="vertical" className="mx-1 h-6" />
         <ShortcutCheatsheet />
+        {trailing ? (
+          <>
+            <Separator orientation="vertical" className="mx-1 h-6" />
+            {trailing}
+          </>
+        ) : null}
       </div>
       {scriptureOpen ? (
         <ScriptureInsertPanel

@@ -3,6 +3,7 @@
 import {
   Bold,
   Italic,
+  MessageSquarePlus,
   RemoveFormatting,
   Strikethrough,
   Trash2,
@@ -11,6 +12,7 @@ import { type EditorState, TextSelection } from "prosemirror-state";
 import type { EditorView } from "prosemirror-view";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { toast } from "sonner";
 
 import { ColorControl } from "@/components/studies/color-control";
 import { useEditorContext } from "@/components/studies/editor-context";
@@ -252,8 +254,15 @@ export function SelectionBubble() {
     return null;
   }
 
-  const { runCommand, runFormatAction } = ctx;
+  const { runCommand, runFormatAction, createNote } = ctx;
   const recents = formatRecents ?? EMPTY_RECENTS;
+
+  const handleAddNote = () => {
+    const result = createNote();
+    if (!result.ok) {
+      toast.info(result.error ?? "Select some text to add a note.");
+    }
+  };
 
   const boldActive = isMarkActive(activeState, marks.strong);
   const italicActive = isMarkActive(activeState, marks.em);
@@ -363,6 +372,18 @@ export function SelectionBubble() {
           }}
         >
           <RemoveFormatting className="size-4" />
+        </Button>
+
+        <Divider />
+
+        <Button
+          type="button"
+          size="icon-sm"
+          variant="ghost"
+          aria-label="Add note"
+          onClick={handleAddNote}
+        >
+          <MessageSquarePlus className="size-4" />
         </Button>
 
         {hasVerse ? (

@@ -1,16 +1,16 @@
-import { BookOpen, FileText, Plus, SquarePen } from "lucide-react";
+import { BookOpen, Plus, SquarePen, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { seedMyGroupStudy } from "@/app/groups/actions";
-import { InvitePanel } from "@/components/groups/invite-panel";
-import { MemberRoster } from "@/components/groups/member-roster";
+import { GroupInfoPanel } from "@/components/groups/group-info-panel";
 import {
   getGroup,
   isGroupOwner,
   listInvitations,
   listMembers,
 } from "@/lib/db/groups";
+import { listSections } from "@/lib/db/studies";
 import { createClient } from "@/lib/supabase/server";
 
 export default async function GroupPage({
@@ -39,8 +39,18 @@ export default async function GroupPage({
   const invitations = owner ? await listInvitations(groupId) : [];
 
   // The caller's own contributed study in this group (owners start without one).
-  const myStudyId =
-    members.find((m) => m.user_id === user.id)?.study_id ?? null;
+  // A trashed study still occupies the membership slot but isn't openable.
+  const myMembership = members.find((m) => m.user_id === user.id) ?? null;
+  const myStudyId = myMembership?.study_id ?? null;
+  const myStudyActive = myMembership?.study_active ?? false;
+
+  // First section of my own study, so the roster can link member names into the
+  // compare workspace anchored on it.
+  let myFirstSectionId: string | null = null;
+  if (myStudyId && myStudyActive) {
+    const sections = await listSections(myStudyId);
+    myFirstSectionId = sections[0]?.id ?? null;
+  }
 
   return (
     <div className="mx-auto w-full max-w-3xl px-6 py-8">
@@ -54,23 +64,21 @@ export default async function GroupPage({
       <h1 className="mt-2 text-2xl font-bold">{group.name}</h1>
 
       <div className="mt-4 flex flex-wrap gap-2">
-        {group.template_study_id ? (
-          <Link
-            href={`/studies/${group.template_study_id}`}
-            className="inline-flex items-center gap-2 rounded-lg border bg-card px-3 py-2 text-sm hover:bg-accent/50"
-          >
-            <FileText className="size-4 text-muted-foreground" />
-            {owner ? "Edit the group template" : "View the group template"}
-          </Link>
-        ) : null}
-
-        {myStudyId ? (
+        {myStudyId && myStudyActive ? (
           <Link
             href={`/studies/${myStudyId}`}
             className="inline-flex items-center gap-2 rounded-lg border bg-card px-3 py-2 text-sm hover:bg-accent/50"
           >
             <SquarePen className="size-4 text-muted-foreground" />
             Open my study
+          </Link>
+        ) : myStudyId ? (
+          <Link
+            href="/dashboard"
+            className="inline-flex items-center gap-2 rounded-lg border border-dashed bg-card px-3 py-2 text-sm text-muted-foreground hover:bg-accent/50"
+          >
+            <Trash2 className="size-4" />
+            Your study is in the Trash — restore it
           </Link>
         ) : group.template_study_id ? (
           <form action={seedMyGroupStudy.bind(null, groupId)}>
@@ -85,26 +93,18 @@ export default async function GroupPage({
         ) : null}
       </div>
 
-      <section className="mt-8">
-        <h2 className="mb-3 text-sm font-semibold text-muted-foreground">
-          Members
-        </h2>
-        <MemberRoster
+      <div className="mt-8">
+        <GroupInfoPanel
           groupId={groupId}
+          role={owner ? "owner" : "member"}
+          templateStudyId={group.template_study_id}
           members={members}
-          isOwner={owner}
+          invitations={invitations}
           meId={user.id}
+          compareStudyId={myStudyActive ? myStudyId : null}
+          compareSectionId={myFirstSectionId}
         />
-      </section>
-
-      {owner ? (
-        <section className="mt-8">
-          <h2 className="mb-3 text-sm font-semibold text-muted-foreground">
-            Invite people
-          </h2>
-          <InvitePanel groupId={groupId} invitations={invitations} />
-        </section>
-      ) : null}
+      </div>
     </div>
   );
 }

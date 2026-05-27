@@ -90,7 +90,7 @@ export class StudyBlockView implements NodeView {
     const attrs = readAttrs(node);
 
     const section = document.createElement("section");
-    section.className = "study-block";
+    section.className = "study-block study-stack-item";
     // Mirror the schema's parseDOM attributes so that if ProseMirror ever
     // reconciles this NodeView's DOM back into the model, the study_block
     // round-trips losslessly (without these, a re-parse drops the attrs).

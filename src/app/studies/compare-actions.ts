@@ -22,6 +22,8 @@ async function requireUser() {
 export interface AlignCandidate {
   sectionId: string;
   title: string;
+  /** The section's order within its study (for natural-order browsing). */
+  position: number;
   score: number;
   lineageMatch: boolean;
   overlap: number;
@@ -49,6 +51,7 @@ export async function alignSections(
   const candidates: AlignCandidate[] = data.map((row) => ({
     sectionId: row.section_id,
     title: row.title,
+    position: row.section_position,
     score: row.score,
     lineageMatch: row.lineage_match,
     overlap: row.overlap,

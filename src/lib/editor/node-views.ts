@@ -2,6 +2,7 @@ import type { NodeViewConstructor } from "prosemirror-view";
 
 import { CalloutView } from "./plugins/callout-view";
 import { CollapsibleView } from "./plugins/collapsible-view";
+import { NoteEntryView, NotesIndexView } from "./plugins/notes-index-view";
 import { ScriptureView } from "./plugins/scripture-view";
 import { StudyBlockView } from "./plugins/study-block-view";
 import { TaskItemView } from "./plugins/task-item-view";
@@ -32,5 +33,7 @@ export function buildNodeViews(
     callout: (node) => new CalloutView(node),
     collapsible: (node, view, getPos) =>
       new CollapsibleView(node, view, getPos, editable),
+    notes_index: () => new NotesIndexView(),
+    note_entry: (node) => new NoteEntryView(node),
   };
 }

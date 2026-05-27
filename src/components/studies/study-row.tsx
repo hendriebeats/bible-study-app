@@ -2,10 +2,11 @@
 
 import { FileText, MoreVertical, Trash2, Users } from "lucide-react";
 import Link from "next/link";
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import { deleteStudy, restoreStudy } from "@/app/studies/actions";
+import { DeleteStudyDialog } from "@/components/studies/delete-study-dialog";
 import {
   Avatar,
   AvatarFallback,
@@ -55,6 +56,7 @@ function CoMemberAvatars({ members }: { members: StudyCoMember[] }) {
 
 export function StudyRow({ item }: { item: StudyListItem }) {
   const [pending, startTransition] = useTransition();
+  const [dialogOpen, setDialogOpen] = useState(false);
 
   return (
     <div className="relative">
@@ -103,6 +105,13 @@ export function StudyRow({ item }: { item: StudyListItem }) {
               variant="destructive"
               disabled={pending}
               onClick={() => {
+                // Group-attached studies route through a dialog that lets the
+                // user choose what happens to their membership; solo studies
+                // keep the frictionless one-click trash + Undo.
+                if (item.group) {
+                  setDialogOpen(true);
+                  return;
+                }
                 startTransition(() => {
                   void deleteStudy(item.id);
                 });
@@ -124,6 +133,15 @@ export function StudyRow({ item }: { item: StudyListItem }) {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
+      {item.group ? (
+        <DeleteStudyDialog
+          studyId={item.id}
+          studyTitle={item.title}
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+        />
+      ) : null}
     </div>
   );
 }

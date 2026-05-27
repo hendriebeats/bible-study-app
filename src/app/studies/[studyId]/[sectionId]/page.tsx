@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 
 import { SectionSurface } from "@/components/studies/section-surface";
 import { listCompareTargets } from "@/lib/db/compare";
+import { getStudyGroupContext } from "@/lib/db/groups";
 import { getDocumentHistory } from "@/lib/db/history";
 import { getSection, getSectionDocuments } from "@/lib/db/studies";
 import {
@@ -76,9 +77,14 @@ export default async function SectionPage({
       )
     : null;
 
-  // Show the Compare entry point only when there's actually someone to compare
-  // against (a co-member in one of this study's groups who has a study).
-  const canCompare = (await listCompareTargets(studyId)).length > 0;
+  // Other group members with a study (drives both the Compare entry point and
+  // the toolbar members menu), plus the group(s) this study belongs to (for the
+  // members menu + group-info popup).
+  const [compareTargets, groupContext] = await Promise.all([
+    listCompareTargets(studyId),
+    getStudyGroupContext(studyId),
+  ]);
+  const canCompare = compareTargets.length > 0;
 
   // The user's remembered scripture-insertion defaults (seed the insert panel)
   // and recently-used formatting (seed the selection bubble's quick action).
@@ -103,6 +109,8 @@ export default async function SectionPage({
       scriptureOptions={scriptureOptions}
       formatRecents={formatRecents}
       editorTools={editorTools}
+      compareTargets={compareTargets}
+      groupContext={groupContext}
     />
   );
 }

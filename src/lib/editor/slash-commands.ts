@@ -13,6 +13,7 @@ import {
   ListOrdered,
   type LucideIcon,
   Quote,
+  Table,
   TriangleAlert,
   Type,
 } from "lucide-react";
@@ -21,6 +22,7 @@ import type { Command } from "prosemirror-state";
 import {
   insertCallout,
   insertCollapsible,
+  insertTable,
   toggleBlockquote,
   toggleBulletList,
   toggleHeading,
@@ -177,6 +179,15 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
     icon: ChevronRight,
     command: insertCollapsible,
     tool: "collapsibles",
+  },
+  {
+    id: "table",
+    label: "Table",
+    keywords: ["table", "grid", "rows", "columns", "cells"],
+    group: "Blocks",
+    icon: Table,
+    command: insertTable,
+    tool: "tables",
   },
 ] as const;
 

@@ -5,6 +5,7 @@ import { gapCursor } from "prosemirror-gapcursor";
 import { closeHistory, history, undo } from "prosemirror-history";
 import { ChevronDown, History, Plus } from "lucide-react";
 import { EditorState } from "prosemirror-state";
+import { tableEditing } from "prosemirror-tables";
 import { EditorView } from "prosemirror-view";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -32,6 +33,8 @@ import { buildNodeViews } from "@/lib/editor/node-views";
 import { buildInputRules } from "@/lib/editor/plugins/input-rules";
 import { buildKeymaps } from "@/lib/editor/plugins/keymap";
 import { blockHandle } from "@/lib/editor/plugins/block-handle";
+import { noteAnchors } from "@/lib/editor/plugins/note-anchors";
+import { notesIndexGuard } from "@/lib/editor/plugins/notes-index-guard";
 import { placeholder as placeholderPlugin } from "@/lib/editor/plugins/placeholder";
 import { slashMenu } from "@/lib/editor/plugins/slash-menu";
 import { verseGuard } from "@/lib/editor/plugins/verse-guard";
@@ -68,6 +71,12 @@ function createPlugins(placeholderText: string) {
     verseLabel(),
     slashMenu(),
     blockHandle(),
+    // Cell selection + structural editing for tables (harmless when none exist).
+    tableEditing(),
+    // Inline clickable icon at the end of each note-anchored range.
+    noteAnchors(),
+    // Keep the pinned notes index from being deleted (no-op in the body editor).
+    notesIndexGuard(),
     placeholderPlugin(placeholderText),
   ];
 }

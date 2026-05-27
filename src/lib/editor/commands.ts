@@ -1,5 +1,5 @@
 import { lift, setBlockType, toggleMark, wrapIn } from "prosemirror-commands";
-import type { MarkType, NodeType } from "prosemirror-model";
+import type { MarkType, Node, NodeType } from "prosemirror-model";
 import { liftListItem, wrapInList } from "prosemirror-schema-list";
 import {
   type Command,
@@ -346,6 +346,82 @@ export const insertCollapsible: Command = (state, dispatch) => {
   }
   return true;
 };
+
+/**
+ * Build a `rows` × `cols` table: a header row of `table_header` cells over
+ * `rows - 1` body rows of `table_cell`s, every cell filled with an empty
+ * paragraph. Returns null if the schema can't fill a cell (shouldn't happen).
+ */
+function buildTable(rows: number, cols: number): Node | null {
+  const headerCell = nodes.tableHeader.createAndFill();
+  const bodyCell = nodes.tableCell.createAndFill();
+  if (!headerCell || !bodyCell) {
+    return null;
+  }
+  const rowNodes: Node[] = [
+    nodes.tableRow.create(
+      null,
+      Array.from({ length: cols }, () => headerCell),
+    ),
+  ];
+  for (let r = 1; r < rows; r++) {
+    rowNodes.push(
+      nodes.tableRow.create(
+        null,
+        Array.from({ length: cols }, () => bodyCell),
+      ),
+    );
+  }
+  return nodes.table.create(null, rowNodes);
+}
+
+/**
+ * Insert a 3×3 table (one header row + two body rows) at the cursor — same
+ * placement rules as callouts (replace a lone empty paragraph, else insert
+ * after the current block). Drops the caret in the first cell.
+ */
+export const insertTable: Command = (state, dispatch) => {
+  const table = buildTable(3, 3);
+  if (!table) {
+    return false;
+  }
+  if (dispatch) {
+    const { $from } = state.selection;
+    const blockStart = $from.before(1);
+    const blockEnd = $from.after(1);
+    const block = $from.node(1);
+    const tr = state.tr;
+    let insertPos: number;
+    if (block.type === nodes.paragraph && block.content.size === 0) {
+      tr.replaceRangeWith(blockStart, blockEnd, table);
+      insertPos = blockStart;
+    } else {
+      tr.insert(blockEnd, table);
+      insertPos = blockEnd;
+    }
+    tr.setSelection(TextSelection.near(tr.doc.resolve(insertPos + 1)));
+    dispatch(tr.scrollIntoView());
+  }
+  return true;
+};
+
+/**
+ * Wrap a command so the transaction it dispatches is flagged `allowVerseEdit`,
+ * letting it past the verse guard. For structural edits (e.g. deleting a table
+ * row/column) that may legitimately remove verse markers caught in the way.
+ */
+export function allowVerseEdit(command: Command): Command {
+  return (state, dispatch, view) =>
+    command(
+      state,
+      dispatch
+        ? (tr) => {
+            dispatch(tr.setMeta("allowVerseEdit", true));
+          }
+        : undefined,
+      view,
+    );
+}
 
 /** Move the current top-level block up one position. */
 export const moveBlockUp: Command = moveBlock(-1);

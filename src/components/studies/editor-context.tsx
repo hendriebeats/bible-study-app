@@ -1,7 +1,11 @@
 "use client";
 
-import { Slice } from "prosemirror-model";
-import type { Command, EditorState } from "prosemirror-state";
+import { type Node, Slice } from "prosemirror-model";
+import {
+  type Command,
+  type EditorState,
+  TextSelection,
+} from "prosemirror-state";
 import type { EditorView } from "prosemirror-view";
 import {
   createContext,
@@ -29,6 +33,8 @@ import {
   type FormatRecents,
   pushRecent,
 } from "@/lib/editor/format-actions";
+import { NOTE_OPEN_EVENT } from "@/lib/editor/plugins/note-anchors";
+import { marks, nodes, type VerseNumberAttrs } from "@/lib/editor/schema";
 import { scriptureParagraphsToNodes } from "@/lib/editor/scripture-insert";
 import { jsonToDoc } from "@/lib/editor/serialize";
 import type { ScriptureOptions } from "@/lib/scripture/options";
@@ -53,11 +59,46 @@ function commandForAction(action: FormatAction): Command {
 /** Debounce window before persisting recents to the user's account. */
 const RECENTS_SAVE_DELAY_MS = 800;
 
+/**
+ * The reference of the verse the position `pos` falls under: the last
+ * `verse_number` marker at or before it (text after a marker belongs to that
+ * verse). Returns `chapter:verse` (or the marker's printed `n`), or "" when no
+ * verse precedes the position — i.e. the noted region isn't near a verse.
+ */
+function nearestVerseRef(doc: Node, pos: number): string {
+  let ref = "";
+  doc.nodesBetween(0, pos, (node) => {
+    if (node.type === nodes.verseNumber) {
+      const attrs = node.attrs as VerseNumberAttrs;
+      if (attrs.chapter != null && attrs.verse != null) {
+        ref = `${String(attrs.chapter)}:${String(attrs.verse)}`;
+      } else if (attrs.n !== "") {
+        ref = attrs.n;
+      }
+    }
+    return true;
+  });
+  return ref;
+}
+
 export type EditorRole = "notes" | "blocks";
 
 export interface ScriptureInsertResult {
   ok: boolean;
   error?: string;
+}
+
+export interface NoteCreateResult {
+  ok: boolean;
+  error?: string;
+  /** The new note's id (present when ok) — used to open its popover. */
+  id?: string;
+}
+
+/** A located note body in the blocks doc: the entry node + its absolute pos. */
+export interface NoteEntryHit {
+  pos: number;
+  node: Node;
 }
 
 interface EditorContextValue {
@@ -69,6 +110,16 @@ interface EditorContextValue {
   unregisterView: (view: EditorView) => void;
   setActive: (view: EditorView, state: EditorState) => void;
   runCommand: (command: Command) => void;
+  /**
+   * Anchor a shared note on the active editor's selection: marks the selected
+   * text and adds an (empty) note body to the pinned notes index in the blocks
+   * doc, focused for typing. Returns an error when there's no usable selection.
+   */
+  createNote: () => NoteCreateResult;
+  /** The Study-blocks editor view (which hosts the notes index), or null. */
+  getBlocksView: () => EditorView | null;
+  /** Locate a note's body entry in the blocks doc by id (null if not found). */
+  findNoteEntry: (id: string) => NoteEntryHit | null;
   /** Insert an ESV passage as editable paragraphs into the notes editor. */
   insertScripture: (
     reference: string,
@@ -117,6 +168,7 @@ export function EditorProvider({
   const [activeState, setActiveState] = useState<EditorState | null>(null);
   const activeViewRef = useRef<EditorView | null>(null);
   const notesViewRef = useRef<EditorView | null>(null);
+  const blocksViewRef = useRef<EditorView | null>(null);
   const viewsRef = useRef<Set<EditorView>>(new Set());
 
   const adoptActive = useCallback(
@@ -134,6 +186,9 @@ export function EditorProvider({
       if (role === "notes") {
         notesViewRef.current = view;
       }
+      if (role === "blocks") {
+        blocksViewRef.current = view;
+      }
       if (activeViewRef.current === null) {
         adoptActive(view, view.state);
       }
@@ -146,6 +201,9 @@ export function EditorProvider({
       viewsRef.current.delete(view);
       if (notesViewRef.current === view) {
         notesViewRef.current = null;
+      }
+      if (blocksViewRef.current === view) {
+        blocksViewRef.current = null;
       }
       if (activeViewRef.current === view) {
         const next = viewsRef.current.values().next().value ?? null;
@@ -169,6 +227,81 @@ export function EditorProvider({
     }
     command(view.state, view.dispatch, view);
     view.focus();
+  }, []);
+
+  const createNote = useCallback((): NoteCreateResult => {
+    const view = activeViewRef.current;
+    if (!view) {
+      return { ok: false, error: "Select some text to add a note." };
+    }
+    const { from, to, empty } = view.state.selection;
+    if (empty || to <= from) {
+      return { ok: false, error: "Select some text to add a note." };
+    }
+    const id = crypto.randomUUID();
+    const source = view === notesViewRef.current ? "notes" : "blocks";
+
+    // 1. Anchor the note on the selected text, then collapse to its end so the
+    //    selection bubble dismisses and the inline icon shows.
+    const anchorTr = view.state.tr.addMark(from, to, marks.note.create({ id }));
+    anchorTr.setSelection(TextSelection.create(anchorTr.doc, to));
+    view.dispatch(anchorTr);
+
+    // 2. Add the (empty) note body to the pinned index in the blocks doc,
+    //    lazily creating the index when this is the section's first note. If the
+    //    blocks doc is still just a lone empty paragraph, replace it so the index
+    //    sits flush atop the blocks stack rather than below a stray blank line.
+    const blocksView = blocksViewRef.current ?? view;
+    const verseRef = nearestVerseRef(view.state.doc, from);
+    const entry = nodes.noteEntry.createAndFill({ id, source, verseRef });
+    if (!entry) {
+      return { ok: false, error: "Couldn't create the note." };
+    }
+    const doc = blocksView.state.doc;
+    const tr = blocksView.state.tr;
+    if (doc.firstChild?.type === nodes.notesIndex) {
+      // Append the entry to the existing index's content.
+      tr.insert(1 + doc.firstChild.content.size, entry);
+    } else {
+      const index = nodes.notesIndex.create(null, entry);
+      const onlyChild = doc.firstChild;
+      const isLonePlaceholder =
+        doc.childCount === 1 &&
+        onlyChild?.type === nodes.paragraph &&
+        onlyChild.content.size === 0;
+      if (isLonePlaceholder) {
+        tr.replaceWith(0, doc.content.size, index);
+      } else {
+        tr.insert(0, index);
+      }
+    }
+    tr.setMeta("allowVerseEdit", true);
+    blocksView.dispatch(tr);
+
+    // Open the note's popover to edit it (it focuses its own mini-editor).
+    window.dispatchEvent(new CustomEvent(NOTE_OPEN_EVENT, { detail: { id } }));
+    return { ok: true, id };
+  }, []);
+
+  const getBlocksView = useCallback(() => blocksViewRef.current, []);
+
+  const findNoteEntry = useCallback((id: string): NoteEntryHit | null => {
+    const view = blocksViewRef.current;
+    if (!view) {
+      return null;
+    }
+    let hit: NoteEntryHit | null = null;
+    view.state.doc.descendants((node, pos) => {
+      if (hit) {
+        return false;
+      }
+      if (node.type === nodes.noteEntry && node.attrs.id === id) {
+        hit = { pos, node };
+        return false;
+      }
+      return true;
+    });
+    return hit;
   }, []);
 
   // Recently-used formatting (the bubble's quick action). Optimistic local
@@ -256,6 +389,9 @@ export function EditorProvider({
       unregisterView,
       setActive,
       runCommand,
+      createNote,
+      getBlocksView,
+      findNoteEntry,
       insertScripture,
       scriptureOptions: initialScriptureOptions,
       editorTools: initialEditorTools,
@@ -270,6 +406,9 @@ export function EditorProvider({
       unregisterView,
       setActive,
       runCommand,
+      createNote,
+      getBlocksView,
+      findNoteEntry,
       insertScripture,
       initialScriptureOptions,
       initialEditorTools,

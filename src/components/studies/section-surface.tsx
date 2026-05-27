@@ -8,18 +8,22 @@ import { DocumentEditor } from "@/components/studies/document-editor";
 import { DocumentViewer } from "@/components/studies/document-viewer";
 import { EditorProvider } from "@/components/studies/editor-context";
 import { BlockMenu } from "@/components/studies/block-menu";
+import { GroupMembersMenu } from "@/components/studies/group-members-menu";
+import { NotePopover } from "@/components/studies/note-popover";
 import { SelectionBubble } from "@/components/studies/selection-bubble";
 import { SlashMenu } from "@/components/studies/slash-menu";
 import { useStudyChrome } from "@/components/studies/study-chrome-context";
 import { StudyToolbarPortal } from "@/components/studies/study-toolbar-portal";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
+import type { CompareTarget } from "@/lib/db/compare";
 import type { EditorTools } from "@/lib/editor/editor-tools";
 import type { FormatRecents } from "@/lib/editor/format-actions";
 import type {
   DocumentHistory,
   Section,
   SectionDocuments,
+  StudyGroupInfo,
 } from "@/lib/db/types";
 import type { ScriptureOptions } from "@/lib/scripture/options";
 
@@ -28,9 +32,9 @@ import type { ScriptureOptions } from "@/lib/scripture/options";
  * blocks. Owners get the editable `DocumentEditor`; group co-members get the
  * read-only live `DocumentViewer`. (RLS enforces that only the owner can write.)
  *
- * The section title and the formatting toolbar render up in the page chrome's
- * top bar / toolbar row (via `StudyChrome`'s portal slots), so the body itself
- * is just the full-bleed document stack.
+ * The formatting toolbar renders up in the page chrome's toolbar row, and the
+ * section title renders at the top of the document body — both via
+ * `StudyChrome`'s portal slots, so this component stays section-data-driven.
  */
 export function SectionSurface({
   section,
@@ -44,6 +48,8 @@ export function SectionSurface({
   scriptureOptions,
   formatRecents,
   editorTools,
+  compareTargets,
+  groupContext,
 }: {
   section: Section;
   documents: SectionDocuments;
@@ -56,6 +62,10 @@ export function SectionSurface({
   scriptureOptions: ScriptureOptions;
   formatRecents: FormatRecents;
   editorTools: EditorTools;
+  /** Other group members with a live study (for the toolbar members menu). */
+  compareTargets: CompareTarget[];
+  /** The group(s) this study belongs to (drives the members menu + info popup). */
+  groupContext: StudyGroupInfo[];
 }) {
   const [title, setTitle] = useState(section.title);
   const chrome = useStudyChrome();
@@ -80,7 +90,7 @@ export function SectionSurface({
   }, [chrome, compareHref]);
 
   // The editable (owner) / read-only (viewer) section title — rendered into the
-  // top-bar breadcrumb slot owned by `StudyChrome`.
+  // section-title slot at the top of the document body, owned by `StudyChrome`.
   const titleControl = isOwner ? (
     <Input
       value={title}
@@ -89,10 +99,12 @@ export function SectionSurface({
       }}
       onBlur={handleTitleBlur}
       aria-label="Section title"
-      className="h-7 w-full min-w-0 border-0 bg-transparent px-0 text-sm font-medium shadow-none focus-visible:ring-0"
+      className="h-9 w-full min-w-0 border-0 bg-transparent px-0 text-xl font-semibold shadow-none focus-visible:ring-0"
     />
   ) : (
-    <span className="block truncate text-sm font-medium">{section.title}</span>
+    <span className="block truncate text-xl font-semibold">
+      {section.title}
+    </span>
   );
 
   return (
@@ -104,7 +116,19 @@ export function SectionSurface({
       initialEditorTools={editorTools}
     >
       {chrome?.titleSlot ? createPortal(titleControl, chrome.titleSlot) : null}
-      {isOwner ? <StudyToolbarPortal /> : null}
+      {isOwner ? (
+        <StudyToolbarPortal
+          trailing={
+            <GroupMembersMenu
+              studyId={section.study_id}
+              sectionId={section.id}
+              targets={compareTargets}
+              groupContext={groupContext}
+              meId={me?.id ?? ""}
+            />
+          }
+        />
+      ) : null}
 
       {/* Minimal floating menu over a text selection (portals to body). */}
       {isOwner ? <SelectionBubble /> : null}
@@ -112,6 +136,8 @@ export function SectionSurface({
       {isOwner ? <SlashMenu /> : null}
       {/* Block options menu opened by the gutter handle (portals to body). */}
       {isOwner ? <BlockMenu /> : null}
+      {/* Draggable editor for a shared note (portals to body). */}
+      {isOwner ? <NotePopover /> : null}
 
       <div className="flex flex-col gap-4 px-6 py-5">
         {isOwner && notesHistory ? (

@@ -7,6 +7,7 @@ import {
 } from "prosemirror-model";
 import { schema as basicSchema } from "prosemirror-schema-basic";
 import { addListNodes } from "prosemirror-schema-list";
+import { tableNodes } from "prosemirror-tables";
 
 /**
  * The single ProseMirror schema for every study document.
@@ -234,7 +235,7 @@ const studyBlockSpec: NodeSpec = {
         ...(attrs.templateId === null
           ? {}
           : { "data-template-id": attrs.templateId }),
-        class: "study-block",
+        class: "study-block study-stack-item",
       },
       [
         "div",
@@ -420,6 +421,103 @@ const collapsibleSpec: NodeSpec = {
   },
 };
 
+/**
+ * Notes (shared annotations). A `note_entry` holds one note's rich-text body
+ * (`block+`) plus the `id` that links it to its anchor, the `source` document
+ * its anchor lives in ("notes"/"blocks"), and the nearest `verseRef` (filled in
+ * a later sub-phase; blank when the anchor isn't near a verse). The `notes_index`
+ * is the single container that holds every note's body for a section — pinned as
+ * the first block of the Study-blocks document. Bodies live here (not in the
+ * doc the anchor sits in), so the whole index is versioned with the blocks doc.
+ */
+const noteEntrySpec: NodeSpec = {
+  content: "block+",
+  defining: true,
+  isolating: true,
+  attrs: {
+    id: { default: "" },
+    source: { default: "blocks" },
+    verseRef: { default: "" },
+  },
+  parseDOM: [
+    {
+      tag: "div[data-note-entry]",
+      contentElement: ".note-entry-body",
+      getAttrs(dom) {
+        if (typeof dom === "string") return null;
+        return {
+          id: dom.getAttribute("data-id") ?? "",
+          source: dom.getAttribute("data-source") ?? "blocks",
+          verseRef: dom.getAttribute("data-verse-ref") ?? "",
+        };
+      },
+    },
+  ],
+  toDOM(node) {
+    const attrs = node.attrs as {
+      id: string;
+      source: string;
+      verseRef: string;
+    };
+    return [
+      "div",
+      {
+        "data-note-entry": "true",
+        "data-id": attrs.id,
+        "data-source": attrs.source,
+        "data-verse-ref": attrs.verseRef,
+        class: "note-entry",
+      },
+      [
+        "div",
+        { class: "note-entry-ref", contenteditable: "false" },
+        attrs.verseRef,
+      ],
+      ["div", { class: "note-entry-body" }, 0],
+    ];
+  },
+};
+
+const notesIndexSpec: NodeSpec = {
+  group: "block",
+  content: "note_entry*",
+  defining: true,
+  isolating: true,
+  parseDOM: [
+    { tag: "div[data-notes-index]", contentElement: ".notes-index-body" },
+  ],
+  toDOM() {
+    return [
+      "div",
+      { "data-notes-index": "true", class: "notes-index study-stack-item" },
+      [
+        "div",
+        { class: "study-block-layout" },
+        [
+          "div",
+          { class: "study-block-header", contenteditable: "false" },
+          ["div", { class: "notes-index-title" }, "Notes"],
+        ],
+        ["div", { class: "notes-index-body study-block-body" }, 0],
+      ],
+    ];
+  },
+};
+
+/**
+ * Tables (opt-in `tables` tool). The standard `prosemirror-tables` nodes —
+ * `table` holds rows, cells carry block content. Added to the shared schema so
+ * any document containing a table deserializes/renders everywhere (editor,
+ * read-only viewer, history previews); the `tableEditing` plugin (editable
+ * views only) and the slash / block menus drive structural editing.
+ * `tableGroup: "block"` lets a table sit as a top-level block.
+ */
+const tableNodeSpecs = tableNodes({
+  tableGroup: "block",
+  cellContent: "block+",
+  cellAttributes: {},
+});
+
 const nodeSpecs = baseNodeSpecs
   .update("paragraph", paragraphSpec)
   .update("heading", headingSpec)
@@ -429,7 +527,13 @@ const nodeSpecs = baseNodeSpecs
   .addToEnd("task_list", taskListSpec)
   .addToEnd("task_item", taskItemSpec)
   .addToEnd("callout", calloutSpec)
-  .addToEnd("collapsible", collapsibleSpec);
+  .addToEnd("collapsible", collapsibleSpec)
+  .addToEnd("note_entry", noteEntrySpec)
+  .addToEnd("notes_index", notesIndexSpec)
+  .addToEnd("table", tableNodeSpecs.table)
+  .addToEnd("table_row", tableNodeSpecs.table_row)
+  .addToEnd("table_cell", tableNodeSpecs.table_cell)
+  .addToEnd("table_header", tableNodeSpecs.table_header);
 
 const markSpecs = basicSchema.spec.marks
   .addToEnd("strikethrough", {
@@ -448,6 +552,27 @@ const markSpecs = basicSchema.spec.marks
     parseDOM: [{ tag: "u" }, { style: "text-decoration=underline" }],
     toDOM() {
       return ["u", 0];
+    },
+  })
+  // Note anchor: marks the text a shared note is attached to, carrying the note
+  // `id` that links it to its `note_entry` body in the notes_index. `inclusive:
+  // false` so typing at either edge doesn't extend the anchor. The note-anchors
+  // plugin draws the clickable inline icon at the end of each marked range.
+  .addToEnd("note", {
+    attrs: { id: { default: "" } },
+    inclusive: false,
+    parseDOM: [
+      {
+        tag: "span[data-note-id]",
+        getAttrs(dom) {
+          if (typeof dom === "string") return null;
+          return { id: dom.getAttribute("data-note-id") ?? "" };
+        },
+      },
+    ],
+    toDOM(mark) {
+      const id = (mark.attrs as { id: string }).id;
+      return ["span", { "data-note-id": id, class: "note-ref" }, 0];
     },
   })
   // Small caps for the covenant name (LORD/GOD) in inserted scripture, matching
@@ -558,6 +683,12 @@ export const nodes = {
   taskItem: requireNode("task_item"),
   callout: requireNode("callout"),
   collapsible: requireNode("collapsible"),
+  noteEntry: requireNode("note_entry"),
+  notesIndex: requireNode("notes_index"),
+  table: requireNode("table"),
+  tableRow: requireNode("table_row"),
+  tableCell: requireNode("table_cell"),
+  tableHeader: requireNode("table_header"),
 } as const;
 
 /** Resolved mark types (see {@link nodes}). */
@@ -572,4 +703,5 @@ export const marks = {
   smallCaps: requireMark("small_caps"),
   highlight: requireMark("highlight"),
   textColor: requireMark("text_color"),
+  note: requireMark("note"),
 } as const;

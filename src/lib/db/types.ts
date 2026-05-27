@@ -55,6 +55,8 @@ export interface GroupMember {
   user_id: string;
   role: string;
   study_id: string | null;
+  /** True when study_id points at a live study (not trashed/archived). */
+  study_active: boolean;
   display_name: string | null;
   avatar_url: string | null;
 }
@@ -68,6 +70,23 @@ export interface Invitation {
   status: string;
   expires_at: string;
   created_at: string;
+}
+
+/**
+ * A group a study belongs to, with everything the in-study members dropdown and
+ * group-info popup need: the caller's role, the editable template, the roster,
+ * and (for owners) the pending invitations. A study can belong to more than one
+ * group, so callers get a list.
+ */
+export interface StudyGroupInfo {
+  groupId: string;
+  groupName: string;
+  /** The caller's role in this group ("owner" | "member"). */
+  role: string;
+  templateStudyId: string | null;
+  members: GroupMember[];
+  /** Pending invitations — populated for owners only, else empty. */
+  invitations: Invitation[];
 }
 
 /** A user's role within an organization (super_admin > admin > member). */

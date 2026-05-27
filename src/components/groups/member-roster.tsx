@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 import { toast } from "sonner";
@@ -22,11 +23,19 @@ export function MemberRoster({
   members,
   isOwner,
   meId,
+  compareStudyId,
+  compareSectionId,
 }: {
   groupId: string;
   members: GroupMember[];
   isOwner: boolean;
   meId: string;
+  /**
+   * When the viewer has their own study + section in this group, member names
+   * become links into the compare workspace focused on that member's study.
+   */
+  compareStudyId?: string | null;
+  compareSectionId?: string | null;
 }) {
   const [pending, startTransition] = useTransition();
   const router = useRouter();
@@ -49,6 +58,16 @@ export function MemberRoster({
         const trimmed = member.display_name?.trim() ?? "";
         const name = trimmed === "" ? "Member" : trimmed;
         const isMe = member.user_id === meId;
+        // Other members with a live study become a link into compare — but only
+        // when the viewer has their own study + section here to anchor it.
+        const compareHref =
+          !isMe &&
+          member.study_active &&
+          member.study_id !== null &&
+          compareStudyId &&
+          compareSectionId
+            ? `/studies/${compareStudyId}/compare/${compareSectionId}?focus=${member.study_id}`
+            : null;
         return (
           <li
             key={member.user_id}
@@ -57,10 +76,19 @@ export function MemberRoster({
             <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-medium text-muted-foreground">
               {initials(name)}
             </span>
-            <span className="min-w-0 flex-1 truncate">
-              {name}
-              {isMe ? " (you)" : ""}
-            </span>
+            {compareHref ? (
+              <Link
+                href={compareHref}
+                className="min-w-0 flex-1 truncate font-medium hover:underline"
+              >
+                {name}
+              </Link>
+            ) : (
+              <span className="min-w-0 flex-1 truncate">
+                {name}
+                {isMe ? " (you)" : ""}
+              </span>
+            )}
             <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground capitalize">
               {member.role}
             </span>

@@ -1,12 +1,35 @@
 "use client";
 
-import { ArrowDown, ArrowUp, Trash2 } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  BetweenHorizontalEnd,
+  BetweenHorizontalStart,
+  BetweenVerticalEnd,
+  BetweenVerticalStart,
+  type LucideIcon,
+  Minus,
+  PanelTop,
+  Trash2,
+} from "lucide-react";
 import type { Command } from "prosemirror-state";
+import {
+  addColumnAfter,
+  addColumnBefore,
+  addRowAfter,
+  addRowBefore,
+  deleteColumn,
+  deleteRow,
+  deleteTable,
+  isInTable,
+  toggleHeaderRow,
+} from "prosemirror-tables";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { useEditorContext } from "@/components/studies/editor-context";
 import {
+  allowVerseEdit,
   deleteCurrentBlock,
   moveBlockDown,
   moveBlockUp,
@@ -74,6 +97,9 @@ export function BlockMenu() {
   }
 
   const turnInto = filterTurnInto(ctx.editorTools);
+  // When the caret sits inside a table, swap "Turn into" for table row/column
+  // ops (the gutter handle already placed the caret in the cell).
+  const inTable = ctx.activeState ? isInTable(ctx.activeState) : false;
 
   const run = (command: Command) => {
     ctx.runCommand(command);
@@ -85,6 +111,35 @@ export function BlockMenu() {
 
   const itemClass =
     "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-foreground/80 hover:bg-muted hover:text-foreground";
+  const destructiveClass =
+    "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-destructive hover:bg-destructive/10";
+
+  const item = (
+    key: string,
+    Icon: LucideIcon,
+    text: string,
+    command: Command,
+    destructive = false,
+  ) => (
+    <button
+      key={key}
+      type="button"
+      role="menuitem"
+      onClick={() => {
+        run(command);
+      }}
+      className={destructive ? destructiveClass : itemClass}
+    >
+      <Icon
+        className={
+          destructive
+            ? "size-4 shrink-0"
+            : "size-4 shrink-0 text-muted-foreground"
+        }
+      />
+      <span className="flex-1 truncate">{text}</span>
+    </button>
+  );
 
   return createPortal(
     <div
@@ -97,60 +152,78 @@ export function BlockMenu() {
       style={{ position: "fixed", left, top, width: MENU_WIDTH }}
       className="z-50 max-h-80 overflow-auto rounded-lg border bg-popover p-1 shadow-md ring-1 ring-foreground/10"
     >
-      <p className="px-2 py-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
-        Turn into
-      </p>
-      {turnInto.map((entry) => {
-        const Icon = entry.icon;
-        return (
-          <button
-            key={entry.id}
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              run(entry.command);
-            }}
-            className={itemClass}
-          >
-            <Icon className="size-4 shrink-0 text-muted-foreground" />
-            <span className="flex-1 truncate">{entry.label}</span>
-          </button>
-        );
-      })}
-      <div className="my-1 border-t border-border/60" />
-      <button
-        type="button"
-        role="menuitem"
-        onClick={() => {
-          run(moveBlockUp);
-        }}
-        className={itemClass}
-      >
-        <ArrowUp className="size-4 shrink-0 text-muted-foreground" />
-        <span className="flex-1">Move up</span>
-      </button>
-      <button
-        type="button"
-        role="menuitem"
-        onClick={() => {
-          run(moveBlockDown);
-        }}
-        className={itemClass}
-      >
-        <ArrowDown className="size-4 shrink-0 text-muted-foreground" />
-        <span className="flex-1">Move down</span>
-      </button>
-      <button
-        type="button"
-        role="menuitem"
-        onClick={() => {
-          run(deleteCurrentBlock);
-        }}
-        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-destructive hover:bg-destructive/10"
-      >
-        <Trash2 className="size-4 shrink-0" />
-        <span className="flex-1">Delete</span>
-      </button>
+      {inTable ? (
+        <>
+          <p className="px-2 py-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
+            Table
+          </p>
+          {item(
+            "row-before",
+            BetweenHorizontalStart,
+            "Insert row above",
+            allowVerseEdit(addRowBefore),
+          )}
+          {item(
+            "row-after",
+            BetweenHorizontalEnd,
+            "Insert row below",
+            allowVerseEdit(addRowAfter),
+          )}
+          {item(
+            "col-before",
+            BetweenVerticalStart,
+            "Insert column left",
+            allowVerseEdit(addColumnBefore),
+          )}
+          {item(
+            "col-after",
+            BetweenVerticalEnd,
+            "Insert column right",
+            allowVerseEdit(addColumnAfter),
+          )}
+          <div className="my-1 border-t border-border/60" />
+          {item(
+            "header-row",
+            PanelTop,
+            "Toggle header row",
+            allowVerseEdit(toggleHeaderRow),
+          )}
+          {item(
+            "del-row",
+            Minus,
+            "Delete row",
+            allowVerseEdit(deleteRow),
+            true,
+          )}
+          {item(
+            "del-col",
+            Minus,
+            "Delete column",
+            allowVerseEdit(deleteColumn),
+            true,
+          )}
+          {item(
+            "del-table",
+            Trash2,
+            "Delete table",
+            allowVerseEdit(deleteTable),
+            true,
+          )}
+        </>
+      ) : (
+        <>
+          <p className="px-2 py-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
+            Turn into
+          </p>
+          {turnInto.map((entry) =>
+            item(entry.id, entry.icon, entry.label, entry.command),
+          )}
+          <div className="my-1 border-t border-border/60" />
+          {item("move-up", ArrowUp, "Move up", moveBlockUp)}
+          {item("move-down", ArrowDown, "Move down", moveBlockDown)}
+          {item("delete", Trash2, "Delete", deleteCurrentBlock, true)}
+        </>
+      )}
     </div>,
     document.body,
   );

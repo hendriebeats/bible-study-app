@@ -62,7 +62,7 @@ export const EDITOR_TOOL_REGISTRY: readonly EditorToolMeta[] = [
     key: "tables",
     label: "Tables",
     description: "Insert and edit tables for side-by-side comparisons.",
-    available: false,
+    available: true,
   },
   {
     key: "images",

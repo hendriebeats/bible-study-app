@@ -1198,6 +1198,10 @@ export type Database = {
       }
       decline_invitation: { Args: { _token: string }; Returns: undefined }
       decline_org_invitation: { Args: { _token: string }; Returns: undefined }
+      delete_study_with_disposition: {
+        Args: { _mode?: string; _study_id: string }
+        Returns: undefined
+      }
       deny_join_request: { Args: { _id: string }; Returns: undefined }
       genre_blocks_doc: { Args: { _genre_id: string }; Returns: Json }
       get_invitation: {

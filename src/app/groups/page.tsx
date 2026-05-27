@@ -1,10 +1,20 @@
-import { BookOpen, Users } from "lucide-react";
+import { BookOpen } from "lucide-react";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 
+import { GroupsList } from "@/components/groups/groups-list";
 import { NewGroupForm } from "@/components/groups/new-group-form";
 import { listMyGroups } from "@/lib/db/groups";
+import { createClient } from "@/lib/supabase/server";
 
 export default async function GroupsPage() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    redirect("/login");
+  }
   const groups = await listMyGroups();
 
   return (
@@ -28,19 +38,10 @@ export default async function GroupsPage() {
           others, then invite them.
         </p>
       ) : (
-        <ul className="grid gap-3">
-          {groups.map((group) => (
-            <li key={group.id}>
-              <Link
-                href={`/groups/${group.id}`}
-                className="flex items-center gap-3 rounded-lg border bg-card p-4 hover:bg-accent/50"
-              >
-                <Users className="size-5 text-muted-foreground" />
-                <span className="font-medium">{group.name}</span>
-              </Link>
-            </li>
-          ))}
-        </ul>
+        <GroupsList
+          groups={groups.map((g) => ({ id: g.id, name: g.name }))}
+          meId={user.id}
+        />
       )}
     </div>
   );

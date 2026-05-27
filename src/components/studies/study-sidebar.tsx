@@ -1,6 +1,6 @@
 "use client";
 
-import { BookOpen, MoreVertical, Plus, Trash2 } from "lucide-react";
+import { MoreVertical, PanelLeft, Plus, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTransition } from "react";
@@ -29,27 +29,31 @@ export function StudySidebar({
   isOwner,
   trashedSections,
   genres,
+  onCollapse,
 }: {
   study: Study;
   sections: SectionSummary[];
   isOwner: boolean;
   trashedSections: TrashItem[];
   genres: Genre[];
+  /** Collapse the sidebar (the re-open control then floats over the body). */
+  onCollapse: () => void;
 }) {
   const pathname = usePathname();
   const [pending, startTransition] = useTransition();
 
   return (
     <aside className="flex h-full w-64 shrink-0 flex-col border-r bg-sidebar">
-      <div className="border-b p-4">
-        <Link
-          href="/dashboard"
-          className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+      <div className="flex items-center border-b p-2">
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          aria-label="Hide sections"
+          onClick={onCollapse}
         >
-          <BookOpen className="size-4" />
-          All studies
-        </Link>
-        <p className="mt-2 truncate font-semibold">{study.title}</p>
+          <PanelLeft className="size-4" />
+        </Button>
       </div>
 
       {isOwner ? (

@@ -5,6 +5,7 @@ import { history } from "prosemirror-history";
 import { Bold, Italic, List, ListOrdered, Strikethrough } from "lucide-react";
 import { EditorState } from "prosemirror-state";
 import type { Command } from "prosemirror-state";
+import { tableEditing } from "prosemirror-tables";
 import { EditorView } from "prosemirror-view";
 import { useEffect, useRef, useState } from "react";
 
@@ -68,7 +69,13 @@ export function DefaultContentEditor({
     const view = new EditorView(mount, {
       state: EditorState.create({
         doc: initialDoc(value),
-        plugins: [buildInputRules(), ...buildKeymaps(), gapCursor(), history()],
+        plugins: [
+          buildInputRules(),
+          ...buildKeymaps(),
+          gapCursor(),
+          history(),
+          tableEditing(),
+        ],
       }),
       dispatchTransaction(tr) {
         const next = view.state.apply(tr);

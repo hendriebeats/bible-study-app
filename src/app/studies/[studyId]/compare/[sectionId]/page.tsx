@@ -3,17 +3,23 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { CompareWorkspace } from "@/components/studies/compare-workspace";
-import { listCompareTargets } from "@/lib/db/compare";
+import {
+  getLastViewedCompareTarget,
+  listCompareTargets,
+} from "@/lib/db/compare";
 import { getSection, getSectionDocuments } from "@/lib/db/studies";
 import { getWorkspaceLayout } from "@/lib/db/workspace";
 import { createClient } from "@/lib/supabase/server";
 
 export default async function ComparePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ studyId: string; sectionId: string }>;
+  searchParams: Promise<{ focus?: string }>;
 }) {
   const { studyId, sectionId } = await params;
+  const { focus } = await searchParams;
   const section = await getSection(sectionId);
   if (section?.study_id !== studyId) {
     notFound();
@@ -23,9 +29,10 @@ export default async function ComparePage({
     notFound();
   }
 
-  const [targets, savedLayout] = await Promise.all([
+  const [targets, savedLayout, lastViewed] = await Promise.all([
     listCompareTargets(studyId),
     getWorkspaceLayout(studyId),
+    getLastViewedCompareTarget(studyId),
   ]);
 
   const supabase = await createClient();
@@ -67,6 +74,8 @@ export default async function ComparePage({
           targets={targets}
           me={me}
           savedLayout={savedLayout}
+          focusTargetStudyId={focus ?? null}
+          defaultTargetStudyId={lastViewed}
         />
       </div>
     </div>

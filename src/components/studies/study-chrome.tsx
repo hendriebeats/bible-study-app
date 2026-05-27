@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronRight, Columns2, Layers, PanelLeft } from "lucide-react";
+import { ChevronLeft, Columns2, Layers, PanelLeft } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { type ReactNode, useCallback, useMemo, useState } from "react";
@@ -8,23 +8,27 @@ import { type ReactNode, useCallback, useMemo, useState } from "react";
 import { StudySidebar } from "@/components/studies/study-sidebar";
 import { StudyChromeContext } from "@/components/studies/study-chrome-context";
 import type { StudyChromeValue } from "@/components/studies/study-chrome-context";
+import { StudyTitleControl } from "@/components/studies/study-title-control";
 import { Button } from "@/components/ui/button";
 import type { Genre, SectionSummary, Study, TrashItem } from "@/lib/db/types";
 import { cn } from "@/lib/utils";
 
 /**
- * The studies-page chrome: a slim Google-Docs-style top bar (sidebar toggle +
- * "Study › Section" breadcrumb on the left, the shared header actions on the
- * right), a full-width formatting toolbar row directly beneath it, and a
- * collapsible sidebar beside the full-bleed document content.
+ * The studies-page chrome: a slim Google-Docs-style top bar ("All studies" +
+ * the editable study title on the left, the shared header actions on the
+ * right), a full-width formatting toolbar row beneath it, and a collapsible
+ * sidebar beside the full-bleed document content. The sidebar's collapse toggle
+ * lives inside the sidebar; once collapsed, a floating button at the body's
+ * top-left re-opens it.
  *
  * The sidebar lives here (not in the page) so it survives section-to-section
  * navigation. The editable section title and the editor toolbar are page-level
  * (they need section data + the editor context), so the page bridges them up
- * via the `titleSlot` / `toolbarSlot` portal targets and `setCompareHref`.
+ * via the `titleSlot` (top of the document body) / `toolbarSlot` portal targets
+ * and `setCompareHref`.
  *
  * On the compare route there is no section to edit: the chrome renders in a
- * "bare" mode — no sidebar, no toolbar row, a static "Compare" crumb.
+ * "bare" mode — no sidebar, no toolbar row, no section-title slot.
  */
 export function StudyChrome({
   study,
@@ -76,29 +80,25 @@ export function StudyChrome({
     <StudyChromeContext.Provider value={value}>
       <div className="flex h-svh flex-col">
         <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/60 px-2">
-          {!isCompare ? (
-            <Button
-              type="button"
-              size="icon"
-              variant="ghost"
-              aria-label={sidebarOpen ? "Hide sections" : "Show sections"}
-              aria-pressed={sidebarOpen}
-              onClick={toggleSidebar}
-            >
-              <PanelLeft className="size-4" />
-            </Button>
-          ) : null}
+          <Button
+            asChild
+            size="sm"
+            variant="ghost"
+            className="shrink-0 text-muted-foreground"
+          >
+            <Link href="/dashboard">
+              <ChevronLeft className="size-4" />
+              All studies
+            </Link>
+          </Button>
 
-          <div className="flex min-w-0 flex-1 items-center gap-1.5 text-sm">
-            <span className="min-w-0 truncate font-medium text-muted-foreground">
-              {study.title}
-            </span>
-            <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/60" />
-            {isCompare ? (
-              <span className="truncate text-muted-foreground">Compare</span>
-            ) : (
-              <div ref={setTitleSlot} className="min-w-0 flex-1" />
-            )}
+          <div className="flex min-w-0 flex-1 items-center">
+            <StudyTitleControl
+              key={study.title}
+              studyId={study.id}
+              title={study.title}
+              canEdit={isOwner}
+            />
           </div>
 
           <div className="flex shrink-0 items-center gap-1">
@@ -139,7 +139,7 @@ export function StudyChrome({
           </div>
         ) : null}
 
-        <div className="flex min-h-0 flex-1">
+        <div className="relative flex min-h-0 flex-1">
           {!isCompare ? (
             <div
               className={cn(
@@ -153,10 +153,34 @@ export function StudyChrome({
                 isOwner={isOwner}
                 trashedSections={trashedSections}
                 genres={genres}
+                onCollapse={toggleSidebar}
               />
             </div>
           ) : null}
-          <main className="min-w-0 flex-1 overflow-auto">{children}</main>
+
+          <main className="min-w-0 flex-1 overflow-auto">
+            {!isCompare ? (
+              <div
+                ref={setTitleSlot}
+                className={cn("pt-5", sidebarOpen ? "px-6" : "pr-6 pl-14")}
+              />
+            ) : null}
+            {children}
+          </main>
+
+          {/* Sidebar collapsed: a floating re-open button at the body's top-left. */}
+          {!isCompare && !sidebarOpen ? (
+            <Button
+              type="button"
+              size="icon"
+              variant="outline"
+              aria-label="Show sections"
+              onClick={toggleSidebar}
+              className="absolute top-3 left-3 z-20 shadow-sm"
+            >
+              <PanelLeft className="size-4" />
+            </Button>
+          ) : null}
         </div>
       </div>
     </StudyChromeContext.Provider>

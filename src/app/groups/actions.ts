@@ -3,11 +3,20 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
+import { getGroupInfo } from "@/lib/db/groups";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import type { StudyGroupInfo } from "@/lib/db/types";
 import { getSiteURL } from "@/lib/url";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
+
+/** Load one group's info on demand (for the groups-list popup). */
+export async function loadGroupInfo(
+  groupId: string,
+): Promise<StudyGroupInfo | null> {
+  return getGroupInfo(groupId);
+}
 
 async function requireUser() {
   const supabase = await createClient();

@@ -9,6 +9,7 @@ import { fetchDocumentHead } from "@/app/studies/actions";
 import { PresenceAvatars } from "@/components/studies/presence-avatars";
 import type { StudyDocument } from "@/lib/db/types";
 import { buildNodeViews } from "@/lib/editor/node-views";
+import { noteAnchors } from "@/lib/editor/plugins/note-anchors";
 import {
   remoteCursor,
   remoteCursorKey,
@@ -31,7 +32,7 @@ function viewerDoc(content: PMDocJSON) {
 function viewerState(content: PMDocJSON): EditorState {
   return EditorState.create({
     doc: viewerDoc(content),
-    plugins: [remoteCursor(), verseLabel()],
+    plugins: [remoteCursor(), verseLabel(), noteAnchors()],
   });
 }
 

@@ -7,7 +7,7 @@ export interface StudyChromeValue {
   sidebarOpen: boolean;
   /** Toggle the sidebar open/closed (session-only; not persisted). */
   toggleSidebar: () => void;
-  /** Top-bar breadcrumb slot the section page portals its title control into. */
+  /** Body-top slot the section page portals its section-title control into. */
   titleSlot: HTMLElement | null;
   /** Full-width row beneath the top bar the editor toolbar portals into. */
   toolbarSlot: HTMLElement | null;

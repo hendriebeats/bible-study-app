@@ -3,6 +3,7 @@ import type {
   GroupStudy,
   Invitation,
   Study,
+  StudyGroupInfo,
 } from "@/lib/db/types";
 import { createClient } from "@/lib/supabase/server";
 
@@ -62,10 +63,30 @@ export async function listMembers(groupId: string): Promise<GroupMember[]> {
     }
   }
 
+  // Which contributed studies are still live? A trashed/archived study is
+  // hidden by RLS (the owner can still see their OWN trashed study, but the
+  // `deleted_at is null` filter excludes it), so anything not returned here is
+  // inactive — including a member who trashed their study.
+  const studyIds = members
+    .map((m) => m.study_id)
+    .filter((id): id is string => id !== null);
+  const activeStudyIds = new Set<string>();
+  if (studyIds.length > 0) {
+    const { data: liveStudies } = await supabase
+      .from("studies")
+      .select("id")
+      .in("id", studyIds)
+      .is("deleted_at", null);
+    for (const s of liveStudies ?? []) {
+      activeStudyIds.add(s.id);
+    }
+  }
+
   return members.map((m) => ({
     user_id: m.user_id,
     role: m.role,
     study_id: m.study_id,
+    study_active: m.study_id !== null && activeStudyIds.has(m.study_id),
     display_name: profilesById.get(m.user_id)?.display_name ?? null,
     avatar_url: profilesById.get(m.user_id)?.avatar_url ?? null,
   }));
@@ -165,4 +186,169 @@ export async function isGroupOwner(groupId: string): Promise<boolean> {
     throw new Error(error.message);
   }
   return data;
+}
+
+/** A group the current user has a given study attached to (for the delete prompt). */
+export interface StudyGroupLink {
+  groupId: string;
+  groupName: string;
+  /** The caller's role in that group. */
+  role: string;
+  /** True when the caller is that group's ONLY owner (so they can't leave it). */
+  soleOwner: boolean;
+}
+
+/**
+ * Groups the current user has attached `studyId` to, with enough context to
+ * drive the "you're deleting a shared study" prompt: the group name, the
+ * caller's role, and whether they're the group's last owner (the
+ * enforce_group_has_owner trigger would block them from leaving).
+ */
+export async function listStudyGroupLinks(
+  studyId: string,
+): Promise<StudyGroupLink[]> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return [];
+  }
+
+  const { data: mine, error } = await supabase
+    .from("group_study_members")
+    .select("group_study_id, role, group_studies(id, name)")
+    .eq("study_id", studyId)
+    .eq("user_id", user.id);
+  if (error) {
+    throw new Error(error.message);
+  }
+  if (mine.length === 0) {
+    return [];
+  }
+
+  const groupIds = mine.map((m) => m.group_study_id);
+  const { data: owners, error: ownersError } = await supabase
+    .from("group_study_members")
+    .select("group_study_id")
+    .in("group_study_id", groupIds)
+    .eq("role", "owner");
+  if (ownersError) {
+    throw new Error(ownersError.message);
+  }
+  const ownerCount = new Map<string, number>();
+  for (const o of owners) {
+    ownerCount.set(
+      o.group_study_id,
+      (ownerCount.get(o.group_study_id) ?? 0) + 1,
+    );
+  }
+
+  return mine.map((m) => ({
+    groupId: m.group_studies.id,
+    groupName: m.group_studies.name,
+    role: m.role,
+    soleOwner:
+      m.role === "owner" && (ownerCount.get(m.group_study_id) ?? 0) <= 1,
+  }));
+}
+
+/**
+ * The current user's view of a single group: their role, the editable template,
+ * the roster, and (owners only) pending invitations. Returns null when the user
+ * isn't a member. The reusable unit behind the group-info popup — used both from
+ * a study and from the groups list.
+ */
+export async function getGroupInfo(
+  groupId: string,
+): Promise<StudyGroupInfo | null> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return null;
+  }
+  const { data: membership } = await supabase
+    .from("group_study_members")
+    .select("role")
+    .eq("group_study_id", groupId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+  if (!membership) {
+    return null;
+  }
+  const group = await getGroup(groupId);
+  if (!group) {
+    return null;
+  }
+  const [members, invitations] = await Promise.all([
+    listMembers(groupId),
+    membership.role === "owner"
+      ? listInvitations(groupId)
+      : Promise.resolve<Invitation[]>([]),
+  ]);
+  return {
+    groupId,
+    groupName: group.name,
+    role: membership.role,
+    templateStudyId: group.template_study_id,
+    members,
+    invitations,
+  };
+}
+
+/**
+ * The group context for a study, from the current user's perspective: the
+ * group(s) it belongs to (see {@link getGroupInfo}). Feeds the in-study members
+ * dropdown and group-info popup.
+ *
+ * Resolves groups two ways so it works on both a member's personal study (it's
+ * their contributed `study_id` in a group) and the group's template study
+ * (`owner_group_id` points back at the group).
+ */
+export async function getStudyGroupContext(
+  studyId: string,
+): Promise<StudyGroupInfo[]> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return [];
+  }
+
+  const groupIds = new Set<string>();
+
+  // Groups where this study is the caller's own contributed study.
+  const { data: mine, error } = await supabase
+    .from("group_study_members")
+    .select("group_study_id")
+    .eq("study_id", studyId)
+    .eq("user_id", user.id);
+  if (error) {
+    throw new Error(error.message);
+  }
+  for (const m of mine) {
+    groupIds.add(m.group_study_id);
+  }
+
+  // The study may itself be a group's template; surface that group too.
+  const { data: study } = await supabase
+    .from("studies")
+    .select("owner_group_id")
+    .eq("id", studyId)
+    .maybeSingle();
+  if (study?.owner_group_id) {
+    groupIds.add(study.owner_group_id);
+  }
+
+  const groups: StudyGroupInfo[] = [];
+  for (const groupId of groupIds) {
+    const info = await getGroupInfo(groupId);
+    if (info) {
+      groups.push(info);
+    }
+  }
+  return groups;
 }

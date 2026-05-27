@@ -276,6 +276,77 @@
   .ProseMirror .collapsible[data-open="false"] .collapsible-body {
     display: none;
   }
+  /* Tables (opt-in). Fixed layout so columns share width and don't overflow. */
+  .ProseMirror table {
+    @apply my-3 w-full border-collapse text-sm;
+    table-layout: fixed;
+  }
+  .ProseMirror th,
+  .ProseMirror td {
+    @apply border p-2 align-top;
+    position: relative;
+  }
+  .ProseMirror th {
+    @apply bg-muted text-left font-semibold;
+  }
+  .ProseMirror td > *,
+  .ProseMirror th > * {
+    @apply m-0;
+  }
+  /* Cell selection overlay (prosemirror-tables adds .selectedCell). */
+  .ProseMirror .selectedCell::after {
+    @apply pointer-events-none absolute inset-0 z-10 bg-primary/15;
+    content: "";
+  }
+  /* Notes — shared annotations. The pinned index renders as a study-block-style
+     block (its chrome comes from `.study-stack-item`); its body lists each note
+     as a divider-separated row (verse ref | text). The anchor mark + inline icon
+     mark the text a note is attached to. */
+  .ProseMirror .notes-index-title {
+    @apply text-sm font-semibold;
+  }
+  .ProseMirror .note-entry {
+    @apply grid gap-3 py-2;
+    grid-template-columns: 4rem 1fr;
+    border-top: 1px solid var(--border);
+  }
+  .ProseMirror .note-entry:first-child {
+    border-top: 0;
+    padding-top: 0;
+  }
+  .ProseMirror .note-entry-ref {
+    @apply text-xs font-medium text-muted-foreground;
+  }
+  .ProseMirror .note-entry-body > * + * {
+    @apply mt-1;
+  }
+  .ProseMirror .note-ref {
+    border-bottom: 2px dotted var(--primary);
+  }
+  /* The anchored region lit while its note icon/row is hovered or its popover
+     is open (toggled in note-highlight.ts). */
+  .ProseMirror .note-ref.note-active {
+    border-radius: 2px;
+    background-color: rgb(250 224 120 / 0.6);
+  }
+  .ProseMirror .note-anchor-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 0.95em;
+    height: 0.95em;
+    margin-inline-start: 1px;
+    vertical-align: super;
+    color: var(--muted-foreground);
+    cursor: pointer;
+  }
+  .ProseMirror .note-anchor-icon:hover {
+    color: var(--foreground);
+  }
+  .ProseMirror .note-anchor-icon svg {
+    width: 100%;
+    height: 100%;
+  }
   .ProseMirror a {
     @apply text-primary underline;
   }
@@ -347,15 +418,35 @@
      Each block is its own container query (see the @container rule below) so the
      header/body sit side-by-side when wide and stack when narrow — including in
      narrow contexts like the compare columns, not just on small screens. */
-  .study-block {
+  /* Study blocks AND the notes index render as one edge-to-edge stack: each is
+     a `.study-stack-item` with a gray left column + a body, sharing borders so a
+     contiguous run reads as a single bordered container with only its outer
+     corners rounded. */
+  .ProseMirror .study-stack-item {
     container-type: inline-size;
-    @apply rounded-lg border bg-card p-3;
+    @apply border bg-card;
+    border-radius: 0;
   }
-  .study-block + .study-block {
-    @apply mt-3;
+  /* Collapse the inter-block gap + doubled border between adjacent items (more
+     specific than `.ProseMirror > * + *`, so it wins without !important). */
+  .ProseMirror > .study-stack-item + .study-stack-item {
+    @apply mt-0;
+    border-top: 0;
+  }
+  /* Round only the outer corners of a contiguous run (a non-stack block between
+     two items splits the run, so each sub-run rounds on its own boundaries). */
+  .ProseMirror > .study-stack-item:first-child,
+  .ProseMirror > :not(.study-stack-item) + .study-stack-item {
+    border-top-left-radius: var(--radius);
+    border-top-right-radius: var(--radius);
+  }
+  .ProseMirror > .study-stack-item:last-child,
+  .ProseMirror > .study-stack-item:has(+ :not(.study-stack-item)) {
+    border-bottom-left-radius: var(--radius);
+    border-bottom-right-radius: var(--radius);
   }
   .study-block-layout {
-    @apply flex flex-col gap-2;
+    @apply flex flex-col;
   }
   .study-block-titlerow {
     @apply flex items-center gap-2;
@@ -364,23 +455,30 @@
     @apply min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none;
   }
   .study-block-remove {
-    @apply shrink-0 rounded px-1.5 text-lg leading-none text-muted-foreground hover:text-destructive;
+    @apply shrink-0 rounded-sm px-1.5 text-lg leading-none text-muted-foreground hover:text-destructive;
   }
   .study-block-subtitle {
     @apply mt-1 text-xs text-muted-foreground;
   }
-  .study-block-body {
-    @apply min-w-0;
+  /* Light-gray left column with a divider against the body. */
+  .study-block-header {
+    @apply bg-muted p-3;
+    border-bottom: 1px solid var(--border);
   }
-  /* Wide enough: title + subtitle in a fixed 250px column, body fills the rest. */
+  .study-block-body {
+    @apply min-w-0 p-3;
+  }
+  /* Wide enough: the gray header is a fixed 250px left column with a vertical
+     divider; body fills the rest (no gap — they sit flush). */
   @container (min-width: 480px) {
     .study-block-layout {
       flex-direction: row;
-      gap: 1.25rem;
     }
     .study-block-header {
       width: 250px;
       flex-shrink: 0;
+      border-right: 1px solid var(--border);
+      border-bottom: 0;
     }
     .study-block-body {
       flex: 1 1 0%;

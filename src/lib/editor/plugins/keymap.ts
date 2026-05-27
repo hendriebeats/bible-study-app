@@ -11,6 +11,7 @@ import {
   splitListItem,
 } from "prosemirror-schema-list";
 import type { Command, Plugin } from "prosemirror-state";
+import { goToNextCell } from "prosemirror-tables";
 
 import { indentBlocks, outdentBlocks } from "../commands";
 import { marks, nodes } from "../schema";
@@ -65,15 +66,19 @@ export function buildKeymaps(): Plugin[] {
       splitListItem(nodes.listItem),
       splitListItem(nodes.taskItem),
     ),
-    // In a list (bullet/ordered/task), Tab/Shift-Tab nest the item; otherwise
-    // they indent/outdent the selected block(s) regardless of cursor position.
+    // Inside a table, Tab/Shift-Tab move between cells. Otherwise, in a list
+    // they nest the item, and elsewhere they indent/outdent the selected
+    // block(s) regardless of cursor position. (goToNextCell no-ops outside a
+    // table, so it falls through cleanly.)
     Tab: chainCommands(
+      goToNextCell(1),
       sinkListItem(nodes.listItem),
       sinkListItem(nodes.taskItem),
       indentBlocks,
       consumeKey,
     ),
     "Shift-Tab": chainCommands(
+      goToNextCell(-1),
       liftListItem(nodes.listItem),
       liftListItem(nodes.taskItem),
       outdentBlocks,

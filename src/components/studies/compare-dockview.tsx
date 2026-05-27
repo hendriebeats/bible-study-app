@@ -9,7 +9,7 @@ import {
   type IDockviewPanelProps,
   themeLight,
 } from "dockview";
-import { Plus, RotateCcw } from "lucide-react";
+import { Check, Plus, RotateCcw } from "lucide-react";
 import {
   createContext,
   type FunctionComponent,
@@ -29,6 +29,13 @@ import {
   setAlignment,
 } from "@/app/studies/compare-actions";
 import { DocumentViewer } from "@/components/studies/document-viewer";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type { CompareTarget } from "@/lib/db/compare";
 import type { StudyDocument } from "@/lib/db/types";
 import { WORKSPACE_LAYOUT_VERSION } from "@/lib/db/workspace";
@@ -156,29 +163,54 @@ function PersonPanel({
     );
   }
 
+  // Same sections, two lenses: "Best match" keeps the alignment ranking (top =
+  // closest to my section); "Their sections" lists them in the study's own
+  // reading order so you can deliberately browse the rest of their study.
+  const byPosition = [...pane.candidates].sort(
+    (a, b) => a.position - b.position,
+  );
+
   return (
     <div className="flex h-full flex-col gap-2 overflow-auto p-3">
       {pane.candidates.length > 0 && (
-        <label className="flex items-center gap-2 text-xs text-muted-foreground">
-          Aligned to
-          <select
-            value={pane.selectedId ?? ""}
-            onChange={(event) => {
-              void changeSelection(event.target.value);
-            }}
-            className="rounded-md border bg-background px-2 py-1 text-sm text-foreground"
-          >
-            {pane.candidates.map((c) => (
-              <option key={c.sectionId} value={c.sectionId}>
-                {c.title}
-                {c.lineageMatch ? " · same slot" : ""}
-                {c.overlap > 0
-                  ? ` · ${Math.round(c.overlap * 100).toString()}% overlap`
-                  : ""}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+          <label className="flex items-center gap-2">
+            Best match
+            <select
+              value={pane.selectedId ?? ""}
+              onChange={(event) => {
+                void changeSelection(event.target.value);
+              }}
+              className="rounded-md border bg-background px-2 py-1 text-sm text-foreground"
+            >
+              {pane.candidates.map((c) => (
+                <option key={c.sectionId} value={c.sectionId}>
+                  {c.title}
+                  {c.lineageMatch ? " · same slot" : ""}
+                  {c.overlap > 0
+                    ? ` · ${Math.round(c.overlap * 100).toString()}% overlap`
+                    : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex items-center gap-2">
+            Their sections
+            <select
+              value={pane.selectedId ?? ""}
+              onChange={(event) => {
+                void changeSelection(event.target.value);
+              }}
+              className="rounded-md border bg-background px-2 py-1 text-sm text-foreground"
+            >
+              {byPosition.map((c) => (
+                <option key={c.sectionId} value={c.sectionId}>
+                  {c.title}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
       )}
       {pane.status === "loading" ? (
         <p className="text-sm text-muted-foreground">Aligning…</p>
@@ -218,6 +250,10 @@ export interface CompareDockviewProps {
   targets: CompareTarget[];
   me: { id: string; name: string } | null;
   savedLayout: { layout: unknown; layoutVersion: number } | null;
+  /** A member to open + focus on entry (e.g. arriving from a member link). */
+  focusTargetStudyId: string | null;
+  /** Seed for the first-time / reset default ("the last person I viewed"). */
+  defaultTargetStudyId: string | null;
 }
 
 export function CompareDockview({
@@ -228,6 +264,8 @@ export function CompareDockview({
   targets,
   me,
   savedLayout,
+  focusTargetStudyId,
+  defaultTargetStudyId,
 }: CompareDockviewProps): React.ReactElement {
   const apiRef = useRef<DockviewApi | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -238,22 +276,31 @@ export function CompareDockview({
     [mySectionId, myDoc, myTitle, me],
   );
 
+  // The single person to open alongside "mine" on a fresh / reset layout: the
+  // one we were sent to focus, else the last one viewed, else the first target.
+  function pickDefaultTarget(): CompareTarget | null {
+    const preferredId = focusTargetStudyId ?? defaultTargetStudyId;
+    if (preferredId) {
+      const found = targets.find((t) => t.studyId === preferredId);
+      if (found) {
+        return found;
+      }
+    }
+    return targets[0] ?? null;
+  }
+
   function buildDefaultLayout(api: DockviewApi) {
     api.clear();
     api.addPanel({ id: "mine", component: "mine", title: `${myTitle} · You` });
-    let previous: string | null = null;
-    for (const target of targets) {
-      const id = personPanelId(target.studyId);
+    const first = pickDefaultTarget();
+    if (first) {
       api.addPanel({
-        id,
+        id: personPanelId(first.studyId),
         component: "person",
-        title: target.name,
-        params: { targetStudyId: target.studyId },
-        position: previous
-          ? { referencePanel: previous, direction: "within" }
-          : { referencePanel: "mine", direction: "right" },
+        title: first.name,
+        params: { targetStudyId: first.studyId },
+        position: { referencePanel: "mine", direction: "right" },
       });
-      previous = id;
     }
   }
 
@@ -283,6 +330,15 @@ export function CompareDockview({
     }
     if (!restored) {
       buildDefaultLayout(api);
+    }
+
+    // Arriving from a member link: make sure that person is open and focused,
+    // even when a saved layout (which may not include them) was restored.
+    if (focusTargetStudyId) {
+      const target = targets.find((t) => t.studyId === focusTargetStudyId);
+      if (target) {
+        addPerson(target);
+      }
     }
 
     syncOpenIds(api);
@@ -345,12 +401,41 @@ export function CompareDockview({
     );
   }
 
-  const closedTargets = targets.filter((t) => !openIds.has(t.studyId));
-
   return (
     <CompareContext.Provider value={ctxValue}>
       <div className="flex h-full flex-col gap-2">
         <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs text-foreground hover:bg-muted"
+              >
+                <Plus className="size-3.5" />
+                Add member
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-56">
+              <DropdownMenuLabel>Studies to compare</DropdownMenuLabel>
+              {targets.map((t) => {
+                const open = openIds.has(t.studyId);
+                return (
+                  <DropdownMenuItem
+                    key={t.studyId}
+                    className="justify-between"
+                    onSelect={() => {
+                      addPerson(t);
+                    }}
+                  >
+                    <span className="truncate">{t.name}</span>
+                    {open ? (
+                      <Check className="size-4 text-muted-foreground" />
+                    ) : null}
+                  </DropdownMenuItem>
+                );
+              })}
+            </DropdownMenuContent>
+          </DropdownMenu>
           <button
             type="button"
             onClick={resetLayout}
@@ -359,24 +444,6 @@ export function CompareDockview({
             <RotateCcw className="size-3.5" />
             Reset layout
           </button>
-          {closedTargets.length > 0 && (
-            <span className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-              Reopen:
-              {closedTargets.map((t) => (
-                <button
-                  key={t.studyId}
-                  type="button"
-                  onClick={() => {
-                    addPerson(t);
-                  }}
-                  className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-foreground hover:bg-muted"
-                >
-                  <Plus className="size-3" />
-                  {t.name}
-                </button>
-              ))}
-            </span>
-          )}
         </div>
         <div className="min-h-0 flex-1">
           <DockviewReact
