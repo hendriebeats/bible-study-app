@@ -7,7 +7,12 @@ import { NewGroupForm } from "@/components/groups/new-group-form";
 import { listMyGroups } from "@/lib/db/groups";
 import { createClient } from "@/lib/supabase/server";
 
-export default async function GroupsPage() {
+export default async function GroupsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ group?: string }>;
+}) {
+  const { group } = await searchParams;
   const supabase = await createClient();
   const {
     data: { user },
@@ -41,6 +46,7 @@ export default async function GroupsPage() {
         <GroupsList
           groups={groups.map((g) => ({ id: g.id, name: g.name }))}
           meId={user.id}
+          initialGroupId={group}
         />
       )}
     </div>

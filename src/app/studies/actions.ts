@@ -3,8 +3,12 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
+import { Transform } from "prosemirror-transform";
+
+import { EMPTY_DOC, type DocumentStepMeta } from "@/lib/db/types";
 import type { DocumentTimeline } from "@/lib/db/types";
 import { specsFromBlocksDoc, type BlockSpec } from "@/lib/editor/blocks";
+import { docToJSON, jsonToDoc, jsonToStep } from "@/lib/editor/serialize";
 import type { PMDocJSON, PMNodeJSON, SerializedStep } from "@/lib/editor/types";
 import { getGenreIdBySlug } from "@/lib/db/genres";
 import { listStudyGroupLinks } from "@/lib/db/groups";
@@ -417,6 +421,88 @@ export async function fetchDocumentTimeline(
       created_at: s.created_at,
     })),
   };
+}
+
+/**
+ * The document's recent history "moments" — one row per save-batch (version +
+ * timestamp, NO step payloads) — for building the history scrubber without
+ * transferring the whole step log. Backed by the `document_history_moments` RPC,
+ * which groups steps by batch and caps at the most recent 1000 (well under
+ * PostgREST's max_rows); older states stay in the DB but aren't scrubbable. The
+ * chosen point is materialized on demand by {@link reconstructDocumentVersion}.
+ */
+export async function fetchDocumentMoments(
+  documentId: string,
+): Promise<DocumentStepMeta[]> {
+  const { supabase } = await requireUser();
+  const { data, error } = await supabase.rpc("document_history_moments", {
+    _document_id: documentId,
+  });
+  if (error) {
+    throw new Error(error.message);
+  }
+  return data.map((r) => ({
+    version: r.version,
+    created_at: r.created_at,
+  }));
+}
+
+/**
+ * Materialize a document at `version` with a bounded query: the nearest
+ * checkpoint at or before it plus only the steps in between (≤ the checkpoint
+ * interval), replayed server-side. Avoids loading the full step log just to
+ * preview/restore one point.
+ */
+export async function reconstructDocumentVersion(
+  documentId: string,
+  version: number,
+): Promise<PMDocJSON> {
+  const { supabase } = await requireUser();
+  const { data: checkpoint, error: cpError } = await supabase
+    .from("section_checkpoints")
+    .select("version, doc")
+    .eq("document_id", documentId)
+    .lte("version", version)
+    .order("version", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (cpError) {
+    throw new Error(cpError.message);
+  }
+  const baseVersion = checkpoint?.version ?? 0;
+  let baseDoc: PMDocJSON;
+  if (checkpoint) {
+    baseDoc = checkpoint.doc as unknown as PMDocJSON;
+  } else {
+    // No checkpoint at/before this version → the document had no committed
+    // history then. Fall back to its CURRENT content (not EMPTY_DOC) so a
+    // section restore leaves an as-yet-unedited doc untouched instead of wiping
+    // it.
+    const { data: docRow } = await supabase
+      .from("documents")
+      .select("content")
+      .eq("id", documentId)
+      .maybeSingle();
+    baseDoc = (docRow?.content as PMDocJSON | undefined) ?? EMPTY_DOC;
+  }
+  if (version <= baseVersion) {
+    return baseDoc;
+  }
+  const { data: steps, error: stepsError } = await supabase
+    .from("section_steps")
+    .select("step, version")
+    .eq("document_id", documentId)
+    .gt("version", baseVersion)
+    .lte("version", version)
+    .order("version", { ascending: true });
+  if (stepsError) {
+    throw new Error(stepsError.message);
+  }
+  const transform = new Transform(jsonToDoc(baseDoc));
+  for (const row of steps) {
+    transform.step(jsonToStep(row.step as unknown as SerializedStep));
+  }
+  return docToJSON(transform.doc);
 }
 
 /** Fetch a document's current materialized doc + head version (viewer resync). */

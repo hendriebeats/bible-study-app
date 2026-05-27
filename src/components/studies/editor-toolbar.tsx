@@ -41,7 +41,10 @@ import {
   toggleStrike,
   toggleUnderline,
 } from "@/lib/editor/commands";
-import { verseRedo, verseUndo } from "@/lib/editor/plugins/verse-guard";
+import {
+  sectionRedoCommand,
+  sectionUndoCommand,
+} from "@/lib/editor/section-undo";
 import { marks, nodes } from "@/lib/editor/schema";
 
 interface ToolbarItem {
@@ -154,8 +157,18 @@ export function EditorToolbar({
           },
         ],
         [
-          { icon: Undo, label: "Undo", command: verseUndo, active: false },
-          { icon: Redo, label: "Redo", command: verseRedo, active: false },
+          {
+            icon: Undo,
+            label: "Undo",
+            command: sectionUndoCommand,
+            active: false,
+          },
+          {
+            icon: Redo,
+            label: "Redo",
+            command: sectionRedoCommand,
+            active: false,
+          },
         ],
       ]
     : [];

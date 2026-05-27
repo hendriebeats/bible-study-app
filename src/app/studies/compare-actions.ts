@@ -111,10 +111,12 @@ export async function saveWorkspaceLayout(
   }
 }
 
-/** A section's notes document, for read-along rendering in a compare pane. */
-export async function fetchSectionForCompare(
-  sectionId: string,
-): Promise<{ title: string; notes: StudyDocument } | null> {
+/** A section's notes + blocks documents, for read-along rendering in a compare pane. */
+export async function fetchSectionForCompare(sectionId: string): Promise<{
+  title: string;
+  notes: StudyDocument;
+  blocks: StudyDocument;
+} | null> {
   const { supabase } = await requireUser();
   const { data: section } = await supabase
     .from("sections")
@@ -124,23 +126,32 @@ export async function fetchSectionForCompare(
   if (!section) {
     return null;
   }
-  const { data: doc } = await supabase
+  const { data: docs } = await supabase
     .from("documents")
     .select("id, section_id, kind, content, current_version")
     .eq("section_id", sectionId)
-    .eq("kind", "notes")
-    .maybeSingle();
-  if (!doc) {
+    .in("kind", ["notes", "blocks"]);
+  const byKind = new Map((docs ?? []).map((d) => [d.kind, d]));
+  const notesRow = byKind.get("notes");
+  const blocksRow = byKind.get("blocks");
+  if (!notesRow || !blocksRow) {
     return null;
   }
   return {
     title: section.title,
     notes: {
-      id: doc.id,
-      section_id: doc.section_id,
-      kind: doc.kind,
-      content: doc.content as unknown as PMDocJSON,
-      current_version: doc.current_version,
+      id: notesRow.id,
+      section_id: notesRow.section_id,
+      kind: notesRow.kind,
+      content: notesRow.content as unknown as PMDocJSON,
+      current_version: notesRow.current_version,
+    },
+    blocks: {
+      id: blocksRow.id,
+      section_id: blocksRow.section_id,
+      kind: blocksRow.kind,
+      content: blocksRow.content as unknown as PMDocJSON,
+      current_version: blocksRow.current_version,
     },
   };
 }

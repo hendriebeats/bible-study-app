@@ -1,5 +1,6 @@
 "use client";
 
+import { History } from "lucide-react";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -10,10 +11,12 @@ import { EditorProvider } from "@/components/studies/editor-context";
 import { BlockMenu } from "@/components/studies/block-menu";
 import { GroupMembersMenu } from "@/components/studies/group-members-menu";
 import { NotePopover } from "@/components/studies/note-popover";
+import { SectionHistoryPanel } from "@/components/studies/section-history-panel";
 import { SelectionBubble } from "@/components/studies/selection-bubble";
 import { SlashMenu } from "@/components/studies/slash-menu";
 import { useStudyChrome } from "@/components/studies/study-chrome-context";
 import { StudyToolbarPortal } from "@/components/studies/study-toolbar-portal";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import type { CompareTarget } from "@/lib/db/compare";
@@ -68,6 +71,7 @@ export function SectionSurface({
   groupContext: StudyGroupInfo[];
 }) {
   const [title, setTitle] = useState(section.title);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const chrome = useStudyChrome();
 
   function handleTitleBlur() {
@@ -140,6 +144,21 @@ export function SectionSurface({
       {isOwner ? <NotePopover /> : null}
 
       <div className="flex flex-col gap-4 px-6 py-5">
+        {isOwner ? (
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setHistoryOpen(true);
+              }}
+            >
+              <History className="size-4" />
+              History
+            </Button>
+          </div>
+        ) : null}
         {isOwner && notesHistory ? (
           <DocumentEditor
             document={documents.notes}
@@ -147,6 +166,7 @@ export function SectionSurface({
             me={me}
             label="Study Body"
             hideLabel
+            hideHistory
             placeholder="Write your study…"
           />
         ) : (
@@ -167,6 +187,7 @@ export function SectionSurface({
             me={me}
             label="Study blocks"
             hideLabel
+            hideHistory
             placeholder="Work through your study here…"
             studyId={section.study_id}
             hasPreviousSection={hasPreviousSection}
@@ -180,6 +201,16 @@ export function SectionSurface({
           />
         )}
       </div>
+
+      {isOwner && historyOpen ? (
+        <SectionHistoryPanel
+          notesId={documents.notes.id}
+          blocksId={documents.blocks.id}
+          onClose={() => {
+            setHistoryOpen(false);
+          }}
+        />
+      ) : null}
     </EditorProvider>
   );
 }

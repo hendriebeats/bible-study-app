@@ -17,6 +17,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { toast } from "sonner";
 
 import { saveFormatRecents } from "@/app/account/actions";
 import { addScripturePassage } from "@/app/studies/actions";
@@ -35,8 +36,10 @@ import {
 } from "@/lib/editor/format-actions";
 import { NOTE_OPEN_EVENT } from "@/lib/editor/plugins/note-anchors";
 import { marks, nodes, type VerseNumberAttrs } from "@/lib/editor/schema";
+import { sectionUndo } from "@/lib/editor/section-undo";
 import { scriptureParagraphsToNodes } from "@/lib/editor/scripture-insert";
 import { jsonToDoc } from "@/lib/editor/serialize";
+import type { PMDocJSON } from "@/lib/editor/types";
 import type { ScriptureOptions } from "@/lib/scripture/options";
 import { parseReference } from "@/lib/scripture/reference";
 
@@ -120,6 +123,15 @@ interface EditorContextValue {
   getBlocksView: () => EditorView | null;
   /** Locate a note's body entry in the blocks doc by id (null if not found). */
   findNoteEntry: (id: string) => NoteEntryHit | null;
+  /**
+   * Restore both of the section's documents to past states in one action (the
+   * shared version history). Each non-null target replaces that editor's whole
+   * content; flows through the normal persist/broadcast/undo path.
+   */
+  restoreSection: (
+    notesDoc: PMDocJSON | null,
+    blocksDoc: PMDocJSON | null,
+  ) => void;
   /** Insert an ESV passage as editable paragraphs into the notes editor. */
   insertScripture: (
     reference: string,
@@ -285,6 +297,46 @@ export function EditorProvider({
 
   const getBlocksView = useCallback(() => blocksViewRef.current, []);
 
+  const restoreSection = useCallback(
+    (notesDoc: PMDocJSON | null, blocksDoc: PMDocJSON | null) => {
+      const restore = (view: EditorView | null, target: PMDocJSON | null) => {
+        if (!view || !target) {
+          return false;
+        }
+        const node = jsonToDoc(target);
+        const tr = view.state.tr.replaceWith(
+          0,
+          view.state.doc.content.size,
+          node.content,
+        );
+        tr.setMeta("allowVerseEdit", true);
+        if (!tr.docChanged) {
+          return false; // a doc with no change at that moment is left untouched
+        }
+        view.dispatch(tr);
+        return true;
+      };
+      let changed = 0;
+      if (restore(notesViewRef.current, notesDoc)) changed++;
+      if (restore(blocksViewRef.current, blocksDoc)) changed++;
+      if (changed > 0) {
+        // The two docs' restores are the most recent entries on the section
+        // undo stack; one Undo reverts both.
+        toast.success("Section restored.", {
+          action: {
+            label: "Undo",
+            onClick: () => {
+              for (let i = 0; i < changed; i++) {
+                sectionUndo();
+              }
+            },
+          },
+        });
+      }
+    },
+    [],
+  );
+
   const findNoteEntry = useCallback((id: string): NoteEntryHit | null => {
     const view = blocksViewRef.current;
     if (!view) {
@@ -392,6 +444,7 @@ export function EditorProvider({
       createNote,
       getBlocksView,
       findNoteEntry,
+      restoreSection,
       insertScripture,
       scriptureOptions: initialScriptureOptions,
       editorTools: initialEditorTools,
@@ -409,6 +462,7 @@ export function EditorProvider({
       createNote,
       getBlocksView,
       findNoteEntry,
+      restoreSection,
       insertScripture,
       initialScriptureOptions,
       initialEditorTools,

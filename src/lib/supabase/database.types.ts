@@ -1203,6 +1203,13 @@ export type Database = {
         Returns: undefined
       }
       deny_join_request: { Args: { _id: string }; Returns: undefined }
+      document_history_moments: {
+        Args: { _document_id: string }
+        Returns: {
+          created_at: string
+          version: number
+        }[]
+      }
       genre_blocks_doc: { Args: { _genre_id: string }; Returns: Json }
       get_invitation: {
         Args: { _token: string }

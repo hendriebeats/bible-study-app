@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
  * layout with a different version is ignored (we rebuild the default) rather
  * than risking a crash on `fromJSON`.
  */
-export const WORKSPACE_LAYOUT_VERSION = 1;
+export const WORKSPACE_LAYOUT_VERSION = 2;
 
 export interface SavedWorkspace {
   layout: unknown;

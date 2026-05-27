@@ -43,6 +43,13 @@ export function GroupInfoDialog({
 
   const isOwner = active.role === "owner";
 
+  // In-study popups pass an explicit anchor (current study + section); the
+  // groups-list popup has none, so fall back to the caller's own study in this
+  // group so roster names can still link into compare.
+  const anchorStudyId =
+    compareStudyId ?? (active.myStudyActive ? active.myStudyId : null);
+  const anchorSectionId = compareSectionId ?? active.myFirstSectionId;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-screen w-full max-w-lg overflow-y-auto">
@@ -84,8 +91,10 @@ export function GroupInfoDialog({
           members={active.members}
           invitations={active.invitations}
           meId={meId}
-          compareStudyId={compareStudyId}
-          compareSectionId={compareSectionId}
+          myStudyId={active.myStudyId}
+          myStudyActive={active.myStudyActive}
+          compareStudyId={anchorStudyId}
+          compareSectionId={anchorSectionId}
         />
       </DialogContent>
     </Dialog>

@@ -87,6 +87,12 @@ export interface StudyGroupInfo {
   members: GroupMember[];
   /** Pending invitations — populated for owners only, else empty. */
   invitations: Invitation[];
+  /** The caller's own contributed study in this group, if any. */
+  myStudyId: string | null;
+  /** True when `myStudyId` is a live (non-trashed) study. */
+  myStudyActive: boolean;
+  /** First section of the caller's own study (anchors roster→compare links). */
+  myFirstSectionId: string | null;
 }
 
 /** A user's role within an organization (super_admin > admin > member). */
@@ -285,4 +291,11 @@ export interface DocumentCheckpointRow {
 export interface DocumentTimeline {
   checkpoints: DocumentCheckpointRow[];
   steps: DocumentStepRow[];
+}
+
+/** Lightweight step metadata (no step payload) for building a history scrubber
+ * without transferring the whole step log. */
+export interface DocumentStepMeta {
+  version: number;
+  created_at: string;
 }

@@ -288,6 +288,25 @@ export async function getGroupInfo(
       ? listInvitations(groupId)
       : Promise.resolve<Invitation[]>([]),
   ]);
+
+  // The caller's own contributed study + its first section, so the popup can
+  // surface "Open/Start my study" and anchor roster→compare links.
+  const myMember = members.find((m) => m.user_id === user.id) ?? null;
+  const myStudyId = myMember?.study_id ?? null;
+  const myStudyActive = myMember?.study_active ?? false;
+  let myFirstSectionId: string | null = null;
+  if (myStudyId && myStudyActive) {
+    const { data: firstSection } = await supabase
+      .from("sections")
+      .select("id")
+      .eq("study_id", myStudyId)
+      .is("deleted_at", null)
+      .order("position", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    myFirstSectionId = firstSection?.id ?? null;
+  }
+
   return {
     groupId,
     groupName: group.name,
@@ -295,6 +314,9 @@ export async function getGroupInfo(
     templateStudyId: group.template_study_id,
     members,
     invitations,
+    myStudyId,
+    myStudyActive,
+    myFirstSectionId,
   };
 }
 

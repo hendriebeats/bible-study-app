@@ -41,6 +41,12 @@ import { verseGuard } from "@/lib/editor/plugins/verse-guard";
 import { verseLabel } from "@/lib/editor/plugins/verse-label";
 import { nodes, schema } from "@/lib/editor/schema";
 import {
+  recordUndo,
+  registerUndoView,
+  sectionUndoKeymap,
+  unregisterUndoView,
+} from "@/lib/editor/section-undo";
+import {
   docToJSON,
   jsonToDoc,
   jsonToStep,
@@ -63,6 +69,9 @@ type SaveStatus = "idle" | "saving" | "saved";
 
 function createPlugins(placeholderText: string) {
   return [
+    // Highest priority: section-wide Cmd-Z/Cmd-Y across both editors, falling
+    // through to the per-editor undo in buildKeymaps when nothing is tracked.
+    sectionUndoKeymap(),
     buildInputRules(),
     ...buildKeymaps(),
     gapCursor(),
@@ -139,6 +148,7 @@ export function DocumentEditor({
   me,
   label,
   hideLabel = false,
+  hideHistory = false,
   placeholder,
   studyId,
   hasPreviousSection = false,
@@ -149,6 +159,8 @@ export function DocumentEditor({
   label: string;
   /** Keep the label for screen readers but hide it visually (still shows the controls row). */
   hideLabel?: boolean;
+  /** Hide this editor's own History button (a section-level history is used instead). */
+  hideHistory?: boolean;
   placeholder: string;
   /** Set on the blocks editor to enable the "Add blocks" menu. */
   studyId?: string;
@@ -343,6 +355,8 @@ export function DocumentEditor({
         // Editing (or moving the cursor in) this editor makes it the toolbar's
         // active target and refreshes the toolbar's active-mark states.
         editorRef.current?.setActive(current, next);
+        // Track this edit in the section-wide undo order.
+        recordUndo(current, next);
         if (transaction.docChanged) {
           for (const step of transaction.steps) {
             pendingStepsRef.current.push(stepToJSON(step));
@@ -374,6 +388,7 @@ export function DocumentEditor({
     });
     viewRef.current = view;
     editorRef.current?.registerView(view, role);
+    registerUndoView(view);
 
     return () => {
       disposed = true;
@@ -387,6 +402,7 @@ export function DocumentEditor({
         void channel.unsubscribe();
       }
       editorRef.current?.unregisterView(view);
+      unregisterUndoView(view);
       view.destroy();
       viewRef.current = null;
     };
@@ -535,18 +551,20 @@ export function DocumentEditor({
           >
             {statusLabel}
           </span>
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            onClick={() => {
-              setHistoryHead(lastVersionRef.current);
-              setHistoryOpen(true);
-            }}
-          >
-            <History className="size-4" />
-            History
-          </Button>
+          {hideHistory ? null : (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setHistoryHead(lastVersionRef.current);
+                setHistoryOpen(true);
+              }}
+            >
+              <History className="size-4" />
+              History
+            </Button>
+          )}
         </div>
       </div>
       <div ref={mountRef} className="min-h-32" />

@@ -39,7 +39,8 @@ export async function createGroup(name: string): Promise<void> {
     throw new Error(error.message);
   }
   revalidatePath("/groups");
-  redirect(`/groups/${data}`);
+  // The group detail route is retired — land on the list with the info popup open.
+  redirect(`/groups?group=${data}`);
 }
 
 export async function renameGroup(
@@ -55,7 +56,6 @@ export async function renameGroup(
   if (error) {
     throw new Error(error.message);
   }
-  revalidatePath(`/groups/${groupId}`);
   revalidatePath("/groups");
 }
 
@@ -114,7 +114,7 @@ export async function createInvitation(
     }
   }
 
-  revalidatePath(`/groups/${groupId}`);
+  revalidatePath("/groups");
   return { link, emailed };
 }
 
@@ -131,13 +131,15 @@ export async function seedMyGroupStudy(groupId: string): Promise<void> {
   if (error) {
     throw new Error(error.message);
   }
-  revalidatePath(`/groups/${groupId}`);
+  revalidatePath("/groups");
   redirect(`/studies/${data}`);
 }
 
 export async function revokeInvitation(
   invitationId: string,
-  groupId: string,
+  // Kept for call-site symmetry with other group actions; revalidation is
+  // list-wide now that the per-group detail route is gone.
+  _groupId: string,
 ): Promise<void> {
   const { supabase } = await requireUser();
   const { error } = await supabase
@@ -147,7 +149,7 @@ export async function revokeInvitation(
   if (error) {
     throw new Error(error.message);
   }
-  revalidatePath(`/groups/${groupId}`);
+  revalidatePath("/groups");
 }
 
 /** Promote/demote a member. The last-owner guard (DB trigger) reports PT409. */
@@ -165,7 +167,7 @@ export async function setMemberRole(
   if (error) {
     return { ok: false, error: error.message };
   }
-  revalidatePath(`/groups/${groupId}`);
+  revalidatePath("/groups");
   return { ok: true };
 }
 
@@ -182,7 +184,7 @@ export async function removeMember(
   if (error) {
     return { ok: false, error: error.message };
   }
-  revalidatePath(`/groups/${groupId}`);
+  revalidatePath("/groups");
   return { ok: true };
 }
 
@@ -270,5 +272,6 @@ export async function acceptInvitation(
   if (targetStudyId) {
     redirect(`/studies/${targetStudyId}`);
   }
-  redirect(`/groups/${groupId}`);
+  // No study yet — land on the list with this group's info popup open.
+  redirect(`/groups?group=${groupId}`);
 }
