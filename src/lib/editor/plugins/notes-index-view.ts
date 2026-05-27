@@ -1,7 +1,13 @@
 import type { Node } from "prosemirror-model";
-import type { NodeView, ViewMutationRecord } from "prosemirror-view";
+import type {
+  EditorView,
+  NodeView,
+  ViewMutationRecord,
+} from "prosemirror-view";
 
+import { attachReorderHandle } from "../../dnd/pointer-reorder";
 import { setNoteHover } from "../note-highlight";
+import { reorderSiblings } from "../reorder-node";
 
 /**
  * Renders the `notes_index` — the single pinned container (first block of the
@@ -82,10 +88,21 @@ export class NoteEntryView implements NodeView {
   public readonly contentDOM: HTMLElement;
 
   private node: Node;
-  private readonly refEl: HTMLElement;
+  private readonly view: EditorView;
+  private readonly getPos: () => number | undefined;
+  private readonly refText: HTMLElement;
+  private readonly handle: HTMLElement | null;
+  private readonly detachReorder: (() => void) | null;
 
-  constructor(node: Node) {
+  constructor(
+    node: Node,
+    view: EditorView,
+    getPos: () => number | undefined,
+    editable: boolean,
+  ) {
     this.node = node;
+    this.view = view;
+    this.getPos = getPos;
     const attrs = readAttrs(node);
 
     const row = document.createElement("div");
@@ -98,7 +115,25 @@ export class NoteEntryView implements NodeView {
     const refEl = document.createElement("div");
     refEl.className = "note-entry-ref";
     refEl.contentEditable = "false";
-    refEl.textContent = attrs.verseRef;
+
+    // A drag handle (owners only) reorders the note among its siblings; it is
+    // also keyboard-operable (↑/↓) as the accessible fallback to dragging.
+    let handle: HTMLButtonElement | null = null;
+    let detachReorder: (() => void) | null = null;
+    if (editable) {
+      handle = document.createElement("button");
+      handle.type = "button";
+      handle.className = "note-entry-drag reorder-handle";
+      handle.setAttribute("aria-label", "Reorder note");
+      handle.title = "Drag to reorder (or focus and press ↑/↓)";
+      handle.innerHTML =
+        '<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="6" cy="3" r="1.3"/><circle cx="10" cy="3" r="1.3"/><circle cx="6" cy="8" r="1.3"/><circle cx="10" cy="8" r="1.3"/><circle cx="6" cy="13" r="1.3"/><circle cx="10" cy="13" r="1.3"/></svg>';
+      refEl.appendChild(handle);
+    }
+
+    const refText = document.createElement("span");
+    refText.textContent = attrs.verseRef;
+    refEl.appendChild(refText);
 
     const body = document.createElement("div");
     body.className = "note-entry-body";
@@ -116,7 +151,49 @@ export class NoteEntryView implements NodeView {
 
     this.dom = row;
     this.contentDOM = body;
-    this.refEl = refEl;
+    this.refText = refText;
+    this.handle = handle;
+
+    if (handle) {
+      detachReorder = attachReorderHandle({
+        handle,
+        getItem: () => this.dom,
+        getSiblings: () => {
+          const parent = this.dom.parentElement;
+          return parent
+            ? Array.from(
+                parent.querySelectorAll<HTMLElement>(
+                  ":scope > [data-note-entry]",
+                ),
+              )
+            : [];
+        },
+        onReorder: (from, to) => {
+          this.reorder(from, to);
+        },
+      });
+    }
+    this.detachReorder = detachReorder;
+  }
+
+  /** Move this note from index `from` to `to` within the notes index. */
+  private reorder(from: number, to: number): void {
+    const pos = this.getPos();
+    if (pos == null) {
+      return;
+    }
+    const id = readAttrs(this.node).id;
+    if (!reorderSiblings(this.view, pos, from, to)) {
+      return;
+    }
+    // The NodeView is rebuilt at its new position; refocus this note's handle so
+    // keyboard reordering can continue with repeated ↑/↓ presses.
+    requestAnimationFrame(() => {
+      const next = this.view.dom.querySelector<HTMLElement>(
+        `.note-entry[data-id="${id}"] .note-entry-drag`,
+      );
+      next?.focus();
+    });
   }
 
   update(node: Node): boolean {
@@ -128,11 +205,25 @@ export class NoteEntryView implements NodeView {
     this.dom.setAttribute("data-id", attrs.id);
     this.dom.setAttribute("data-source", attrs.source);
     this.dom.setAttribute("data-verse-ref", attrs.verseRef);
-    this.refEl.textContent = attrs.verseRef;
+    this.refText.textContent = attrs.verseRef;
     return true;
+  }
+
+  stopEvent(event: Event): boolean {
+    // Let the drag handle's own pointer/keyboard handling run instead of PM's.
+    const target = event.target;
+    return (
+      this.handle != null &&
+      target instanceof globalThis.Node &&
+      this.handle.contains(target)
+    );
   }
 
   ignoreMutation(mutation: ViewMutationRecord): boolean {
     return !this.contentDOM.contains(mutation.target);
+  }
+
+  destroy(): void {
+    this.detachReorder?.();
   }
 }

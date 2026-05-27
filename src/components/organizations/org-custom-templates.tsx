@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, ChevronUp, Plus } from "lucide-react";
+import { GripVertical, Plus } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
@@ -9,27 +9,28 @@ import { toast } from "sonner";
 import {
   createOrgTemplate,
   deleteOrgTemplate,
-  moveOrgTemplate,
+  reorderOrgTemplates,
   updateOrgTemplateMeta,
 } from "@/app/organizations/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { arrayMove } from "@/lib/dnd/pointer-reorder";
+import { useReorderHandle } from "@/lib/dnd/use-reorder-handle";
 import type { Genre, StudyTemplate } from "@/lib/db/types";
 
 function CustomRow({
   template,
-  isFirst,
-  isLast,
+  onReorder,
 }: {
   template: StudyTemplate;
-  isFirst: boolean;
-  isLast: boolean;
+  onReorder: (from: number, to: number) => void;
 }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(template.name);
   const [description, setDescription] = useState(template.description ?? "");
   const [pending, startTransition] = useTransition();
+  const setDragHandle = useReorderHandle(onReorder);
 
   function save() {
     if (name.trim() === "") {
@@ -46,18 +47,6 @@ function CustomRow({
         if (r.ok) {
           toast.success("Saved.");
           setEditing(false);
-          router.refresh();
-        } else {
-          toast.error(r.error);
-        }
-      });
-    });
-  }
-
-  function move(direction: "up" | "down") {
-    startTransition(() => {
-      void moveOrgTemplate(template.id, direction).then((r) => {
-        if (r.ok) {
           router.refresh();
         } else {
           toast.error(r.error);
@@ -87,7 +76,7 @@ function CustomRow({
 
   if (editing) {
     return (
-      <li className="grid gap-2 rounded-md border p-3">
+      <li data-reorder-item className="grid gap-2 rounded-md border p-3">
         <Input
           value={name}
           onChange={(event) => {
@@ -127,33 +116,19 @@ function CustomRow({
   }
 
   return (
-    <li className="flex items-center gap-2 rounded-md border p-3">
-      <div className="flex shrink-0 flex-col">
-        <Button
-          type="button"
-          size="icon-xs"
-          variant="ghost"
-          aria-label="Move up"
-          disabled={pending || isFirst}
-          onClick={() => {
-            move("up");
-          }}
-        >
-          <ChevronUp className="size-3" />
-        </Button>
-        <Button
-          type="button"
-          size="icon-xs"
-          variant="ghost"
-          aria-label="Move down"
-          disabled={pending || isLast}
-          onClick={() => {
-            move("down");
-          }}
-        >
-          <ChevronDown className="size-3" />
-        </Button>
-      </div>
+    <li
+      data-reorder-item
+      className="flex items-center gap-2 rounded-md border p-3"
+    >
+      <button
+        ref={setDragHandle}
+        type="button"
+        aria-label="Reorder template (drag, or focus and press up/down)"
+        title="Drag to reorder (or focus and press ↑/↓)"
+        className="shrink-0 cursor-grab touch-none rounded-sm p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+      >
+        <GripVertical className="size-4" />
+      </button>
       <div className="min-w-0 flex-1">
         <p className="truncate font-medium">{template.name}</p>
         {template.description ? (
@@ -200,6 +175,27 @@ export function OrgCustomTemplates({
   const [genreId, setGenreId] = useState("");
   const [pending, startTransition] = useTransition();
   const router = useRouter();
+  // Optimistic order so a drag/keyboard reorder updates instantly; reverts if
+  // the server write fails. Re-syncs to server order whenever the templates
+  // prop changes (render-time reset — the recommended alternative to an effect).
+  const [items, setItems] = useState(templates);
+  const [prevTemplates, setPrevTemplates] = useState(templates);
+  if (templates !== prevTemplates) {
+    setPrevTemplates(templates);
+    setItems(templates);
+  }
+
+  function handleReorder(from: number, to: number) {
+    const previous = items;
+    const next = arrayMove(items, from, to);
+    setItems(next);
+    void reorderOrgTemplates(next.map((t) => t.id)).then((r) => {
+      if (!r.ok) {
+        toast.error(r.error);
+        setItems(previous);
+      }
+    });
+  }
 
   function create() {
     const clean = name.trim();
@@ -223,19 +219,14 @@ export function OrgCustomTemplates({
 
   return (
     <div className="grid gap-3">
-      {templates.length === 0 ? (
+      {items.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           No custom templates yet.
         </p>
       ) : (
-        <ul className="grid gap-2">
-          {templates.map((t, i) => (
-            <CustomRow
-              key={t.id}
-              template={t}
-              isFirst={i === 0}
-              isLast={i === templates.length - 1}
-            />
+        <ul data-reorder-group className="grid gap-2">
+          {items.map((t) => (
+            <CustomRow key={t.id} template={t} onReorder={handleReorder} />
           ))}
         </ul>
       )}

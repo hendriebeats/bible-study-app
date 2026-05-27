@@ -315,7 +315,19 @@
     padding-top: 0;
   }
   .ProseMirror .note-entry-ref {
-    @apply text-xs font-medium text-muted-foreground;
+    @apply flex flex-col items-start gap-1 text-xs font-medium text-muted-foreground;
+  }
+  /* Drag handle for reordering a note row — revealed on row hover / focus. */
+  .ProseMirror .note-entry-drag {
+    @apply flex size-4 cursor-grab items-center justify-center rounded-sm text-muted-foreground opacity-0 hover:bg-muted hover:text-foreground;
+  }
+  .ProseMirror .note-entry:hover .note-entry-drag,
+  .ProseMirror .note-entry-drag:focus-visible {
+    @apply opacity-100;
+  }
+  .ProseMirror .note-entry-drag svg {
+    width: 0.85em;
+    height: 0.85em;
   }
   .ProseMirror .note-entry-body > * + * {
     @apply mt-1;
@@ -360,6 +372,23 @@
     left: -1.5rem;
     letter-spacing: -0.15em;
     cursor: grab;
+  }
+  /* Drag-to-reorder (pointer-reorder.ts): a floating drop indicator + drag
+     affordances shared by every reorderable list (notes, blocks, templates). */
+  .reorder-drop-indicator {
+    position: fixed;
+    z-index: 60;
+    height: 2px;
+    border-radius: 1px;
+    background-color: var(--primary);
+    pointer-events: none;
+  }
+  body.reorder-active {
+    cursor: grabbing;
+    user-select: none;
+  }
+  .reorder-dragging {
+    cursor: grabbing;
   }
   .ProseMirror code {
     @apply rounded bg-muted px-1 py-0.5 font-mono text-sm;

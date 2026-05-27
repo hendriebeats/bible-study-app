@@ -595,3 +595,53 @@ export async function moveOrgTemplate(
   revalidatePath("/organizations/templates");
   return { ok: true };
 }
+
+/**
+ * Persist an explicit order for an org's custom templates (drag-to-reorder).
+ * `orderedIds` must be the full set of that org's custom templates in the
+ * desired order; positions are rewritten to 0…n-1. Validates every id is a
+ * custom template in a single organization before writing (RLS still gates the
+ * caller's right to update them).
+ */
+export async function reorderOrgTemplates(
+  orderedIds: string[],
+): Promise<ActionResult> {
+  const { supabase } = await requireUser();
+  if (orderedIds.length === 0) {
+    return { ok: true };
+  }
+  const unique = new Set(orderedIds);
+  if (unique.size !== orderedIds.length) {
+    return { ok: false, error: "Duplicate templates in reorder." };
+  }
+
+  const { data: rows, error } = await supabase
+    .from("study_templates")
+    .select("id, organization_id, type")
+    .in("id", orderedIds);
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+  if (rows.length !== orderedIds.length) {
+    return { ok: false, error: "Some templates no longer exist." };
+  }
+  const orgId = rows[0]?.organization_id ?? null;
+  const sameOrgCustom = rows.every(
+    (r) => r.type === "custom" && r.organization_id === orgId && orgId !== null,
+  );
+  if (!sameOrgCustom) {
+    return { ok: false, error: "Not reorderable templates." };
+  }
+
+  const results = await Promise.all(
+    orderedIds.map((id, i) =>
+      supabase.from("study_templates").update({ position: i }).eq("id", id),
+    ),
+  );
+  const failedWrite = results.find((r) => r.error);
+  if (failedWrite?.error) {
+    return { ok: false, error: failedWrite.error.message };
+  }
+  revalidatePath("/organizations/templates");
+  return { ok: true };
+}

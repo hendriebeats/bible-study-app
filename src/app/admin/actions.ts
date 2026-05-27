@@ -316,3 +316,48 @@ export async function moveBlockTemplate(
   }
   revalidatePath(`/admin/genres/${genreId}`);
 }
+
+/**
+ * Persist an explicit order for a genre's default blocks (drag-to-reorder).
+ * `orderedIds` must be exactly the genre's block templates in the desired order;
+ * positions are rewritten to 0…n-1. Throws on validation failure or a write
+ * error so the caller can surface a toast and revert its optimistic order.
+ */
+export async function reorderGenreBlockTemplates(
+  genreId: string,
+  orderedIds: string[],
+): Promise<void> {
+  const { supabase } = await requireAdmin();
+  if (orderedIds.length === 0) {
+    return;
+  }
+  const { data: rows, error } = await supabase
+    .from("genre_block_templates")
+    .select("id")
+    .eq("genre_id", genreId);
+  if (error) {
+    throw new Error(error.message);
+  }
+  const existing = new Set(rows.map((r) => r.id));
+  const provided = new Set(orderedIds);
+  if (
+    existing.size !== provided.size ||
+    ![...provided].every((id) => existing.has(id))
+  ) {
+    throw new Error("Reorder set doesn't match this genre's blocks.");
+  }
+
+  const results = await Promise.all(
+    orderedIds.map((id, i) =>
+      supabase
+        .from("genre_block_templates")
+        .update({ position: i })
+        .eq("id", id),
+    ),
+  );
+  const failed = results.find((r) => r.error);
+  if (failed?.error) {
+    throw new Error(failed.error.message);
+  }
+  revalidatePath(`/admin/genres/${genreId}`);
+}

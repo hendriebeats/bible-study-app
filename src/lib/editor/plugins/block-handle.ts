@@ -1,5 +1,8 @@
 import { Plugin, TextSelection } from "prosemirror-state";
 
+import { attachReorderHandle } from "../../dnd/pointer-reorder";
+import { reorderSiblings } from "../reorder-node";
+
 /** Window event the handle fires (with `{ x, y }`) to open the React block menu. */
 export const BLOCK_MENU_EVENT = "pm-block-menu";
 
@@ -28,19 +31,30 @@ export function blockHandle(): Plugin {
       handle.type = "button";
       handle.className = "block-handle";
       handle.setAttribute("aria-label", "Block options");
+      handle.title = "Drag to reorder · click for options";
       handle.contentEditable = "false";
       handle.textContent = "⋮⋮";
       handle.style.display = "none";
 
       let currentPos: number | null = null;
+      let currentDom: HTMLElement | null = null;
 
       const hide = () => {
+        // Don't retract the handle mid-drag (the drag uses window listeners).
+        if (document.body.classList.contains("reorder-active")) {
+          return;
+        }
         handle.style.display = "none";
         currentPos = null;
+        currentDom = null;
       };
 
       const onMouseMove = (event: MouseEvent) => {
         if (event.target === handle) {
+          return;
+        }
+        // Freeze the handle on the block being dragged.
+        if (document.body.classList.contains("reorder-active")) {
           return;
         }
         const found = view.posAtCoords({
@@ -60,11 +74,25 @@ export function blockHandle(): Plugin {
           return;
         }
         currentPos = before;
+        currentDom = dom;
         const blockRect = dom.getBoundingClientRect();
         const wrapRect = wrapper.getBoundingClientRect();
         handle.style.display = "flex";
         handle.style.top = `${String(blockRect.top - wrapRect.top)}px`;
       };
+
+      // Drag the handle to reorder the block among its top-level siblings (the
+      // same set the menu's Move up/down walks, which stays as the keyboard path).
+      const detachReorder = attachReorderHandle({
+        handle,
+        getItem: () => currentDom,
+        getSiblings: () => Array.from(view.dom.children) as HTMLElement[],
+        onReorder: (from, to) => {
+          if (currentPos !== null) {
+            reorderSiblings(view, currentPos, from, to);
+          }
+        },
+      });
 
       const onClick = (event: MouseEvent) => {
         event.preventDefault();
@@ -91,6 +119,7 @@ export function blockHandle(): Plugin {
 
       return {
         destroy() {
+          detachReorder();
           handle.removeEventListener("click", onClick);
           wrapper?.removeEventListener("mousemove", onMouseMove);
           wrapper?.removeEventListener("mouseleave", hide);

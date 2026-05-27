@@ -34,6 +34,7 @@ export function buildNodeViews(
     collapsible: (node, view, getPos) =>
       new CollapsibleView(node, view, getPos, editable),
     notes_index: () => new NotesIndexView(),
-    note_entry: (node) => new NoteEntryView(node),
+    note_entry: (node, view, getPos) =>
+      new NoteEntryView(node, view, getPos, editable),
   };
 }

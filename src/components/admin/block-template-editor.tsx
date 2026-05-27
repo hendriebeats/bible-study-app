@@ -1,18 +1,20 @@
 "use client";
 
-import { ChevronDown, ChevronUp, Plus, Trash2 } from "lucide-react";
+import { GripVertical, Plus, Trash2 } from "lucide-react";
 import { useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import {
   addBlockTemplate,
   deleteBlockTemplate,
-  moveBlockTemplate,
+  reorderGenreBlockTemplates,
   updateBlockTemplate,
 } from "@/app/admin/actions";
 import { DefaultContentEditor } from "@/components/admin/default-content-editor";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { arrayMove } from "@/lib/dnd/pointer-reorder";
+import { useReorderHandle } from "@/lib/dnd/use-reorder-handle";
 import type { GenreBlockTemplate } from "@/lib/db/types";
 import type { PMNodeJSON } from "@/lib/editor/types";
 
@@ -24,21 +26,42 @@ export function BlockTemplateEditor({
   templates: GenreBlockTemplate[];
 }) {
   const [adding, startAdd] = useTransition();
+  // Optimistic order for drag/keyboard reorder; reverts on a failed write.
+  // Re-syncs to server order whenever the templates prop changes (render-time
+  // reset — the recommended alternative to a prop→state effect).
+  const [items, setItems] = useState(templates);
+  const [prevTemplates, setPrevTemplates] = useState(templates);
+  if (templates !== prevTemplates) {
+    setPrevTemplates(templates);
+    setItems(templates);
+  }
+
+  function handleReorder(from: number, to: number) {
+    const previous = items;
+    const next = arrayMove(items, from, to);
+    setItems(next);
+    void reorderGenreBlockTemplates(
+      genreId,
+      next.map((t) => t.id),
+    ).catch(() => {
+      toast.error("Couldn't reorder blocks.");
+      setItems(previous);
+    });
+  }
 
   return (
-    <div className="flex flex-col gap-3">
-      {templates.length === 0 ? (
+    <div data-reorder-group className="flex flex-col gap-3">
+      {items.length === 0 ? (
         <p className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
           No blocks yet. Add the first default block for this genre.
         </p>
       ) : (
-        templates.map((template, index) => (
+        items.map((template) => (
           <BlockTemplateRow
             key={template.id}
             genreId={genreId}
             template={template}
-            isFirst={index === 0}
-            isLast={index === templates.length - 1}
+            onReorder={handleReorder}
           />
         ))
       )}
@@ -69,13 +92,11 @@ export function BlockTemplateEditor({
 function BlockTemplateRow({
   genreId,
   template,
-  isFirst,
-  isLast,
+  onReorder,
 }: {
   genreId: string;
   template: GenreBlockTemplate;
-  isFirst: boolean;
-  isLast: boolean;
+  onReorder: (from: number, to: number) => void;
 }) {
   const [title, setTitle] = useState(template.title);
   const [subtitle, setSubtitle] = useState(template.subtitle ?? "");
@@ -84,6 +105,7 @@ function BlockTemplateRow({
     template.default_content,
   );
   const [pending, startTransition] = useTransition();
+  const setDragHandle = useReorderHandle(onReorder);
 
   function persist() {
     void updateBlockTemplate(
@@ -98,16 +120,6 @@ function BlockTemplateRow({
     });
   }
 
-  function move(direction: "up" | "down") {
-    startTransition(async () => {
-      try {
-        await moveBlockTemplate(template.id, genreId, direction);
-      } catch {
-        toast.error("Couldn't reorder blocks.");
-      }
-    });
-  }
-
   function remove() {
     startTransition(async () => {
       try {
@@ -119,31 +131,16 @@ function BlockTemplateRow({
   }
 
   return (
-    <div className="flex gap-2 rounded-lg border bg-card p-3">
-      <div className="flex flex-col gap-1 pt-1">
-        <button
-          type="button"
-          aria-label="Move up"
-          disabled={isFirst || pending}
-          onClick={() => {
-            move("up");
-          }}
-          className="rounded-sm p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
-        >
-          <ChevronUp className="size-4" />
-        </button>
-        <button
-          type="button"
-          aria-label="Move down"
-          disabled={isLast || pending}
-          onClick={() => {
-            move("down");
-          }}
-          className="rounded-sm p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
-        >
-          <ChevronDown className="size-4" />
-        </button>
-      </div>
+    <div data-reorder-item className="flex gap-2 rounded-lg border bg-card p-3">
+      <button
+        ref={setDragHandle}
+        type="button"
+        aria-label="Reorder block (drag, or focus and press up/down)"
+        title="Drag to reorder (or focus and press ↑/↓)"
+        className="h-fit cursor-grab touch-none rounded-sm p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+      >
+        <GripVertical className="size-4" />
+      </button>
 
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         <Input
