@@ -241,6 +241,11 @@ export function DocumentEditor({
     // and join presence so the owner can see who's reading along.
     let channel: RealtimeChannel | undefined;
     let disposed = false;
+    // Read through a function in the async `flush` below: a call's result is
+    // never value-narrowed by control-flow analysis, so the post-`await` guards
+    // aren't flagged "always false" (the cleanup flips `disposed` from a
+    // separate closure, which CFA can't see).
+    const isDisposed = () => disposed;
     void openDocumentChannel(
       doc.id,
       {
@@ -280,11 +285,19 @@ export function DocumentEditor({
           newDoc,
           clientId,
         );
+        // The view may have been torn down (section swap) while the save was in
+        // flight — the steps are persisted, so just stop before touching it.
+        if (isDisposed()) {
+          return;
+        }
         if (!result.ok) {
           // Another writer (the owner's other tab) advanced the doc. Discard our
           // stale pending edits and rebuild from the server head in place — no
           // jarring full-page reload.
           const head = await fetchDocumentHead(doc.id);
+          if (isDisposed()) {
+            return;
+          }
           if (head) {
             pendingStepsRef.current = [];
             lastVersionRef.current = head.version;
@@ -436,6 +449,11 @@ export function DocumentEditor({
 
     return () => {
       disposed = true;
+      // Persist any pending edits before tearing down — otherwise a fast section
+      // swap (the mine editor remounts on the new section) drops the last
+      // unsaved <1.2s of typing. `flush` snapshots the doc synchronously and the
+      // post-await `disposed` guards keep it from touching the destroyed view.
+      flushNow();
       if (saveTimer.current) {
         clearTimeout(saveTimer.current);
       }

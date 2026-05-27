@@ -1,10 +1,10 @@
 "use client";
 
 import { Info, Users } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
 import { GroupInfoDialog } from "@/components/groups/group-info-dialog";
+import { useStudyWorkspace } from "@/components/studies/study-workspace-context";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -19,9 +19,10 @@ import type { StudyGroupInfo } from "@/lib/db/types";
 
 /**
  * The in-study group control that lives in the rich-text toolbar: a dropdown of
- * the other members in this study's group(s). Picking a member opens the compare
- * workspace focused on their study; a "Group info" entry opens the roster /
- * invite / template popup. Renders nothing when the study isn't in a group.
+ * the other members in this study's group(s). Picking a member opens their study
+ * as a read-only panel in the dock on this page; a "Group info" entry opens the
+ * roster / invite / template popup. Renders nothing when the study isn't in a
+ * group.
  */
 export function GroupMembersMenu({
   studyId,
@@ -36,7 +37,7 @@ export function GroupMembersMenu({
   groupContext: StudyGroupInfo[];
   meId: string;
 }) {
-  const router = useRouter();
+  const workspace = useStudyWorkspace();
   const [infoOpen, setInfoOpen] = useState(false);
 
   // userId -> the openable study (only members with a live contributed study).
@@ -52,9 +53,7 @@ export function GroupMembersMenu({
   const multiGroup = groupContext.length > 1;
 
   function openMember(target: CompareTarget) {
-    router.push(
-      `/studies/${studyId}/compare/${sectionId}?focus=${target.studyId}`,
-    );
+    workspace.openPerson(target.studyId);
   }
 
   return (

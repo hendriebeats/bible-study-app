@@ -1,8 +1,7 @@
 "use client";
 
-import { ChevronLeft, Columns2, Layers, PanelLeft } from "lucide-react";
+import { ChevronLeft, Layers, PanelLeft } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { type ReactNode, useCallback, useMemo, useState } from "react";
 
 import { StudySidebar } from "@/components/studies/study-sidebar";
@@ -22,13 +21,10 @@ import { cn } from "@/lib/utils";
  * top-left re-opens it.
  *
  * The sidebar lives here (not in the page) so it survives section-to-section
- * navigation. The editable section title and the editor toolbar are page-level
- * (they need section data + the editor context), so the page bridges them up
- * via the `titleSlot` (top of the document body) / `toolbarSlot` portal targets
- * and `setCompareHref`.
- *
- * On the compare route there is no section to edit: the chrome renders in a
- * "bare" mode — no sidebar, no toolbar row, no section-title slot.
+ * navigation, alongside the persistent study workspace (the dock + editor) that
+ * fills `<main>`. The editor toolbar is page-level (it needs the editor
+ * context), so it bridges up via the `toolbarSlot` portal target. The section
+ * title now lives inside the workspace's editable "mine" panel.
  */
 export function StudyChrome({
   study,
@@ -52,28 +48,16 @@ export function StudyChrome({
   actions: ReactNode;
   children: ReactNode;
 }) {
-  const pathname = usePathname();
-  const isCompare = pathname.includes("/compare/");
-
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [titleSlot, setTitleSlot] = useState<HTMLElement | null>(null);
   const [toolbarSlot, setToolbarSlot] = useState<HTMLElement | null>(null);
-  const [compareHref, setCompareHref] = useState<string | null>(null);
 
   const toggleSidebar = useCallback(() => {
     setSidebarOpen((open) => !open);
   }, []);
 
   const value = useMemo<StudyChromeValue>(
-    () => ({
-      sidebarOpen,
-      toggleSidebar,
-      titleSlot,
-      toolbarSlot,
-      compareHref,
-      setCompareHref,
-    }),
-    [sidebarOpen, toggleSidebar, titleSlot, toolbarSlot, compareHref],
+    () => ({ sidebarOpen, toggleSidebar, toolbarSlot }),
+    [sidebarOpen, toggleSidebar, toolbarSlot],
   );
 
   return (
@@ -101,25 +85,13 @@ export function StudyChrome({
             />
           </div>
 
-          <div className="flex shrink-0 items-center gap-1">
-            {compareHref && !isCompare ? (
-              <Button asChild size="sm" variant="ghost">
-                <Link href={compareHref}>
-                  <Columns2 className="size-4" />
-                  Compare
-                </Link>
-              </Button>
-            ) : null}
-            {actions}
-          </div>
+          <div className="flex shrink-0 items-center gap-1">{actions}</div>
         </header>
 
-        {!isCompare ? (
-          <div
-            ref={setToolbarSlot}
-            className="shrink-0 border-b border-border/60 bg-background empty:hidden"
-          />
-        ) : null}
+        <div
+          ref={setToolbarSlot}
+          className="shrink-0 border-b border-border/60 bg-background empty:hidden"
+        />
 
         {isTemplate ? (
           <div className="flex items-center gap-3 border-b border-primary/30 bg-primary/10 px-4 py-2 text-sm">
@@ -140,36 +112,28 @@ export function StudyChrome({
         ) : null}
 
         <div className="relative flex min-h-0 flex-1">
-          {!isCompare ? (
-            <div
-              className={cn(
-                "shrink-0 overflow-hidden transition-all duration-200 ease-out",
-                sidebarOpen ? "w-64" : "w-0",
-              )}
-            >
-              <StudySidebar
-                study={study}
-                sections={sections}
-                isOwner={isOwner}
-                trashedSections={trashedSections}
-                genres={genres}
-                onCollapse={toggleSidebar}
-              />
-            </div>
-          ) : null}
+          <div
+            className={cn(
+              "shrink-0 overflow-hidden transition-all duration-200 ease-out",
+              sidebarOpen ? "w-64" : "w-0",
+            )}
+          >
+            <StudySidebar
+              study={study}
+              sections={sections}
+              isOwner={isOwner}
+              trashedSections={trashedSections}
+              genres={genres}
+              onCollapse={toggleSidebar}
+            />
+          </div>
 
-          <main className="min-w-0 flex-1 overflow-auto">
-            {!isCompare ? (
-              <div
-                ref={setTitleSlot}
-                className={cn("pt-5", sidebarOpen ? "px-6" : "pr-6 pl-14")}
-              />
-            ) : null}
-            {children}
-          </main>
+          {/* Definite-height flex parent (not overflow-auto) so the workspace
+              dock can size itself; per-panel scrolling lives on the panels. */}
+          <main className="flex min-h-0 min-w-0 flex-1">{children}</main>
 
           {/* Sidebar collapsed: a floating re-open button at the body's top-left. */}
-          {!isCompare && !sidebarOpen ? (
+          {!sidebarOpen ? (
             <Button
               type="button"
               size="icon"

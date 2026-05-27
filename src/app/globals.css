@@ -555,3 +555,10 @@
     color: inherit;
   }
 }
+
+/* Study workspace dock: when only the pinned "mine" panel is open, hide the
+   dockview tab bar so a solo study reads as a plain editor. The bar reappears
+   the moment a co-member panel is added. */
+[data-study-dock][data-single-panel] .dv-tabs-and-actions-container {
+  display: none;
+}

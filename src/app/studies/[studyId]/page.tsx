@@ -15,14 +15,7 @@ export default async function StudyIndexPage({
     redirect(`/studies/${studyId}/${first.id}`);
   }
 
-  return (
-    <div className="flex h-full items-center justify-center p-8 text-center">
-      <div>
-        <p className="text-muted-foreground">This study has no sections yet.</p>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Use “Add section” in the sidebar to begin.
-        </p>
-      </div>
-    </div>
-  );
+  // No sections: publish nothing — the persistent workspace dock (in the layout)
+  // shows its own empty state in the "mine" panel.
+  return null;
 }

@@ -7,21 +7,15 @@ export interface StudyChromeValue {
   sidebarOpen: boolean;
   /** Toggle the sidebar open/closed (session-only; not persisted). */
   toggleSidebar: () => void;
-  /** Body-top slot the section page portals its section-title control into. */
-  titleSlot: HTMLElement | null;
   /** Full-width row beneath the top bar the editor toolbar portals into. */
   toolbarSlot: HTMLElement | null;
-  /** Compare link target for the current section, or null when unavailable. */
-  compareHref: string | null;
-  /** Publish the current section's Compare target up to the top bar. */
-  setCompareHref: (href: string | null) => void;
 }
 
 export const StudyChromeContext = createContext<StudyChromeValue | null>(null);
 
 /**
- * Access the studies-page chrome (sidebar state + the top-bar/toolbar portal
- * slots). Returns null outside `StudyChrome`.
+ * Access the studies-page chrome (sidebar state + the toolbar portal slot).
+ * Returns null outside `StudyChrome`.
  */
 export function useStudyChrome(): StudyChromeValue | null {
   return useContext(StudyChromeContext);

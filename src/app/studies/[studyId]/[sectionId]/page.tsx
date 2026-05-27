@@ -1,23 +1,19 @@
 import { notFound } from "next/navigation";
 
-import { SectionSurface } from "@/components/studies/section-surface";
-import { listCompareTargets } from "@/lib/db/compare";
-import { getStudyGroupContext } from "@/lib/db/groups";
+import { SectionBridge } from "@/components/studies/section-bridge";
 import { getDocumentHistory } from "@/lib/db/history";
 import { getSection, getSectionDocuments } from "@/lib/db/studies";
-import {
-  getEditorTools,
-  getFormatRecents,
-  getScriptureOptions,
-} from "@/lib/db/user-settings";
 import { createClient } from "@/lib/supabase/server";
 
 export default async function SectionPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ studyId: string; sectionId: string }>;
+  searchParams: Promise<{ focus?: string }>;
 }) {
   const { studyId, sectionId } = await params;
+  const { focus } = await searchParams;
   const section = await getSection(sectionId);
   if (!section) {
     notFound();
@@ -28,9 +24,6 @@ export default async function SectionPage({
   }
 
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
   const { data: ownerFlag } = await supabase.rpc("is_study_owner", {
     _study_id: studyId,
   });
@@ -44,21 +37,6 @@ export default async function SectionPage({
     .is("deleted_at", null)
     .neq("id", sectionId);
   const hasPreviousSection = (otherSectionCount ?? 0) > 0;
-
-  // Identity for live presence + a labeled remote cursor (read-along).
-  let me: { id: string; name: string } | null = null;
-  if (user) {
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("display_name")
-      .eq("id", user.id)
-      .maybeSingle();
-    const name =
-      [profile?.display_name?.trim(), user.email?.split("@")[0]].find(
-        (value) => value !== undefined && value !== "",
-      ) ?? "Someone";
-    me = { id: user.id, name };
-  }
 
   // The owner edits (and needs each document's history for refresh-surviving
   // undo); co-members get the read-only live viewer.
@@ -77,40 +55,19 @@ export default async function SectionPage({
       )
     : null;
 
-  // Other group members with a study (drives both the Compare entry point and
-  // the toolbar members menu), plus the group(s) this study belongs to (for the
-  // members menu + group-info popup).
-  const [compareTargets, groupContext] = await Promise.all([
-    listCompareTargets(studyId),
-    getStudyGroupContext(studyId),
-  ]);
-  const canCompare = compareTargets.length > 0;
-
-  // The user's remembered scripture-insertion defaults (seed the insert panel)
-  // and recently-used formatting (seed the selection bubble's quick action).
-  const [scriptureOptions, formatRecents, editorTools] = await Promise.all([
-    getScriptureOptions(),
-    getFormatRecents(),
-    getEditorTools(),
-  ]);
-
+  // Publish this section's data up into the persistent study workspace (the
+  // dock + hoisted editor live at the layout level). Renders nothing itself.
   return (
-    /* key forces a fresh surface when switching sections */
-    <SectionSurface
-      key={section.id}
-      section={section}
-      documents={documents}
-      notesHistory={notesHistory}
-      blocksHistory={blocksHistory}
-      hasPreviousSection={hasPreviousSection}
-      isOwner={isOwner}
-      canCompare={canCompare}
-      me={me}
-      scriptureOptions={scriptureOptions}
-      formatRecents={formatRecents}
-      editorTools={editorTools}
-      compareTargets={compareTargets}
-      groupContext={groupContext}
+    <SectionBridge
+      focus={focus ?? null}
+      payload={{
+        section,
+        documents,
+        notesHistory,
+        blocksHistory,
+        hasPreviousSection,
+        isOwner,
+      }}
     />
   );
 }

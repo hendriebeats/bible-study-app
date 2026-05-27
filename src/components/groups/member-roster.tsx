@@ -66,7 +66,7 @@ export function MemberRoster({
           member.study_id !== null &&
           compareStudyId &&
           compareSectionId
-            ? `/studies/${compareStudyId}/compare/${compareSectionId}?focus=${member.study_id}`
+            ? `/studies/${compareStudyId}/${compareSectionId}?focus=${member.study_id}`
             : null;
         return (
           <li
