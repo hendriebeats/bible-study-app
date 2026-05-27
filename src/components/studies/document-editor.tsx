@@ -31,7 +31,9 @@ import { blocksDocFromSpecs, type BlockSpec } from "@/lib/editor/blocks";
 import { buildNodeViews } from "@/lib/editor/node-views";
 import { buildInputRules } from "@/lib/editor/plugins/input-rules";
 import { buildKeymaps } from "@/lib/editor/plugins/keymap";
+import { blockHandle } from "@/lib/editor/plugins/block-handle";
 import { placeholder as placeholderPlugin } from "@/lib/editor/plugins/placeholder";
+import { slashMenu } from "@/lib/editor/plugins/slash-menu";
 import { verseGuard } from "@/lib/editor/plugins/verse-guard";
 import { verseLabel } from "@/lib/editor/plugins/verse-label";
 import { nodes, schema } from "@/lib/editor/schema";
@@ -64,6 +66,8 @@ function createPlugins(placeholderText: string) {
     history(),
     verseGuard(),
     verseLabel(),
+    slashMenu(),
+    blockHandle(),
     placeholderPlugin(placeholderText),
   ];
 }
@@ -125,6 +129,7 @@ export function DocumentEditor({
   history: docHistory,
   me,
   label,
+  hideLabel = false,
   placeholder,
   studyId,
   hasPreviousSection = false,
@@ -133,6 +138,8 @@ export function DocumentEditor({
   history: DocumentHistory;
   me: { id: string; name: string } | null;
   label: string;
+  /** Keep the label for screen readers but hide it visually (still shows the controls row). */
+  hideLabel?: boolean;
   placeholder: string;
   /** Set on the blocks editor to enable the "Add blocks" menu. */
   studyId?: string;
@@ -499,7 +506,15 @@ export function DocumentEditor({
   return (
     <div>
       <div className="mb-2 flex items-center gap-3">
-        <h2 className="text-sm font-semibold text-muted-foreground">{label}</h2>
+        <h2
+          className={
+            hideLabel
+              ? "sr-only"
+              : "text-sm font-semibold text-muted-foreground"
+          }
+        >
+          {label}
+        </h2>
         <div className="ml-auto flex shrink-0 items-center gap-2">
           <PresenceAvatars
             members={members.filter((member) => member.userId !== me?.id)}

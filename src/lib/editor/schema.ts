@@ -3,6 +3,7 @@ import {
   type NodeSpec,
   type NodeType,
   Schema,
+  type TagParseRule,
 } from "prosemirror-model";
 import { schema as basicSchema } from "prosemirror-schema-basic";
 import { addListNodes } from "prosemirror-schema-list";
@@ -245,10 +246,190 @@ const studyBlockSpec: NodeSpec = {
   },
 };
 
+/**
+ * Block indentation. Top-level textblocks (paragraphs + headings) carry an
+ * `indent` level (0…{@link MAX_INDENT}) rendered as a left margin, adjusted by
+ * Tab / Shift-Tab. `default: 0` keeps every previously-saved document and step
+ * valid (they simply deserialize at indent 0). List nesting is handled by the
+ * list nodes, not this attribute.
+ */
+export const MAX_INDENT = 10;
+const INDENT_STEP_REM = 1.75;
+
+/** Clamp an untrusted indent value to a whole number in [0, MAX_INDENT]. */
+function clampIndent(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(MAX_INDENT, Math.max(0, Math.trunc(value)));
+}
+
+/** DOM attributes (data + inline margin) for an indent level; empty at 0. */
+function indentDOMAttrs(indent: number): Record<string, string> {
+  if (indent <= 0) return {};
+  return {
+    "data-indent": String(indent),
+    style: `margin-inline-start:${String(indent * INDENT_STEP_REM)}rem`,
+  };
+}
+
+// Paragraph + heading replace the `schema-basic` specs with an added `indent`
+// attribute (everything else about them is unchanged).
+const paragraphSpec: NodeSpec = {
+  content: "inline*",
+  group: "block",
+  attrs: { indent: { default: 0 } },
+  parseDOM: [
+    {
+      tag: "p",
+      getAttrs(dom) {
+        if (typeof dom === "string") return null;
+        return { indent: clampIndent(numAttr(dom, "data-indent") ?? 0) };
+      },
+    },
+  ],
+  toDOM(node) {
+    return ["p", indentDOMAttrs(node.attrs.indent as number), 0];
+  },
+};
+
+const headingSpec: NodeSpec = {
+  attrs: { level: { default: 1 }, indent: { default: 0 } },
+  content: "inline*",
+  group: "block",
+  defining: true,
+  parseDOM: ([1, 2, 3, 4, 5, 6] as const).map(
+    (level): TagParseRule => ({
+      tag: `h${String(level)}`,
+      getAttrs(dom) {
+        if (typeof dom === "string") return null;
+        return { level, indent: clampIndent(numAttr(dom, "data-indent") ?? 0) };
+      },
+    }),
+  ),
+  toDOM(node) {
+    const level = node.attrs.level as number;
+    return [
+      `h${String(level)}`,
+      indentDOMAttrs(node.attrs.indent as number),
+      0,
+    ];
+  },
+};
+
+/**
+ * Task list + task item (checklists). Mirrors the bullet/ordered list shape so
+ * the list commands (wrap / split / sink / lift) work, plus a `checked` boolean
+ * on each item toggled by its NodeView's checkbox.
+ */
+const taskListSpec: NodeSpec = {
+  group: "block",
+  content: "task_item+",
+  parseDOM: [{ tag: "ul[data-task-list]" }],
+  toDOM() {
+    return ["ul", { "data-task-list": "true", class: "task-list" }, 0];
+  },
+};
+
+const taskItemSpec: NodeSpec = {
+  content: "paragraph block*",
+  defining: true,
+  attrs: { checked: { default: false } },
+  parseDOM: [
+    {
+      tag: "li[data-task-item]",
+      getAttrs(dom) {
+        if (typeof dom === "string") return null;
+        return { checked: dom.getAttribute("data-checked") === "true" };
+      },
+    },
+  ],
+  toDOM(node) {
+    return [
+      "li",
+      {
+        "data-task-item": "true",
+        "data-checked": String(node.attrs.checked === true),
+        class: "task-item",
+      },
+      0,
+    ];
+  },
+};
+
+/** Callout (admonition) box. `variant` (note/insight/warning/prayer/application)
+ * drives the color + header via the CalloutView node view and CSS. */
+const calloutSpec: NodeSpec = {
+  group: "block",
+  content: "block+",
+  defining: true,
+  attrs: { variant: { default: "note" } },
+  parseDOM: [
+    {
+      tag: "aside[data-callout]",
+      contentElement: ".callout-body",
+      getAttrs(dom) {
+        if (typeof dom === "string") return null;
+        return { variant: dom.getAttribute("data-variant") ?? "note" };
+      },
+    },
+  ],
+  toDOM(node) {
+    const variant = String(node.attrs.variant);
+    return [
+      "aside",
+      {
+        "data-callout": "true",
+        "data-variant": variant,
+        class: `callout callout-${variant}`,
+      },
+      ["div", { class: "callout-body" }, 0],
+    ];
+  },
+};
+
+/** Collapsible (foldable) section: a `summary` title + a hideable body. `open`
+ * toggles via the node view; the body is hidden by CSS when closed. */
+const collapsibleSpec: NodeSpec = {
+  group: "block",
+  content: "block+",
+  defining: true,
+  attrs: { open: { default: true }, summary: { default: "" } },
+  parseDOM: [
+    {
+      tag: "div[data-collapsible]",
+      contentElement: ".collapsible-body",
+      getAttrs(dom) {
+        if (typeof dom === "string") return null;
+        return {
+          open: dom.getAttribute("data-open") !== "false",
+          summary: dom.getAttribute("data-summary") ?? "",
+        };
+      },
+    },
+  ],
+  toDOM(node) {
+    return [
+      "div",
+      {
+        "data-collapsible": "true",
+        "data-open": String(node.attrs.open !== false),
+        "data-summary": String(node.attrs.summary ?? ""),
+        class: "collapsible",
+      },
+      ["div", { class: "collapsible-body" }, 0],
+    ];
+  },
+};
+
 const nodeSpecs = baseNodeSpecs
+  .update("paragraph", paragraphSpec)
+  .update("heading", headingSpec)
   .addToEnd("verse_number", verseNumberSpec)
   .addToEnd("scripture", scriptureSpec)
-  .addToEnd("study_block", studyBlockSpec);
+  .addToEnd("study_block", studyBlockSpec)
+  .addToEnd("task_list", taskListSpec)
+  .addToEnd("task_item", taskItemSpec)
+  .addToEnd("callout", calloutSpec)
+  .addToEnd("collapsible", collapsibleSpec);
 
 const markSpecs = basicSchema.spec.marks
   .addToEnd("strikethrough", {
@@ -260,6 +441,13 @@ const markSpecs = basicSchema.spec.marks
     ],
     toDOM() {
       return ["s", 0];
+    },
+  })
+  // Underline. (`schema-basic` ships strong/em/code/link but not underline.)
+  .addToEnd("underline", {
+    parseDOM: [{ tag: "u" }, { style: "text-decoration=underline" }],
+    toDOM() {
+      return ["u", 0];
     },
   })
   // Small caps for the covenant name (LORD/GOD) in inserted scripture, matching
@@ -366,6 +554,10 @@ export const nodes = {
   verseNumber: requireNode("verse_number"),
   scripture: requireNode("scripture"),
   studyBlock: requireNode("study_block"),
+  taskList: requireNode("task_list"),
+  taskItem: requireNode("task_item"),
+  callout: requireNode("callout"),
+  collapsible: requireNode("collapsible"),
 } as const;
 
 /** Resolved mark types (see {@link nodes}). */
@@ -374,6 +566,9 @@ export const marks = {
   em: requireMark("em"),
   code: requireMark("code"),
   strikethrough: requireMark("strikethrough"),
+  underline: requireMark("underline"),
+  // `link` ships with `schema-basic` (attrs: href, title); surfaced here.
+  link: requireMark("link"),
   smallCaps: requireMark("small_caps"),
   highlight: requireMark("highlight"),
   textColor: requireMark("text_color"),

@@ -1054,18 +1054,21 @@ export type Database = {
       }
       user_settings: {
         Row: {
+          editor_tools: Json
           format_recents: Json
           scripture_options: Json
           updated_at: string
           user_id: string
         }
         Insert: {
+          editor_tools?: Json
           format_recents?: Json
           scripture_options?: Json
           updated_at?: string
           user_id: string
         }
         Update: {
+          editor_tools?: Json
           format_recents?: Json
           scripture_options?: Json
           updated_at?: string

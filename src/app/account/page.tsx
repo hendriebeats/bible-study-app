@@ -6,6 +6,7 @@ import { AvatarUpload } from "@/components/account/avatar-upload";
 import { ChangeEmailForm } from "@/components/account/change-email-form";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
 import { DangerZone } from "@/components/account/danger-zone";
+import { EditorToolsSettings } from "@/components/account/editor-tools-settings";
 import { ProfileForm } from "@/components/account/profile-form";
 import { AppHeader } from "@/components/app-header";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -17,6 +18,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { getEditorTools } from "@/lib/db/user-settings";
 import { getMyProfile } from "@/lib/db/profile";
 import { createClient } from "@/lib/supabase/server";
 
@@ -32,6 +34,7 @@ export default async function AccountPage() {
   }
 
   const profile = await getMyProfile();
+  const editorTools = await getEditorTools();
   const displayName = profile?.display_name ?? "";
   const email = user.email ?? "";
   const avatarUrl = profile?.avatar_url ?? null;
@@ -100,6 +103,19 @@ export default async function AccountPage() {
             <CardContent className="flex items-center justify-between">
               <span className="text-sm">Theme</span>
               <ThemeToggle />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Editor tools</CardTitle>
+              <CardDescription>
+                Turn optional tools on or off. They appear in the study editor
+                as you enable them.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <EditorToolsSettings initial={editorTools} />
             </CardContent>
           </Card>
 

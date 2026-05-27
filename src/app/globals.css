@@ -86,6 +86,17 @@
   --sidebar-accent-foreground: oklch(0.33 0.045 50);
   --sidebar-border: oklch(0.9 0.014 78);
   --sidebar-ring: oklch(0.56 0.13 47);
+  /* Callout variants: tinted background + accent (border / header) per variant. */
+  --callout-note-bg: oklch(0.96 0.03 235);
+  --callout-note-accent: oklch(0.52 0.09 235);
+  --callout-insight-bg: oklch(0.96 0.05 85);
+  --callout-insight-accent: oklch(0.56 0.1 85);
+  --callout-warning-bg: oklch(0.96 0.04 25);
+  --callout-warning-accent: oklch(0.55 0.15 25);
+  --callout-prayer-bg: oklch(0.96 0.03 305);
+  --callout-prayer-accent: oklch(0.52 0.1 305);
+  --callout-application-bg: oklch(0.96 0.04 150);
+  --callout-application-accent: oklch(0.5 0.1 150);
 }
 
 .dark {
@@ -120,6 +131,16 @@
   --sidebar-accent-foreground: oklch(0.95 0.008 83);
   --sidebar-border: oklch(1 0 0 / 12%);
   --sidebar-ring: oklch(0.7 0.13 50);
+  --callout-note-bg: oklch(0.3 0.04 235);
+  --callout-note-accent: oklch(0.74 0.09 235);
+  --callout-insight-bg: oklch(0.32 0.05 85);
+  --callout-insight-accent: oklch(0.8 0.1 85);
+  --callout-warning-bg: oklch(0.31 0.05 25);
+  --callout-warning-accent: oklch(0.76 0.13 25);
+  --callout-prayer-bg: oklch(0.3 0.04 305);
+  --callout-prayer-accent: oklch(0.76 0.1 305);
+  --callout-application-bg: oklch(0.3 0.04 150);
+  --callout-application-accent: oklch(0.74 0.1 150);
 }
 
 @layer base {
@@ -166,11 +187,108 @@
   .ProseMirror li {
     @apply my-1;
   }
+  /* Checklists: no marker/indent, a checkbox beside the content. */
+  .ProseMirror .task-list {
+    @apply list-none pl-0;
+  }
+  .ProseMirror .task-item {
+    @apply flex items-start gap-2;
+  }
+  .ProseMirror .task-checkbox {
+    @apply mt-1 size-4 shrink-0;
+    accent-color: var(--primary);
+  }
+  .ProseMirror .task-item-content {
+    @apply min-w-0 flex-1;
+  }
+  .ProseMirror .task-item[data-checked="true"] > .task-item-content {
+    @apply text-muted-foreground line-through;
+  }
   .ProseMirror blockquote {
     @apply border-l-4 border-primary pl-4 font-serif text-muted-foreground italic;
   }
+  /* Callout boxes: tinted box + accent left bar + a colored variant header. */
+  .ProseMirror .callout {
+    @apply my-3 rounded-lg border p-3;
+    border-left-width: 3px;
+  }
+  .ProseMirror .callout-header {
+    @apply mb-1 flex items-center gap-1.5 text-sm font-semibold select-none;
+  }
+  .ProseMirror .callout-body > * + * {
+    @apply mt-2;
+  }
+  .ProseMirror .callout-note {
+    background: var(--callout-note-bg);
+    border-color: var(--callout-note-accent);
+  }
+  .ProseMirror .callout-note .callout-header {
+    color: var(--callout-note-accent);
+  }
+  .ProseMirror .callout-insight {
+    background: var(--callout-insight-bg);
+    border-color: var(--callout-insight-accent);
+  }
+  .ProseMirror .callout-insight .callout-header {
+    color: var(--callout-insight-accent);
+  }
+  .ProseMirror .callout-warning {
+    background: var(--callout-warning-bg);
+    border-color: var(--callout-warning-accent);
+  }
+  .ProseMirror .callout-warning .callout-header {
+    color: var(--callout-warning-accent);
+  }
+  .ProseMirror .callout-prayer {
+    background: var(--callout-prayer-bg);
+    border-color: var(--callout-prayer-accent);
+  }
+  .ProseMirror .callout-prayer .callout-header {
+    color: var(--callout-prayer-accent);
+  }
+  .ProseMirror .callout-application {
+    background: var(--callout-application-bg);
+    border-color: var(--callout-application-accent);
+  }
+  .ProseMirror .callout-application .callout-header {
+    color: var(--callout-application-accent);
+  }
+  /* Collapsible (foldable) sections. */
+  .ProseMirror .collapsible {
+    @apply my-3 rounded-lg border p-2;
+  }
+  .ProseMirror .collapsible-header {
+    @apply flex items-center gap-1;
+  }
+  .ProseMirror .collapsible-toggle {
+    @apply flex size-5 shrink-0 items-center justify-center rounded-sm text-xs text-muted-foreground hover:bg-muted;
+    cursor: pointer;
+  }
+  .ProseMirror .collapsible-title {
+    @apply min-w-0 flex-1 border-0 bg-transparent p-0 text-sm font-medium outline-none;
+  }
+  .ProseMirror .collapsible-body {
+    @apply mt-1 pl-6;
+  }
+  .ProseMirror .collapsible-body > * + * {
+    @apply mt-2;
+  }
+  .ProseMirror .collapsible[data-open="false"] .collapsible-body {
+    display: none;
+  }
   .ProseMirror a {
     @apply text-primary underline;
+  }
+  .ProseMirror u {
+    @apply underline;
+  }
+  /* Gutter "block options" handle (positioned imperatively by block-handle.ts). */
+  .block-handle {
+    @apply flex h-6 w-5 items-center justify-center rounded-sm text-xs text-muted-foreground opacity-50 select-none hover:bg-muted hover:opacity-100;
+    position: absolute;
+    left: -1.5rem;
+    letter-spacing: -0.15em;
+    cursor: grab;
   }
   .ProseMirror code {
     @apply rounded bg-muted px-1 py-0.5 font-mono text-sm;

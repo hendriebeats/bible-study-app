@@ -1,9 +1,13 @@
 import { lift, setBlockType, toggleMark, wrapIn } from "prosemirror-commands";
 import type { MarkType, NodeType } from "prosemirror-model";
 import { liftListItem, wrapInList } from "prosemirror-schema-list";
-import type { Command, EditorState } from "prosemirror-state";
+import {
+  type Command,
+  type EditorState,
+  TextSelection,
+} from "prosemirror-state";
 
-import { marks, nodes } from "./schema";
+import { marks, MAX_INDENT, nodes } from "./schema";
 
 type Attrs = Record<string, unknown>;
 
@@ -74,6 +78,7 @@ export function isAncestorActive(
 export const toggleBold: Command = toggleMark(marks.strong);
 export const toggleItalic: Command = toggleMark(marks.em);
 export const toggleStrike: Command = toggleMark(marks.strikethrough);
+export const toggleUnderline: Command = toggleMark(marks.underline);
 
 /** Toggle the current textblock between a heading of `level` and a paragraph. */
 export function toggleHeading(level: number): Command {
@@ -97,12 +102,296 @@ function toggleList(listType: NodeType): Command {
 export const toggleBulletList: Command = toggleList(nodes.bulletList);
 export const toggleOrderedList: Command = toggleList(nodes.orderedList);
 
+/** Toggle a checklist (task list); lifts items out when already in one. */
+export const toggleTaskList: Command = (state, dispatch, view) => {
+  if (isAncestorActive(state, nodes.taskList)) {
+    return liftListItem(nodes.taskItem)(state, dispatch, view);
+  }
+  return wrapInList(nodes.taskList)(state, dispatch, view);
+};
+
 export const toggleBlockquote: Command = (state, dispatch, view) => {
   if (isAncestorActive(state, nodes.blockquote)) {
     return lift(state, dispatch, view);
   }
   return wrapIn(nodes.blockquote)(state, dispatch, view);
 };
+
+/** Coerce typed input into a usable href (default to https, allow mailto). */
+export function normalizeUrl(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (trimmed === "") {
+    return null;
+  }
+  if (/^(https?:\/\/|mailto:)/i.test(trimmed)) {
+    return trimmed;
+  }
+  return `https://${trimmed}`;
+}
+
+/**
+ * The link covering the selection (or the contiguous link run around an empty
+ * cursor), or null when there's no single link to act on. Powers the link
+ * control's edit/remove state and `unsetLink`'s range.
+ */
+export function activeLinkRange(
+  state: EditorState,
+): { from: number; to: number; href: string } | null {
+  const linkType = marks.link;
+  const { $from, from, to, empty } = state.selection;
+  if (!empty) {
+    const mark = linkType.isInSet(state.doc.resolve(from).marks());
+    if (mark && state.doc.rangeHasMark(from, to, linkType)) {
+      return { from, to, href: (mark.attrs as { href: string }).href };
+    }
+    return null;
+  }
+  const cursorMark = linkType.isInSet($from.marks());
+  if (!cursorMark) {
+    return null;
+  }
+  // Expand to the contiguous run of inline children carrying this exact link.
+  const parent = $from.parent;
+  let pos = $from.start();
+  let runStart = -1;
+  let foundFrom = -1;
+  let foundTo = -1;
+  for (let i = 0; i < parent.childCount; i++) {
+    const child = parent.child(i);
+    const childFrom = pos;
+    const childTo = pos + child.nodeSize;
+    if (cursorMark.isInSet(child.marks)) {
+      if (runStart === -1) {
+        runStart = childFrom;
+      }
+      if ($from.pos >= childFrom && $from.pos <= childTo) {
+        foundFrom = runStart;
+        foundTo = childTo;
+      } else if (foundFrom === runStart && foundFrom !== -1) {
+        foundTo = childTo;
+      }
+    } else {
+      runStart = -1;
+    }
+    pos = childTo;
+  }
+  if (foundFrom === -1) {
+    return null;
+  }
+  return {
+    from: foundFrom,
+    to: foundTo,
+    href: (cursorMark.attrs as { href: string }).href,
+  };
+}
+
+/**
+ * Apply a link to an explicit range (captured when the link popover opened, so
+ * it survives the URL field stealing focus from the editor). A non-empty range
+ * is wrapped/retargeted; an empty range inserts the href as linked text.
+ */
+export function applyLink(from: number, to: number, href: string): Command {
+  return (state, dispatch) => {
+    const linkType = marks.link;
+    if (dispatch) {
+      const tr = state.tr;
+      if (to > from) {
+        tr.removeMark(from, to, linkType).addMark(
+          from,
+          to,
+          linkType.create({ href }),
+        );
+      } else {
+        tr.insertText(href, from);
+        tr.addMark(from, from + href.length, linkType.create({ href }));
+        tr.removeStoredMark(linkType);
+      }
+      dispatch(tr.scrollIntoView());
+    }
+    return true;
+  };
+}
+
+/**
+ * Indent (`delta > 0`) or outdent every paragraph/heading the selection touches
+ * by one level, clamped to [0, MAX_INDENT]. Works from any cursor position in a
+ * block (it ranges over the whole selection, not the cursor offset) and spans
+ * multi-block selections. Paragraphs inside list items are skipped — list
+ * nesting is Tab's job there, handled by the list keymap before this runs.
+ */
+function adjustIndent(delta: number): Command {
+  return (state, dispatch) => {
+    const { from, to } = state.selection;
+    const tr = state.tr;
+    state.doc.nodesBetween(from, to, (node, pos, parent) => {
+      if (parent?.type === nodes.listItem) {
+        return false;
+      }
+      if (node.type === nodes.paragraph || node.type === nodes.heading) {
+        const current = (node.attrs.indent as number | undefined) ?? 0;
+        const next = Math.min(MAX_INDENT, Math.max(0, current + delta));
+        if (next !== current) {
+          // setNodeMarkup preserves node size, so positions from the original
+          // doc stay valid for the remaining iterations.
+          tr.setNodeMarkup(pos, undefined, { ...node.attrs, indent: next });
+        }
+        return false;
+      }
+      return true;
+    });
+    if (tr.steps.length === 0) {
+      return false;
+    }
+    if (dispatch) {
+      dispatch(tr.scrollIntoView());
+    }
+    return true;
+  };
+}
+
+/** Indent the selected blocks one level (Tab, after list nesting). */
+export const indentBlocks: Command = adjustIndent(1);
+/** Outdent the selected blocks one level (Shift-Tab, after list nesting). */
+export const outdentBlocks: Command = adjustIndent(-1);
+
+/**
+ * Move the top-level block containing the selection up (`-1`) or down (`+1`) by
+ * swapping it with its sibling. `allowVerseEdit` lets the move re-insert blocks
+ * that contain verse markers past the verse guard.
+ */
+function moveBlock(dir: -1 | 1): Command {
+  return (state, dispatch) => {
+    const { $from } = state.selection;
+    if ($from.depth < 1) {
+      return false;
+    }
+    const index = $from.index(0);
+    const target = index + dir;
+    if (target < 0 || target >= state.doc.childCount) {
+      return false;
+    }
+    if (dispatch) {
+      const block = state.doc.child(index);
+      const sibling = state.doc.child(target);
+      const blockStart = $from.before(1);
+      const insertAt =
+        dir === -1
+          ? blockStart - sibling.nodeSize
+          : blockStart + sibling.nodeSize;
+      const tr = state.tr;
+      tr.delete(blockStart, blockStart + block.nodeSize);
+      tr.insert(insertAt, block);
+      tr.setMeta("allowVerseEdit", true);
+      tr.setSelection(TextSelection.near(tr.doc.resolve(insertAt + 1)));
+      dispatch(tr.scrollIntoView());
+    }
+    return true;
+  };
+}
+
+/**
+ * Insert a callout of `variant` at the cursor: replaces the current block if
+ * it's an empty paragraph (the slash-menu case), otherwise inserts after it.
+ * Drops the caret inside the new callout.
+ */
+export function insertCallout(variant: string): Command {
+  return (state, dispatch) => {
+    const callout = nodes.callout.createAndFill({ variant });
+    if (!callout) {
+      return false;
+    }
+    if (dispatch) {
+      const { $from } = state.selection;
+      const blockStart = $from.before(1);
+      const blockEnd = $from.after(1);
+      const block = $from.node(1);
+      const tr = state.tr;
+      let insertPos: number;
+      if (block.type === nodes.paragraph && block.content.size === 0) {
+        tr.replaceRangeWith(blockStart, blockEnd, callout);
+        insertPos = blockStart;
+      } else {
+        tr.insert(blockEnd, callout);
+        insertPos = blockEnd;
+      }
+      tr.setSelection(TextSelection.near(tr.doc.resolve(insertPos + 2)));
+      dispatch(tr.scrollIntoView());
+    }
+    return true;
+  };
+}
+
+/** Insert a collapsible section at the cursor (same placement rules as callouts). */
+export const insertCollapsible: Command = (state, dispatch) => {
+  const node = nodes.collapsible.createAndFill({ summary: "" });
+  if (!node) {
+    return false;
+  }
+  if (dispatch) {
+    const { $from } = state.selection;
+    const blockStart = $from.before(1);
+    const blockEnd = $from.after(1);
+    const block = $from.node(1);
+    const tr = state.tr;
+    let insertPos: number;
+    if (block.type === nodes.paragraph && block.content.size === 0) {
+      tr.replaceRangeWith(blockStart, blockEnd, node);
+      insertPos = blockStart;
+    } else {
+      tr.insert(blockEnd, node);
+      insertPos = blockEnd;
+    }
+    tr.setSelection(TextSelection.near(tr.doc.resolve(insertPos + 2)));
+    dispatch(tr.scrollIntoView());
+  }
+  return true;
+};
+
+/** Move the current top-level block up one position. */
+export const moveBlockUp: Command = moveBlock(-1);
+/** Move the current top-level block down one position. */
+export const moveBlockDown: Command = moveBlock(1);
+
+/**
+ * Delete the top-level block containing the selection. If it's the only block,
+ * replace it with an empty paragraph so the doc stays non-empty.
+ */
+export const deleteCurrentBlock: Command = (state, dispatch) => {
+  const { $from } = state.selection;
+  if ($from.depth < 1) {
+    return false;
+  }
+  if (dispatch) {
+    const blockStart = $from.before(1);
+    const block = $from.node(1);
+    const tr = state.tr;
+    if (state.doc.childCount <= 1) {
+      tr.replaceWith(
+        blockStart,
+        blockStart + block.nodeSize,
+        nodes.paragraph.create(),
+      );
+    } else {
+      tr.delete(blockStart, blockStart + block.nodeSize);
+    }
+    tr.setMeta("allowVerseEdit", true);
+    dispatch(tr.scrollIntoView());
+  }
+  return true;
+};
+
+/** Remove the link mark across an explicit range (captured at popover open). */
+export function clearLink(from: number, to: number): Command {
+  return (state, dispatch) => {
+    if (to <= from) {
+      return false;
+    }
+    if (dispatch) {
+      dispatch(state.tr.removeMark(from, to, marks.link).scrollIntoView());
+    }
+    return true;
+  };
+}
 
 /**
  * The single colour the whole selection shares for a colour mark (`highlight`/
@@ -186,6 +475,7 @@ const clearableMarks: MarkType[] = [
   marks.strong,
   marks.em,
   marks.strikethrough,
+  marks.underline,
   marks.code,
 ];
 

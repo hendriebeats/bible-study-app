@@ -23,6 +23,7 @@ import {
   toggleItalic,
   toggleStrike,
 } from "@/lib/editor/commands";
+import { type EditorTools } from "@/lib/editor/editor-tools";
 import {
   type FormatAction,
   type FormatRecents,
@@ -75,6 +76,8 @@ interface EditorContextValue {
   ) => Promise<ScriptureInsertResult>;
   /** The user's remembered scripture-insertion defaults. */
   scriptureOptions: ScriptureOptions;
+  /** The user's enabled opt-in editor tools (gates toolbar / slash-menu items). */
+  editorTools: EditorTools;
   /** The section title when it's itself a valid reference, else "" (for prefill). */
   prefillReference: string;
   /** Recently-used formatting actions (most-recent first) for the bubble's quick action. */
@@ -100,12 +103,14 @@ export function EditorProvider({
   sectionTitle,
   initialScriptureOptions,
   initialFormatRecents,
+  initialEditorTools,
   children,
 }: {
   sectionId: string;
   sectionTitle: string;
   initialScriptureOptions: ScriptureOptions;
   initialFormatRecents: FormatRecents;
+  initialEditorTools: EditorTools;
   children: ReactNode;
 }) {
   const [activeView, setActiveView] = useState<EditorView | null>(null);
@@ -253,6 +258,7 @@ export function EditorProvider({
       runCommand,
       insertScripture,
       scriptureOptions: initialScriptureOptions,
+      editorTools: initialEditorTools,
       prefillReference,
       formatRecents,
       runFormatAction,
@@ -266,6 +272,7 @@ export function EditorProvider({
       runCommand,
       insertScripture,
       initialScriptureOptions,
+      initialEditorTools,
       prefillReference,
       formatRecents,
       runFormatAction,

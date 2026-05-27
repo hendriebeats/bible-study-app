@@ -75,7 +75,7 @@ function MinePanel(): React.ReactElement {
         {myTitle} <span className="text-muted-foreground">· You</span>
       </h2>
       <div className="min-h-0 flex-1">
-        <DocumentViewer document={myDoc} me={me} label="Notes" />
+        <DocumentViewer document={myDoc} me={me} label="Study Body" />
       </div>
     </div>
   );

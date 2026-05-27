@@ -30,16 +30,22 @@ export interface FormatColor {
 export const HIGHLIGHT_COLORS: readonly FormatColor[] = [
   { name: "Yellow", value: "oklch(0.93 0.10 95)" },
   { name: "Peach", value: "oklch(0.90 0.07 55)" },
-  { name: "Green", value: "oklch(0.90 0.07 145)" },
-  { name: "Blue", value: "oklch(0.90 0.06 235)" },
+  { name: "Coral", value: "oklch(0.90 0.07 30)" },
   { name: "Pink", value: "oklch(0.90 0.07 5)" },
   { name: "Lavender", value: "oklch(0.90 0.06 305)" },
+  { name: "Periwinkle", value: "oklch(0.90 0.06 270)" },
+  { name: "Blue", value: "oklch(0.90 0.06 235)" },
+  { name: "Teal", value: "oklch(0.91 0.06 185)" },
+  { name: "Green", value: "oklch(0.90 0.07 145)" },
 ] as const;
 
 /** Foreground text colours (mid/low lightness, on the cream background). */
 export const TEXT_COLORS: readonly FormatColor[] = [
   { name: "Terracotta", value: "oklch(0.56 0.13 47)" },
+  { name: "Crimson", value: "oklch(0.50 0.15 20)" },
+  { name: "Gold", value: "oklch(0.55 0.10 85)" },
   { name: "Forest", value: "oklch(0.50 0.09 145)" },
+  { name: "Teal", value: "oklch(0.50 0.08 185)" },
   { name: "Ocean", value: "oklch(0.50 0.09 235)" },
   { name: "Plum", value: "oklch(0.45 0.10 305)" },
   { name: "Clay", value: "oklch(0.45 0.05 40)" },

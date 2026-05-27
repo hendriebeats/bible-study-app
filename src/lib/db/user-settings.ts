@@ -1,4 +1,9 @@
 import {
+  DEFAULT_EDITOR_TOOLS,
+  type EditorTools,
+  normalizeEditorTools,
+} from "@/lib/editor/editor-tools";
+import {
   DEFAULT_FORMAT_RECENTS,
   type FormatRecents,
   normalizeFormatRecents,
@@ -56,4 +61,25 @@ export async function getFormatRecents(): Promise<FormatRecents> {
   return normalizeFormatRecents(
     data?.format_recents as { actions?: unknown } | null,
   );
+}
+
+/**
+ * The current user's opt-in editor tools. Falls back to
+ * {@link DEFAULT_EDITOR_TOOLS} (all off) when unauthenticated, missing, or the
+ * stored jsonb is an older/partial shape.
+ */
+export async function getEditorTools(): Promise<EditorTools> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return DEFAULT_EDITOR_TOOLS;
+  }
+  const { data } = await supabase
+    .from("user_settings")
+    .select("editor_tools")
+    .eq("user_id", user.id)
+    .maybeSingle();
+  return normalizeEditorTools(data?.editor_tools);
 }

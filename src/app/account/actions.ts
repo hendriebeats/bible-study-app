@@ -4,6 +4,10 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import {
+  type EditorTools,
+  normalizeEditorTools,
+} from "@/lib/editor/editor-tools";
+import {
   type FormatRecents,
   normalizeFormatRecents,
 } from "@/lib/editor/format-actions";
@@ -194,6 +198,27 @@ export async function saveFormatRecents(
     .from("user_settings")
     .upsert(
       { user_id: userId, format_recents: clean as unknown as Json },
+      { onConflict: "user_id" },
+    );
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+  return { ok: true };
+}
+
+/**
+ * Persist the user's opt-in editor tools. Normalizes first (trust boundary:
+ * only known keys + booleans survive) before upserting their settings row.
+ */
+export async function saveEditorTools(
+  tools: EditorTools,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { supabase, userId } = await requireUser();
+  const clean = normalizeEditorTools(tools);
+  const { error } = await supabase
+    .from("user_settings")
+    .upsert(
+      { user_id: userId, editor_tools: clean as unknown as Json },
       { onConflict: "user_id" },
     );
   if (error) {

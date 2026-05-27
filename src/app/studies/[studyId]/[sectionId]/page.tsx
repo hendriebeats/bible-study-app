@@ -4,7 +4,11 @@ import { SectionSurface } from "@/components/studies/section-surface";
 import { listCompareTargets } from "@/lib/db/compare";
 import { getDocumentHistory } from "@/lib/db/history";
 import { getSection, getSectionDocuments } from "@/lib/db/studies";
-import { getFormatRecents, getScriptureOptions } from "@/lib/db/user-settings";
+import {
+  getEditorTools,
+  getFormatRecents,
+  getScriptureOptions,
+} from "@/lib/db/user-settings";
 import { createClient } from "@/lib/supabase/server";
 
 export default async function SectionPage({
@@ -78,9 +82,10 @@ export default async function SectionPage({
 
   // The user's remembered scripture-insertion defaults (seed the insert panel)
   // and recently-used formatting (seed the selection bubble's quick action).
-  const [scriptureOptions, formatRecents] = await Promise.all([
+  const [scriptureOptions, formatRecents, editorTools] = await Promise.all([
     getScriptureOptions(),
     getFormatRecents(),
+    getEditorTools(),
   ]);
 
   return (
@@ -97,6 +102,7 @@ export default async function SectionPage({
       me={me}
       scriptureOptions={scriptureOptions}
       formatRecents={formatRecents}
+      editorTools={editorTools}
     />
   );
 }

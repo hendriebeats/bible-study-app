@@ -51,10 +51,13 @@ export function DocumentViewer({
   document: doc,
   me,
   label,
+  hideLabel = false,
 }: {
   document: StudyDocument;
   me: { id: string; name: string } | null;
   label: string;
+  /** Keep the label for screen readers but hide it visually. */
+  hideLabel?: boolean;
 }) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -171,7 +174,15 @@ export function DocumentViewer({
   return (
     <div>
       <div className="mb-2 flex items-center gap-2">
-        <h2 className="text-sm font-semibold text-muted-foreground">{label}</h2>
+        <h2
+          className={
+            hideLabel
+              ? "sr-only"
+              : "text-sm font-semibold text-muted-foreground"
+          }
+        >
+          {label}
+        </h2>
         <div className="ml-auto flex shrink-0 items-center gap-2">
           <PresenceAvatars
             members={members.filter((member) => member.userId !== me?.id)}

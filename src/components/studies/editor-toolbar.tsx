@@ -12,6 +12,7 @@ import {
   Quote,
   Redo,
   Strikethrough,
+  Underline,
   Undo,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -20,7 +21,9 @@ import { useState } from "react";
 
 import { ColorControl } from "@/components/studies/color-control";
 import { useEditorContext } from "@/components/studies/editor-context";
+import { LinkControl } from "@/components/studies/link-control";
 import { ScriptureInsertPanel } from "@/components/studies/scripture-insert-panel";
+import { ShortcutCheatsheet } from "@/components/studies/shortcut-cheatsheet";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -34,6 +37,7 @@ import {
   toggleItalic,
   toggleOrderedList,
   toggleStrike,
+  toggleUnderline,
 } from "@/lib/editor/commands";
 import { verseRedo, verseUndo } from "@/lib/editor/plugins/verse-guard";
 import { marks, nodes } from "@/lib/editor/schema";
@@ -83,6 +87,12 @@ export function EditorToolbar({
             label: "Italic",
             command: toggleItalic,
             active: isMarkActive(activeState, marks.em),
+          },
+          {
+            icon: Underline,
+            label: "Underline",
+            command: toggleUnderline,
+            active: isMarkActive(activeState, marks.underline),
           },
           {
             icon: Strikethrough,
@@ -178,6 +188,7 @@ export function EditorToolbar({
           </div>
         ))}
         <Separator orientation="vertical" className="mx-1 h-6" />
+        <LinkControl size="icon" />
         <ColorControl kind="highlight" size="icon" />
         <ColorControl kind="text" size="icon" />
         <Separator orientation="vertical" className="mx-1 h-6" />
@@ -195,6 +206,8 @@ export function EditorToolbar({
           <BookOpen className="size-4" />
           Scripture
         </Button>
+        <Separator orientation="vertical" className="mx-1 h-6" />
+        <ShortcutCheatsheet />
       </div>
       {scriptureOpen ? (
         <ScriptureInsertPanel

@@ -7,11 +7,14 @@ import { renameSection } from "@/app/studies/actions";
 import { DocumentEditor } from "@/components/studies/document-editor";
 import { DocumentViewer } from "@/components/studies/document-viewer";
 import { EditorProvider } from "@/components/studies/editor-context";
+import { BlockMenu } from "@/components/studies/block-menu";
 import { SelectionBubble } from "@/components/studies/selection-bubble";
+import { SlashMenu } from "@/components/studies/slash-menu";
 import { useStudyChrome } from "@/components/studies/study-chrome-context";
 import { StudyToolbarPortal } from "@/components/studies/study-toolbar-portal";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
+import type { EditorTools } from "@/lib/editor/editor-tools";
 import type { FormatRecents } from "@/lib/editor/format-actions";
 import type {
   DocumentHistory,
@@ -40,6 +43,7 @@ export function SectionSurface({
   me,
   scriptureOptions,
   formatRecents,
+  editorTools,
 }: {
   section: Section;
   documents: SectionDocuments;
@@ -51,6 +55,7 @@ export function SectionSurface({
   me: { id: string; name: string } | null;
   scriptureOptions: ScriptureOptions;
   formatRecents: FormatRecents;
+  editorTools: EditorTools;
 }) {
   const [title, setTitle] = useState(section.title);
   const chrome = useStudyChrome();
@@ -96,12 +101,17 @@ export function SectionSurface({
       sectionTitle={section.title}
       initialScriptureOptions={scriptureOptions}
       initialFormatRecents={formatRecents}
+      initialEditorTools={editorTools}
     >
       {chrome?.titleSlot ? createPortal(titleControl, chrome.titleSlot) : null}
       {isOwner ? <StudyToolbarPortal /> : null}
 
       {/* Minimal floating menu over a text selection (portals to body). */}
       {isOwner ? <SelectionBubble /> : null}
+      {/* "/" command menu at the caret (portals to body). */}
+      {isOwner ? <SlashMenu /> : null}
+      {/* Block options menu opened by the gutter handle (portals to body). */}
+      {isOwner ? <BlockMenu /> : null}
 
       <div className="flex flex-col gap-4 px-6 py-5">
         {isOwner && notesHistory ? (
@@ -109,11 +119,17 @@ export function SectionSurface({
             document={documents.notes}
             history={notesHistory}
             me={me}
-            label="Notes"
-            placeholder="Start writing your study notes…"
+            label="Study Body"
+            hideLabel
+            placeholder="Write your study…"
           />
         ) : (
-          <DocumentViewer document={documents.notes} me={me} label="Notes" />
+          <DocumentViewer
+            document={documents.notes}
+            me={me}
+            label="Study Body"
+            hideLabel
+          />
         )}
 
         <Separator />
@@ -124,6 +140,7 @@ export function SectionSurface({
             history={blocksHistory}
             me={me}
             label="Study blocks"
+            hideLabel
             placeholder="Work through your study here…"
             studyId={section.study_id}
             hasPreviousSection={hasPreviousSection}
@@ -133,6 +150,7 @@ export function SectionSurface({
             document={documents.blocks}
             me={me}
             label="Study blocks"
+            hideLabel
           />
         )}
       </div>
