@@ -65,35 +65,39 @@ export function buildInputRules(tools: EditorTools): Plugin {
     rules.push(autoLink);
   }
 
-  // Lists.
+  // Lists (flat schema — every list shortcut turns the cursor's textblock
+  // into a `list_row` with the appropriate listType attribute).
   rules.push(
     makeRule(/^\s*([-+*])\s$/, () => ({
-      kind: "list",
-      listType: nodes.bulletList,
-      itemType: nodes.listItem,
+      kind: "list_row",
+      listType: "bullet",
     })),
   );
   rules.push(
-    makeRule(/^(\d+)\.\s$/, () => ({
-      kind: "list",
-      listType: nodes.orderedList,
-      itemType: nodes.listItem,
-    })),
+    makeRule(/^(\d+)\.\s$/, (match) => {
+      const startNum = Number.parseInt(match[1] ?? "1", 10);
+      return {
+        kind: "list_row",
+        listType: "ordered",
+        // listStart === null means "continue the previous run's implicit
+        // numbering" — typing `1. ` is the common case and acts as a
+        // continuation; typing `5. ` explicitly restarts the run at 5.
+        attrs: { listStart: startNum === 1 ? null : startNum },
+      };
+    }),
   );
   rules.push(
     makeRule(/^\s*\[ ?\]\s$/, () => ({
-      kind: "list",
-      listType: nodes.taskList,
-      itemType: nodes.taskItem,
-      itemAttrs: { checked: false },
+      kind: "list_row",
+      listType: "task",
+      attrs: { checked: false },
     })),
   );
   rules.push(
     makeRule(/^\s*\[[xX]\]\s$/, () => ({
-      kind: "list",
-      listType: nodes.taskList,
-      itemType: nodes.taskItem,
-      itemAttrs: { checked: true },
+      kind: "list_row",
+      listType: "task",
+      attrs: { checked: true },
     })),
   );
 

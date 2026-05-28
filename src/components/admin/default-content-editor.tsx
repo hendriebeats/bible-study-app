@@ -16,7 +16,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { buildNodeViews } from "@/lib/editor/node-views";
 import {
-  isAncestorActive,
+  isListRowActive,
   isMarkActive,
   toggleBold,
   toggleBulletList,
@@ -34,7 +34,7 @@ import { placeholder as placeholderPlugin } from "@/lib/editor/plugins/placehold
 import { slashMenu } from "@/lib/editor/plugins/slash-menu";
 import { verseGuard } from "@/lib/editor/plugins/verse-guard";
 import { verseLabel } from "@/lib/editor/plugins/verse-label";
-import { marks, nodes } from "@/lib/editor/schema";
+import { marks } from "@/lib/editor/schema";
 import { docToJSON, jsonToDoc } from "@/lib/editor/serialize";
 import type { PMNodeJSON } from "@/lib/editor/types";
 import { cn } from "@/lib/utils";
@@ -236,13 +236,13 @@ export function DefaultContentEditor({
             icon: List,
             label: "Bullet list",
             command: toggleBulletList,
-            active: isAncestorActive(editorState, nodes.bulletList),
+            active: isListRowActive(editorState, "bullet"),
           },
           {
             icon: ListOrdered,
             label: "Numbered list",
             command: toggleOrderedList,
-            active: isAncestorActive(editorState, nodes.orderedList),
+            active: isListRowActive(editorState, "ordered"),
           },
         ];
 

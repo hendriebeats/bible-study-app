@@ -218,9 +218,10 @@ export const verseDelete: Command = chainCommands(
  * Enter that keeps a verse marker attached to its verse. When the caret sits
  * immediately to a marker's right (its `nodeBefore` is a verse_number), split
  * *before* the marker so it travels down into the new block with the verse text
- * — instead of being stranded on the old line. Splits one level deep normally,
- * two when inside a list item (so a new bullet is created, mirroring
- * `splitListItem`). Returns false otherwise so the default Enter handlers run.
+ * — instead of being stranded on the old line. Splits one level deep — the
+ * flat-schema rewrite (Phase 2) made `list_row` a plain textblock, so there's
+ * no longer a wrapping list-item ancestor that needs splitting through.
+ * Returns false otherwise so the default Enter handlers run.
  */
 export const stickyVerseEnter: Command = (state, dispatch) => {
   const sel = state.selection;
@@ -233,8 +234,7 @@ export const stickyVerseEnter: Command = (state, dispatch) => {
     return false;
   }
   const splitPos = $cursor.pos - marker.nodeSize;
-  const parentType = $cursor.node($cursor.depth - 1).type;
-  const depth = parentType === nodes.listItem ? 2 : 1;
+  const depth = 1;
   if (!canSplit(state.doc, splitPos, depth)) {
     return false; // let the default Enter handle it
   }

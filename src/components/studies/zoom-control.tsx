@@ -50,7 +50,7 @@ export function ZoomControl() {
             <Button
               type="button"
               size="sm"
-              variant="ghost"
+              variant="outline"
               aria-label={`Zoom (currently ${formatZoom(editorZoom)})`}
               // Keep the editor focused/selection intact when opening the menu.
               onMouseDown={(event) => {

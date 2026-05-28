@@ -11,7 +11,7 @@ import {
   type IDockviewPanelProps,
   themeLight,
 } from "dockview";
-import { Check, PanelLeft, Plus, RotateCcw } from "lucide-react";
+import { PanelLeft } from "lucide-react";
 import {
   createContext,
   type FunctionComponent,
@@ -68,15 +68,15 @@ import {
   type ActiveSectionPayload,
   useStudyWorkspace,
 } from "@/components/studies/study-workspace-context";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
+
+/** Plain-text fallback for an unnamed section. Used in dropdown options, the
+ * dock tab title, and the DocumentViewer label — contexts where we can't ship
+ * the italic/muted treatment the sidebar uses. */
+function sectionDisplayTitle(title: string): string {
+  return title.trim() === "" ? "New Section" : title;
+}
 import type { CompareTarget } from "@/lib/db/compare";
 import type { SavedWorkspace } from "@/lib/db/workspace";
 import type { StudyDocument } from "@/lib/db/types";
@@ -303,7 +303,11 @@ function MineSectionBody({
   const titleRef = useRef<HTMLInputElement>(null);
 
   function handleTitleBlur() {
-    const next = title.trim() || "Untitled section";
+    // Allow blank: a cleared title persists as "" and the sidebar / tab fall
+    // back to "New Section" as a visual label. (Previously this forced an
+    // "Untitled section" string into the DB, which prevented the placeholder
+    // UX from ever appearing.)
+    const next = title.trim();
     if (next !== section.title) {
       void renameSection(section.id, section.study_id, next);
     }
@@ -364,11 +368,16 @@ function MineSectionBody({
             }}
             onBlur={handleTitleBlur}
             aria-label="Section title"
-            className="h-9 w-full min-w-0 border-0 bg-transparent px-0 text-xl font-semibold shadow-none focus-visible:ring-0"
+            placeholder="Enter section title…"
+            className="h-9 w-full min-w-0 border-0 bg-transparent px-0 text-xl font-semibold shadow-none placeholder:font-normal placeholder:text-muted-foreground/60 focus-visible:ring-0"
           />
         ) : (
           <span className="block truncate text-xl font-semibold">
-            {section.title}
+            {section.title || (
+              <span className="text-muted-foreground/70 italic">
+                New Section
+              </span>
+            )}
           </span>
         )}
 
@@ -558,7 +567,7 @@ function PersonPanel({
             >
               {pane.candidates.map((c) => (
                 <option key={c.sectionId} value={c.sectionId}>
-                  {c.title}
+                  {sectionDisplayTitle(c.title)}
                   {c.lineageMatch ? " · same slot" : ""}
                   {c.overlap > 0
                     ? ` · ${Math.round(c.overlap * 100).toString()}% overlap`
@@ -578,7 +587,7 @@ function PersonPanel({
             >
               {byPosition.map((c) => (
                 <option key={c.sectionId} value={c.sectionId}>
-                  {c.title}
+                  {sectionDisplayTitle(c.title)}
                 </option>
               ))}
             </select>
@@ -602,7 +611,7 @@ function PersonPanel({
             key={pane.notes.id}
             document={pane.notes}
             me={me}
-            label={pane.title}
+            label={sectionDisplayTitle(pane.title)}
           />
           <Separator />
           <DocumentViewer
@@ -665,7 +674,6 @@ export function StudyDockview({
   const chrome = useStudyChrome();
   const apiRef = useRef<DockviewApi | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [openIds, setOpenIds] = useState<Set<string>>(new Set());
   const [panelCount, setPanelCount] = useState(0);
   const [ready, setReady] = useState(false);
   // Whether the study-blocks doc is in its own dockview panel (true) vs.
@@ -673,10 +681,11 @@ export function StudyDockview({
   // this with any restored layout so the placeholder isn't stale.
   const [blocksDetached, setBlocksDetached] = useState(false);
 
-  // `registerOpenPerson` is stable (useCallback in the provider); depend on it,
-  // not the whole workspace value (which changes identity every section nav and
-  // would otherwise unregister the opener on every navigation).
-  const { active, registerOpenPerson } = workspace;
+  // `registerDockHandlers` and `publishOpenMemberIds` are stable (useCallback
+  // in the provider); depend on them, not the whole workspace value (which
+  // changes identity every section nav and would otherwise unregister the
+  // handlers on every navigation).
+  const { active, registerDockHandlers, publishOpenMemberIds } = workspace;
   // Prefer the live title the "mine" panel publishes as you type, so the tab
   // tracks a rename in real time; fall back to the server-rendered title.
   const activeTitle = active
@@ -687,8 +696,12 @@ export function StudyDockview({
       return;
     }
     const panel = apiRef.current?.getPanel("mine");
+    // Blank titles fall back to "New Section" so the tab reads as a real label
+    // rather than ` · You` with a leading separator. Mirrors the sidebar.
     panel?.api.setTitle(
-      activeTitle != null ? `${activeTitle} · You` : "My study",
+      activeTitle != null
+        ? `${sectionDisplayTitle(activeTitle)} · You`
+        : "My study",
     );
   }, [ready, activeTitle]);
 
@@ -734,8 +747,11 @@ export function StudyDockview({
         ids.add(params.targetStudyId);
       }
     }
-    setOpenIds(ids);
     setPanelCount(api.panels.length);
+    // Push the set up to the workspace so the toolbar "Group" dropdown's
+    // checkbox-style member rows stay in sync (open/close from the tab × is
+    // mirrored here too).
+    publishOpenMemberIds(ids);
   }
 
   function addPerson(target: CompareTarget) {
@@ -756,6 +772,10 @@ export function StudyDockview({
     if (target) {
       addPerson(target);
     }
+  }
+
+  function closePersonById(personStudyId: string) {
+    apiRef.current?.getPanel(personPanelId(personStudyId))?.api.close();
   }
 
   function handleReady(event: DockviewReadyEvent) {
@@ -805,9 +825,14 @@ export function StudyDockview({
       }, 800);
     });
 
-    // Expose the panel-opener so the toolbar group menu / a `?focus=` deep link
-    // can open a member; flushes any focus request queued before this point.
-    registerOpenPerson(openPersonById);
+    // Expose the panel handlers so the toolbar Group dropdown can open/close
+    // members and the "Hide all members" footer can clear the layout. A
+    // `?focus=` deep link queued before this point fires now via `open`.
+    registerDockHandlers({
+      open: openPersonById,
+      close: closePersonById,
+      reset: resetLayout,
+    });
     setReady(true);
   }
 
@@ -816,9 +841,9 @@ export function StudyDockview({
       if (saveTimer.current) {
         clearTimeout(saveTimer.current);
       }
-      registerOpenPerson(null);
+      registerDockHandlers(null);
     };
-  }, [registerOpenPerson]);
+  }, [registerDockHandlers]);
 
   // Reconcile the dockview panel state with the React `blocksDetached` flag.
   // The flag is the source of truth; this effect adds the panel when it goes
@@ -865,49 +890,6 @@ export function StudyDockview({
         data-study-dock=""
         data-single-panel={singlePanel || undefined}
       >
-        {!singlePanel && targets.length > 0 ? (
-          <div className="flex shrink-0 flex-wrap items-center gap-2 px-2 pt-2">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs text-foreground hover:bg-muted"
-                >
-                  <Plus className="size-3.5" />
-                  Add member
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-56">
-                <DropdownMenuLabel>Studies to compare</DropdownMenuLabel>
-                {targets.map((t) => {
-                  const open = openIds.has(t.studyId);
-                  return (
-                    <DropdownMenuItem
-                      key={t.studyId}
-                      className="justify-between"
-                      onSelect={() => {
-                        addPerson(t);
-                      }}
-                    >
-                      <span className="truncate">{t.name}</span>
-                      {open ? (
-                        <Check className="size-4 text-muted-foreground" />
-                      ) : null}
-                    </DropdownMenuItem>
-                  );
-                })}
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <button
-              type="button"
-              onClick={resetLayout}
-              className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
-            >
-              <RotateCcw className="size-3.5" />
-              Reset layout
-            </button>
-          </div>
-        ) : null}
         <div className="min-h-0 flex-1">
           <DockviewReact
             components={PANEL_COMPONENTS}

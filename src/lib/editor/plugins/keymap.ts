@@ -5,7 +5,6 @@ import {
   toggleMark,
 } from "prosemirror-commands";
 import { keymap } from "prosemirror-keymap";
-import { splitListItem } from "prosemirror-schema-list";
 import type { Command, Plugin } from "prosemirror-state";
 import { goToNextCell } from "prosemirror-tables";
 
@@ -13,6 +12,7 @@ import { indentSelected, outdentSelected } from "../commands";
 import type { EditorTools } from "../editor-tools";
 import { marks, nodes } from "../schema";
 import { collapsibleBackspace, collapsibleEnter } from "./collapsible-keys";
+import { listRowEnter } from "./list-row-keys";
 import { smartBackspace } from "./smart-backspace";
 import {
   stickyVerseEnter,
@@ -63,22 +63,15 @@ export function buildKeymaps(tools: EditorTools): Plugin[] {
     "Mod-Enter": insertHardBreak,
     // Keep a verse marker attached to its verse on Enter, then handle the
     // closed-collapsible "Enter on header → new sibling" special-case, then
-    // fall through to the list-item split (and `baseKeymap`'s paragraph
-    // split) as before. `collapsibleEnter` yields when the toggle is open so
-    // Enter inside an open toggle just adds a body paragraph.
-    Enter: chainCommands(
-      stickyVerseEnter,
-      collapsibleEnter,
-      splitListItem(nodes.listItem),
-      splitListItem(nodes.taskItem),
-    ),
+    // hand off to the list_row split (empty row → exit to paragraph;
+    // non-empty → fresh sibling row with inherited listType/indent), and
+    // fall through to `baseKeymap`'s paragraph split otherwise.
+    Enter: chainCommands(stickyVerseEnter, collapsibleEnter, listRowEnter),
     // Inside a table, Tab/Shift-Tab move between cells. Otherwise,
-    // `indentSelected`/`outdentSelected` owns the hybrid behaviour: it
-    // structurally sinks/lifts list items when ProseMirror allows, falls back
-    // to bumping the item's `indent` attribute for first items and other cases
-    // sink/lift refuses, and edits the paragraph/heading indent attribute when
-    // not in a list. `goToNextCell` no-ops outside a table so it falls through
-    // cleanly.
+    // `indentSelected`/`outdentSelected` edits the cursor's textblock's
+    // `indent` attribute (flat-schema model: list_row, paragraph, heading,
+    // code_block all carry indent). `goToNextCell` no-ops outside a table so
+    // it falls through cleanly.
     Tab: chainCommands(goToNextCell(1), indentSelected, consumeKey),
     "Shift-Tab": chainCommands(goToNextCell(-1), outdentSelected, consumeKey),
     // Backspace chain, highest precedence first:

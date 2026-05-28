@@ -268,6 +268,107 @@
   .ProseMirror .task-item[data-checked="true"] > .task-item-content {
     @apply text-muted-foreground line-through;
   }
+  /*
+    Flat-schema list rows. A single `list_row` node carries `listType` /
+    `indent` / `checked` / `listStart`; the NodeView (`ListRowView`) builds a
+    `<div data-list-row>` with the editable inline content in
+    `.list-row-content`. Markers are rendered here by CSS:
+      * bullet   — `::before { content: "•" }` (literal).
+      * ordered  — `::before { content: counter(list-counter) "." }`, with the
+                   counter incremented on each ordered row and reset to 0 by
+                   every non-ordered sibling, so a "run" of contiguous ordered
+                   rows numbers itself with zero JS coordination.
+      * task     — `::before` is suppressed; the NodeView renders an
+                   interactive `<input type="checkbox">` instead.
+    The list-counter scope is declared on the editor root so the same counter
+    flows across nested editable regions (study_block bodies, callout bodies,
+    etc.) — which is what users expect when a `>>` quote sits between two
+    `1. ` rows.
+  */
+  .ProseMirror {
+    counter-reset: list-counter 0;
+  }
+  .ProseMirror .list-row {
+    @apply my-1 flex items-start gap-2;
+    /* Guarantee the row + its content span are always tall enough for a
+       blinking caret on an empty row (an empty inline `<span>` has no
+       intrinsic height; without this an empty bullet would render with no
+       visible cursor position next to the marker). */
+    min-height: 1.5em;
+  }
+  .ProseMirror .list-row-content:empty {
+    min-height: 1.5em;
+  }
+  /*
+    Visual run grouping (Phase 3). Contiguous list_row siblings — regardless
+    of listType or indent — collapse their top/bottom margins so a sequence
+    reads as one continuous "list" rather than as N separately-spaced lines.
+    A switch from a list_row to any non-list_row block (paragraph, heading,
+    blockquote, callout, …) restores the standard `my-1` margin and ends
+    the run. This mirrors what users see in Notion and Google Docs and is
+    what the markdown-shortcut conversion implicitly assumed.
+  */
+  .ProseMirror .list-row + .list-row {
+    margin-top: 0;
+  }
+  .ProseMirror .list-row:has(+ .list-row) {
+    margin-bottom: 0;
+  }
+  .ProseMirror .list-row::before {
+    @apply shrink-0 text-muted-foreground select-none;
+    min-width: 1.25rem;
+    text-align: right;
+    line-height: inherit;
+  }
+  .ProseMirror .list-row-content {
+    @apply min-w-0 flex-1;
+  }
+  /* Marker content per listType. Task rows leave `::before` content unset so
+     the pseudo-element generates nothing — the checkbox lives in the DOM. */
+  .ProseMirror .list-row[data-list-type="bullet"]::before {
+    content: "•";
+  }
+  .ProseMirror .list-row[data-list-type="ordered"] {
+    counter-increment: list-counter 1;
+  }
+  .ProseMirror .list-row[data-list-type="ordered"]::before {
+    content: counter(list-counter) ".";
+  }
+  /* Explicit `listStart` resets the counter so the next increment lands on
+     the requested number (the NodeView writes `--list-start` from the attr). */
+  .ProseMirror .list-row[data-list-type="ordered"][data-list-start] {
+    counter-reset: list-counter calc(var(--list-start, 1) - 1);
+  }
+  /* Any non-ordered row (and any non-list-row block) restarts the counter so
+     interrupting a 1./2./3. run with a paragraph or a bullet re-numbers the
+     next ordered group from 1. */
+  .ProseMirror .list-row:not([data-list-type="ordered"]),
+  .ProseMirror > *:not(.list-row),
+  .ProseMirror .study-block-body > *:not(.list-row),
+  .ProseMirror .callout-body > *:not(.list-row),
+  .ProseMirror .collapsible-content > *:not(.list-row),
+  .ProseMirror blockquote > *:not(.list-row) {
+    counter-reset: list-counter 0;
+  }
+  /* Task checkbox + checked-strike styling. */
+  .ProseMirror .list-row-checkbox {
+    @apply mt-1 size-4 shrink-0;
+    accent-color: var(--primary);
+  }
+  .ProseMirror .list-row[data-checked="true"] > .list-row-content {
+    @apply text-muted-foreground line-through;
+  }
+  /*
+    Selection-shadow highlight. The browser's native contentEditable surface
+    visually clears the text selection the moment the editor loses focus, but
+    ProseMirror keeps the selection in state. The `selectionShadowPlugin`
+    paints this class on the selected range while the view is blurred so the
+    user can see what their next toolbar action will affect. Color matches
+    the theme's standard highlight (a faded primary).
+  */
+  .ProseMirror .pm-blur-selection {
+    background-color: color-mix(in oklch, var(--primary) 18%, transparent);
+  }
   .ProseMirror blockquote {
     @apply border-l-4 border-primary pl-4 font-serif text-muted-foreground italic;
   }
@@ -560,6 +661,26 @@
   }
   .reorder-dragging {
     cursor: grabbing;
+  }
+  /* Phase 4c hierarchical block drag. The source range is ghosted with a
+     transparent overlay (lets clicks fall through to the editor for the
+     drop calc); the drop indicator is a horizontal blue line whose
+     `margin-inline-start` is set inline by the NodeView per the chosen
+     indent step, so it snaps left/right as the cursor moves horizontally. */
+  .ProseMirror .pm-drag-source {
+    opacity: 0.4;
+    pointer-events: none;
+  }
+  .ProseMirror .pm-drop-indicator {
+    height: 2px;
+    border-radius: 1px;
+    background-color: var(--primary);
+    margin-block: 2px;
+    pointer-events: none;
+  }
+  body.pm-dragging {
+    cursor: grabbing;
+    user-select: none;
   }
   .ProseMirror code {
     @apply rounded bg-muted px-1 py-0.5 font-mono text-sm;

@@ -1,4 +1,4 @@
-import { undoDepth } from "prosemirror-history";
+import { redoDepth, undoDepth } from "prosemirror-history";
 import { keymap } from "prosemirror-keymap";
 import type { Command, EditorState, Plugin } from "prosemirror-state";
 import type { EditorView } from "prosemirror-view";
@@ -8,6 +8,11 @@ import { verseRedo, verseUndo } from "./plugins/verse-guard";
 /** Number of undoable groups in a state (prosemirror-history types this `any`). */
 function depthOf(state: EditorState): number {
   return undoDepth(state) as number;
+}
+
+/** Number of redoable groups in a state (prosemirror-history types this `any`). */
+function redoDepthOf(state: EditorState): number {
+  return redoDepth(state) as number;
 }
 
 /**
@@ -140,3 +145,17 @@ export const sectionUndoCommand: Command = (state, dispatch, view) =>
 /** Toolbar Redo: section-wide first, else per-editor redo of the active view. */
 export const sectionRedoCommand: Command = (state, dispatch, view) =>
   sectionRedo() || verseRedo(state, dispatch, view);
+
+/**
+ * Pure "can this toolbar button run?" probe for Undo. The toolbar uses this to
+ * gray the button out when there's nothing to undo. Mirrors `sectionUndoCommand`'s
+ * fallback chain: section-wide stack first, then the active view's local history.
+ */
+export function canSectionUndo(state: EditorState): boolean {
+  return undoStack.length > 0 || depthOf(state) > 0;
+}
+
+/** Pure "can this toolbar button run?" probe for Redo. */
+export function canSectionRedo(state: EditorState): boolean {
+  return redoStack.length > 0 || redoDepthOf(state) > 0;
+}

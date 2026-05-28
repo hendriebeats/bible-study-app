@@ -152,7 +152,7 @@ export function StudyChrome({
           ref={setToolbarSlot}
           className={cn(
             "shrink-0 border-b border-border/60 bg-background",
-            isOwner ? "min-h-12" : "empty:hidden",
+            isOwner ? "min-h-9" : "empty:hidden",
           )}
         />
 

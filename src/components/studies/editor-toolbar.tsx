@@ -57,6 +57,7 @@ import {
   insertTable,
   isAncestorActive,
   isBlockActive,
+  isListRowActive,
   isMarkActive,
   toggleBlockquote,
   toggleBold,
@@ -70,6 +71,8 @@ import {
 } from "@/lib/editor/commands";
 import type { EditorToolKey, EditorTools } from "@/lib/editor/editor-tools";
 import {
+  canSectionRedo,
+  canSectionUndo,
   sectionRedoCommand,
   sectionUndoCommand,
 } from "@/lib/editor/section-undo";
@@ -91,6 +94,9 @@ interface ToolbarButton {
   /** Render but disable + label as "Coming soon" — gives a slot to features
    * that aren't wired into the editor yet. */
   comingSoon?: boolean;
+  /** Per-button disable, OR-ed with the whole-toolbar disable. Used by Undo /
+   * Redo to gray out when there's nothing to undo / redo in the active state. */
+  disabled?: boolean;
 }
 
 /** Inert leaf: a custom component (LinkControl, ColorControl, CalloutMenu, ZoomControl…). */
@@ -204,7 +210,7 @@ export function EditorToolbar({
         aria-disabled={effectivelyDisabled}
         className={cn(
           variant === "bar"
-            ? "flex flex-wrap items-center gap-1 px-2 py-1.5"
+            ? "flex flex-wrap items-center gap-1 px-2 py-0.5"
             : "flex flex-wrap items-center gap-1 rounded-md border bg-card p-1",
           effectivelyDisabled
             ? "pointer-events-none bg-muted/60 opacity-60"
@@ -214,7 +220,10 @@ export function EditorToolbar({
         {visibleGroups.map((group, groupIndex) => (
           <div key={group.id} className="flex items-center gap-1">
             {groupIndex > 0 ? (
-              <Separator orientation="vertical" className="mx-1 h-6" />
+              <Separator
+                orientation="vertical"
+                className="mx-1 h-6 self-center"
+              />
             ) : null}
             {group.entries.map((entry) =>
               entry.kind === "slot" ? (
@@ -232,7 +241,10 @@ export function EditorToolbar({
         ))}
         {trailing ? (
           <>
-            <Separator orientation="vertical" className="mx-1 h-6" />
+            <Separator
+              orientation="vertical"
+              className="mx-1 h-6 self-center"
+            />
             {trailing}
           </>
         ) : null}
@@ -273,7 +285,9 @@ function ToolbarIconButton({
             entry.comingSoon ? `${entry.label} (coming soon)` : entry.label
           }
           aria-pressed={entry.active}
-          disabled={disabled || entry.comingSoon === true}
+          disabled={
+            disabled || entry.comingSoon === true || entry.disabled === true
+          }
           // Keep the editor focused (and its selection) when clicking.
           onMouseDown={(event) => {
             event.preventDefault();
@@ -376,6 +390,9 @@ function buildGroups({
         command: sectionUndoCommand,
         active: false,
         shortcut: `${mod} Z`,
+        // Gray out when nothing's undoable — checks both the section-wide stack
+        // and the active editor's local history.
+        disabled: !canSectionUndo(activeState),
       },
       {
         kind: "button",
@@ -384,6 +401,7 @@ function buildGroups({
         command: sectionRedoCommand,
         active: false,
         shortcut: `${mod} ⇧ Z`,
+        disabled: !canSectionRedo(activeState),
       },
       { kind: "slot", key: "zoom", node: <ZoomControl /> },
     ],
@@ -487,7 +505,7 @@ function buildGroups({
       icon: List,
       label: "Bullet list",
       command: toggleBulletList,
-      active: isAncestorActive(activeState, nodes.bulletList),
+      active: isListRowActive(activeState, "bullet"),
       markdown: "- or *",
     },
     {
@@ -495,7 +513,7 @@ function buildGroups({
       icon: ListOrdered,
       label: "Numbered list",
       command: toggleOrderedList,
-      active: isAncestorActive(activeState, nodes.orderedList),
+      active: isListRowActive(activeState, "ordered"),
       markdown: "1.",
     },
     {
@@ -503,7 +521,7 @@ function buildGroups({
       icon: ListChecks,
       label: "Checklist",
       command: toggleTaskList,
-      active: isAncestorActive(activeState, nodes.taskList),
+      active: isListRowActive(activeState, "task"),
       markdown: "- [ ]",
     },
   );

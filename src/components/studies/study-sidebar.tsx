@@ -126,8 +126,12 @@ export function StudySidebar({
             const active = pathname === href;
             // Prefer the live title published while editing the section, so a
             // rename shows here as you type; fall back to the server title.
-            const title =
+            // Blank titles render as a muted-italic "New Section" placeholder
+            // (see below) so newly-created or cleared sections are still
+            // identifiable in the TOC.
+            const rawTitle =
               chrome?.sectionTitleOverrides[section.id] ?? section.title;
+            const hasTitle = rawTitle.trim() !== "";
             // Hover/focus triggers a full RSC prefetch (including the page's
             // dynamic content), so by the time the user clicks the data is
             // usually already in the router cache and the click feels instant.
@@ -149,7 +153,11 @@ export function StudySidebar({
                       : "hover:bg-sidebar-accent/50",
                   )}
                 >
-                  {title}
+                  {hasTitle ? (
+                    rawTitle
+                  ) : (
+                    <span className="italic opacity-70">New Section</span>
+                  )}
                 </Link>
                 {isOwner ? (
                   <DropdownMenu>
@@ -202,7 +210,13 @@ export function StudySidebar({
                         disabled={pending}
                         className="whitespace-nowrap"
                         onClick={() => {
-                          setPendingDelete({ id: section.id, title });
+                          // Use the display title for the confirm-dialog copy
+                          // so an empty title reads as "New Section" rather
+                          // than a bare quoted empty string.
+                          setPendingDelete({
+                            id: section.id,
+                            title: hasTitle ? rawTitle : "New Section",
+                          });
                         }}
                       >
                         <Trash2 className="size-4" />

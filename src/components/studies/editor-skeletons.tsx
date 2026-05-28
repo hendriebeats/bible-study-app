@@ -18,7 +18,7 @@ export function ToolbarSkeleton() {
       data-toolbar-skeleton
       // Mirrors `<EditorToolbar variant="bar">`'s outer paddings + flex layout
       // so the swap in is zero-CLS.
-      className="flex flex-wrap items-center gap-1 px-2 py-1.5"
+      className="flex flex-wrap items-center gap-1 px-2 py-0.5"
       aria-hidden
     >
       {/* Four icon-button groups separated by thin dividers, matching the real

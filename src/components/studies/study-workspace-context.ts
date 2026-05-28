@@ -55,11 +55,32 @@ export interface StudyWorkspaceValue {
   clear: (sectionId: string) => void;
   /** Open (or focus) a co-member's study as a read-only panel in the dock. */
   openPerson: (studyId: string) => void;
+  /** Close a co-member's panel in the dock (no-op if it isn't open). */
+  closePerson: (studyId: string) => void;
+  /** Close every co-member panel — the dropdown's "Hide all members" action. */
+  resetMembers: () => void;
+  /** Study ids of every co-member panel currently open in the dock. */
+  openMemberIds: ReadonlySet<string>;
   /**
-   * The dock registers its panel-opener here once it's ready; a `null` clears it
-   * on unmount. Calls to {@link openPerson} before registration are queued.
+   * The dock registers its panel handlers once ready; passing `null` clears the
+   * registration on unmount. Calls to {@link openPerson} before registration
+   * are queued and flushed at register time; close/reset before registration
+   * are silently dropped (the panels those would target can't exist yet).
    */
-  registerOpenPerson: (open: ((studyId: string) => void) | null) => void;
+  registerDockHandlers: (
+    handlers: {
+      open: (studyId: string) => void;
+      close: (studyId: string) => void;
+      reset: () => void;
+    } | null,
+  ) => void;
+  /**
+   * Called by the dock from its `syncPanels` whenever the set of open
+   * co-member panels changes (panel added/removed, layout restored). Exposing
+   * this as a stable context callback lets the dock push to workspace state
+   * without ferrying a setter through props.
+   */
+  publishOpenMemberIds: (ids: ReadonlySet<string>) => void;
 }
 
 export const StudyWorkspaceContext = createContext<StudyWorkspaceValue | null>(

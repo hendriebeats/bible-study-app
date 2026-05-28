@@ -33,8 +33,9 @@ export function StudyLayoutSkeleton() {
       </header>
 
       {/* Toolbar slot — empty here; the persistent overlay covers it. The
-          wrapper still reserves height + bg so the layout matches the chrome. */}
-      <div className="h-12 shrink-0 border-b border-border/60 bg-background" />
+          wrapper still reserves height + bg so the layout matches the chrome.
+          `h-9` mirrors the chrome's `min-h-9` toolbar slot. */}
+      <div className="h-9 shrink-0 border-b border-border/60 bg-background" />
 
       {/* Body row wrapper — matches the chrome's `relative flex min-h-0 flex-1`. */}
       <div className="relative flex min-h-0 flex-1">

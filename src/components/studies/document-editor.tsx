@@ -41,6 +41,9 @@ import { noteAnchors } from "@/lib/editor/plugins/note-anchors";
 import { notesIndexGuard } from "@/lib/editor/plugins/notes-index-guard";
 import { placeholder as placeholderPlugin } from "@/lib/editor/plugins/placeholder";
 import { slashMenu } from "@/lib/editor/plugins/slash-menu";
+import { applyIndentRunDrop } from "@/lib/editor/indent-run";
+import { blockDragPlugin } from "@/lib/editor/plugins/block-drag";
+import { selectionShadowPlugin } from "@/lib/editor/plugins/selection-shadow";
 import { verseGuard } from "@/lib/editor/plugins/verse-guard";
 import { verseLabel } from "@/lib/editor/plugins/verse-label";
 import { nodes, schema } from "@/lib/editor/schema";
@@ -98,6 +101,13 @@ function createPlugins(
     // Keep the pinned notes index from being deleted (no-op in the body editor).
     notesIndexGuard(),
     placeholderPlugin(placeholderText),
+    // Paint a fallback highlight on the selection while the editor is blurred
+    // so the user can see what their next toolbar action will affect.
+    selectionShadowPlugin(),
+    // Owns the visual side of the hierarchical block drag (ghost source +
+    // drop-indicator widget). The pointer driver in block-handle.ts pokes
+    // it via meta transactions on pointermove / pointerup.
+    blockDragPlugin(),
   ];
   // Progressive Mod-A: first press selects the cursor's textblock, second
   // press grows to the surrounding scope. In the freeform body editor the
@@ -539,6 +549,82 @@ export function DocumentEditor({
     editorRef.current?.registerView(view, role);
     registerUndoView(view);
 
+    // Playwright debug hook — exposes a tiny window-level introspection API
+    // so e2e specs can read the current doc shape without poking at PM
+    // internals. Always on in development (where Playwright runs against a
+    // shared `next dev`) and when `NEXT_PUBLIC_PM_DEBUG=1` is set explicitly.
+    // Always off in production builds.
+    //
+    // Multiple editors mount on the same page (notes body + blocks body, plus
+    // any read-along panes in group studies). Rather than letting the last
+    // mount overwrite the global, every editor REGISTERS its view into a
+    // shared list and `getDocJSON()` returns whichever view currently has
+    // browser focus — which is the surface the test just typed into.
+    if (
+      typeof window !== "undefined" &&
+      (process.env.NEXT_PUBLIC_PM_DEBUG === "1" ||
+        process.env.NODE_ENV !== "production")
+    ) {
+      interface PMDebugApi {
+        views: Set<EditorView>;
+        getDocJSON: () => unknown;
+        getView: () => EditorView | null;
+        getFocusedView: () => EditorView | null;
+        /**
+         * Test-only: run an indent-run drop against the focused view's
+         * state. Mirrors what the pointer driver dispatches on pointerup,
+         * so Playwright can lock down the structural outcome without
+         * synthesizing pointer events (which teleport and miss the
+         * gutter-hover bridge per playwright-testing-notes.md).
+         */
+        simulateBlockDrop: (
+          sourceStart: number,
+          sourceEnd: number,
+          targetPos: number,
+          targetIndent: number,
+        ) => boolean;
+      }
+      const w = window as unknown as { __PM_DEBUG__?: PMDebugApi };
+      if (!w.__PM_DEBUG__) {
+        const views = new Set<EditorView>();
+        const focused = (): EditorView | null => {
+          for (const v of views) {
+            if (v.hasFocus()) return v;
+          }
+          // No focused view (a stale read, or focus moved to a toolbar) —
+          // fall back to any view at all so the helper still returns a doc.
+          const first = views.values().next();
+          return first.done === true ? null : first.value;
+        };
+        w.__PM_DEBUG__ = {
+          views,
+          getDocJSON: (): unknown => focused()?.state.doc.toJSON() ?? null,
+          getView: focused,
+          getFocusedView: focused,
+          simulateBlockDrop: (
+            sourceStart: number,
+            sourceEnd: number,
+            targetPos: number,
+            targetIndent: number,
+          ): boolean => {
+            const v = focused();
+            if (!v) return false;
+            const tr = applyIndentRunDrop(
+              v.state,
+              sourceStart,
+              sourceEnd,
+              targetPos,
+              targetIndent,
+            );
+            if (!tr) return false;
+            v.dispatch(tr);
+            return true;
+          },
+        };
+      }
+      w.__PM_DEBUG__.views.add(view);
+    }
+
     return () => {
       disposed = true;
       // Persist any pending edits before tearing down — otherwise a fast section
@@ -557,6 +643,14 @@ export function DocumentEditor({
       }
       editorRef.current?.unregisterView(view);
       unregisterUndoView(view);
+      // Pull the view out of the dev debug registry so a stale entry doesn't
+      // resolve later (no-op in production where the global was never set).
+      const debugApi = (
+        window as unknown as {
+          __PM_DEBUG__?: { views: Set<EditorView> };
+        }
+      ).__PM_DEBUG__;
+      debugApi?.views.delete(view);
       view.destroy();
       viewRef.current = null;
     };

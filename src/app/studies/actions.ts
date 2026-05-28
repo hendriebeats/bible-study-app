@@ -264,7 +264,12 @@ export async function createSection(
 
   const { data, error } = await supabase
     .from("sections")
-    .insert({ study_id: studyId, title: "New section", position: nextPosition })
+    // Title starts blank — the sidebar / dock tab render "New Section" as a
+    // visual fallback for empty titles, and the on-page editor surfaces an
+    // "Enter section title…" placeholder. Persisting the blank (rather than
+    // a hardcoded "Untitled / New section" string) means the user sees the
+    // placeholder UI instead of having to clear a default before typing.
+    .insert({ study_id: studyId, title: "", position: nextPosition })
     .select("id")
     .single();
   if (error) {

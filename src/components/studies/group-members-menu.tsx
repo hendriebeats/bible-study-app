@@ -1,6 +1,6 @@
 "use client";
 
-import { Info, Users } from "lucide-react";
+import { Check, Info, RotateCcw, Users } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { GroupInfoDialog } from "@/components/groups/group-info-dialog";
@@ -14,15 +14,18 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
 import type { CompareTarget } from "@/lib/db/compare";
 import type { StudyGroupInfo } from "@/lib/db/types";
 
 /**
  * The in-study group control that lives in the rich-text toolbar: a dropdown of
- * the other members in this study's group(s). Picking a member opens their study
- * as a read-only panel in the dock on this page; a "Group info" entry opens the
- * roster / invite / template popup. Renders nothing when the study isn't in a
- * group.
+ * the other members in this study's group(s). Each row carries a left-side
+ * checkbox that reflects whether that member's study is currently open as a
+ * dock panel — clicking toggles it (open → close, close → open) and dismisses
+ * the dropdown either way. A footer "Hide all members" action closes every
+ * open member panel at once; a "Group info" entry opens the roster / invite /
+ * template popup. Renders nothing when the study isn't in a group.
  */
 export function GroupMembersMenu({
   studyId,
@@ -51,9 +54,15 @@ export function GroupMembersMenu({
   }
 
   const multiGroup = groupContext.length > 1;
+  const { openMemberIds, openPerson, closePerson, resetMembers } = workspace;
+  const anyOpen = openMemberIds.size > 0;
 
-  function openMember(target: CompareTarget) {
-    workspace.openPerson(target.studyId);
+  function toggleMember(target: CompareTarget, currentlyOpen: boolean) {
+    if (currentlyOpen) {
+      closePerson(target.studyId);
+    } else {
+      openPerson(target.studyId);
+    }
   }
 
   return (
@@ -95,11 +104,14 @@ export function GroupMembersMenu({
                         : trimmed;
                     const target = targetByUser.get(member.user_id);
                     if (!target) {
+                      // No live study to view yet — leave a disabled,
+                      // checkbox-less row so the alignment still reads as
+                      // "list of teammates" rather than missing data.
                       return (
                         <DropdownMenuItem
                           key={member.user_id}
                           disabled
-                          className="justify-between"
+                          className="justify-between pl-7"
                         >
                           <span className="truncate">{name}</span>
                           <span className="text-xs text-muted-foreground">
@@ -108,14 +120,31 @@ export function GroupMembersMenu({
                         </DropdownMenuItem>
                       );
                     }
+                    const open = openMemberIds.has(target.studyId);
                     return (
                       <DropdownMenuItem
                         key={member.user_id}
+                        // role=menuitemcheckbox + aria-checked communicates the
+                        // toggle semantics to a screen reader even though we
+                        // use a plain MenuItem (so the indicator can live on
+                        // the LEFT — shadcn's CheckboxItem floats it right).
+                        role="menuitemcheckbox"
+                        aria-checked={open}
                         onSelect={() => {
-                          openMember(target);
+                          toggleMember(target, open);
                         }}
                       >
-                        <Users className="size-4 text-muted-foreground" />
+                        <span
+                          className={cn(
+                            "flex size-4 shrink-0 items-center justify-center rounded-sm border",
+                            open
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : "border-input bg-background",
+                          )}
+                          aria-hidden="true"
+                        >
+                          {open ? <Check className="size-3" /> : null}
+                        </span>
                         <span className="truncate">{name}</span>
                       </DropdownMenuItem>
                     );
@@ -125,6 +154,15 @@ export function GroupMembersMenu({
             );
           })}
           <DropdownMenuSeparator />
+          <DropdownMenuItem
+            disabled={!anyOpen}
+            onSelect={() => {
+              resetMembers();
+            }}
+          >
+            <RotateCcw className="size-4 text-muted-foreground" />
+            Hide all members
+          </DropdownMenuItem>
           <DropdownMenuItem
             onSelect={() => {
               setInfoOpen(true);

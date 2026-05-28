@@ -1,35 +1,26 @@
-import { AppHeaderSkeleton } from "@/components/app-header-skeleton";
 import { Skeleton } from "@/components/ui/skeleton";
 
 /**
- * Streamed while `/account` resolves the parallel profile + editor-tools
- * fetches. The page renders its own header (no /account layout), so this
- * fallback owns the full chrome and mirrors the page's wrapper exactly.
+ * Streamed while any `/account/*` sub-page resolves its async work (profile
+ * fetch, editor-tools fetch, etc.). The layout already owns the slim top bar
+ * and the sidebar (both synchronous), so this fallback only fills the body
+ * region — preventing the sidebar from flashing on every sub-route swap.
  */
 export default function AccountLoading() {
   return (
-    <div className="flex min-h-svh flex-col">
-      <AppHeaderSkeleton />
-      <main className="mx-auto w-full max-w-2xl flex-1 px-4 py-10">
-        <Skeleton className="h-8 w-56" />
+    <div className="mx-auto w-full max-w-2xl px-4 pt-10 pb-20">
+      <Skeleton className="h-8 w-48" />
+      <Skeleton className="mt-2 h-4 w-72" />
 
-        <div className="mt-8 grid gap-6">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div
-              key={i}
-              className="rounded-xl bg-card py-4 ring-1 ring-foreground/10"
-            >
-              <div className="px-4 pb-3">
-                <Skeleton className="h-5 w-32" />
-                <Skeleton className="mt-2 h-3 w-48" />
-              </div>
-              <div className="px-4">
-                <Skeleton className="h-10 w-full" />
-              </div>
-            </div>
-          ))}
-        </div>
-      </main>
+      <div className="mt-8 space-y-8">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="space-y-3">
+            <Skeleton className="h-5 w-40" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-2/3" />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

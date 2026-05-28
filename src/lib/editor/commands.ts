@@ -1,6 +1,5 @@
 import { lift, toggleMark } from "prosemirror-commands";
 import type { MarkType, Node, NodeType } from "prosemirror-model";
-import { liftListItem, sinkListItem } from "prosemirror-schema-list";
 import {
   type Command,
   type EditorState,
@@ -42,6 +41,35 @@ export function isBlockActive(
       return false;
     }
     if (node.isTextblock && node.hasMarkup(nodeType, attrs)) {
+      active = true;
+    }
+    return !active;
+  });
+  return active;
+}
+
+/**
+ * Is the cursor (or any block the selection touches) a `list_row` with the
+ * given `listType`? Flat-schema replacement for the old "inside a
+ * bullet_list / ordered_list / task_list" `isAncestorActive` check — there's
+ * no longer a list-wrapper ancestor, so callers (toolbar, slash menu's
+ * active-state ring) read the row's attr directly.
+ */
+export function isListRowActive(
+  state: EditorState,
+  listType: "bullet" | "ordered" | "task",
+): boolean {
+  const { from, to, $from, empty } = state.selection;
+  if (empty) {
+    return (
+      $from.parent.type === nodes.listRow &&
+      $from.parent.attrs.listType === listType
+    );
+  }
+  let active = false;
+  state.doc.nodesBetween(from, to, (node) => {
+    if (active) return false;
+    if (node.type === nodes.listRow && node.attrs.listType === listType) {
       active = true;
     }
     return !active;
@@ -108,49 +136,36 @@ export function toggleHeading(level: number): Command {
 }
 
 /**
- * Toggle the cursor's block in/out of a list of `listType`. When the cursor
- * is already inside that list type, we lift out (the standard Notion-style
- * "toggle off"); otherwise we route through {@link buildConvertTransaction}
- * so list-item-in-list (split parent list around the item), collapsible
- * header (dissolve), and heading→list (wrap inline content in a fresh
- * paragraph first) all behave identically across input rules and menus.
+ * Toggle the cursor's textblock between a `list_row` of the given listType
+ * and a plain paragraph. When the cursor is already in a list_row of that
+ * same listType we "toggle off" by converting to paragraph; otherwise we
+ * route through {@link buildConvertTransaction} so collapsible-header dissolve
+ * + indent preservation behave identically across input rules and menus.
  */
-function toggleList(
-  listType: NodeType,
-  itemType: NodeType,
-  itemAttrs?: Record<string, unknown>,
+function toggleListRow(
+  listType: "bullet" | "ordered" | "task",
+  attrs?: { checked?: boolean },
 ): Command {
-  return (state, dispatch, view) => {
-    if (isAncestorActive(state, listType)) {
-      return liftListItem(itemType)(state, dispatch, view);
-    }
-    const tr = buildConvertTransaction(state, {
-      kind: "list",
-      listType,
-      itemType,
-      itemAttrs,
-    });
+  return (state, dispatch) => {
+    const parent = state.selection.$from.parent;
+    const alreadyType =
+      parent.type === nodes.listRow && parent.attrs.listType === listType;
+    const target = alreadyType
+      ? ({ kind: "setblock", nodeType: nodes.paragraph } as const)
+      : ({ kind: "list_row", listType, attrs } as const);
+    const tr = buildConvertTransaction(state, target);
     if (!tr) return false;
     if (dispatch) dispatch(tr);
     return true;
   };
 }
 
-export const toggleBulletList: Command = toggleList(
-  nodes.bulletList,
-  nodes.listItem,
-);
-export const toggleOrderedList: Command = toggleList(
-  nodes.orderedList,
-  nodes.listItem,
-);
-
-/** Toggle a checklist (task list); lifts items out when already in one. */
-export const toggleTaskList: Command = toggleList(
-  nodes.taskList,
-  nodes.taskItem,
-  { checked: false },
-);
+export const toggleBulletList: Command = toggleListRow("bullet");
+export const toggleOrderedList: Command = toggleListRow("ordered");
+/** Toggle a checklist; toggles off when already in a task row. */
+export const toggleTaskList: Command = toggleListRow("task", {
+  checked: false,
+});
 
 /**
  * Wrap (or unwrap) the cursor's textblock in a blockquote. When already
@@ -268,134 +283,53 @@ export function applyLink(from: number, to: number, href: string): Command {
   };
 }
 
-/**
- * Walk up `$from` looking for the innermost `list_item` / `task_item` ancestor
- * WHERE the cursor sits in that item's *first* child (its primary content
- * row). Tab/Shift-Tab inside such an item should sink/lift the item itself;
- * a cursor in a later child (a heading or paragraph dropped into a bullet's
- * content) is conceptually a separate block, so we don't treat that as a
- * list-item context — the outdent path will fall through to plain `lift`,
- * which peels just that nested block out of the list item.
- */
-function nearestListItem(
-  state: EditorState,
-): { type: NodeType; pos: number; node: Node } | null {
-  const { $from } = state.selection;
-  for (let d = $from.depth; d > 0; d--) {
-    const node = $from.node(d);
-    if (node.type !== nodes.listItem && node.type !== nodes.taskItem) {
-      continue;
-    }
-    // Only claim the list-item context when the cursor's parent textblock
-    // is the FIRST child of the item AND is the direct child (not a deeper
-    // descendant inside, say, a nested toggle).
-    if ($from.depth !== d + 1) return null;
-    if ($from.index(d) !== 0) return null;
-    return { type: node.type, pos: $from.before(d), node };
-  }
-  return null;
-}
+/** Textblocks that carry an `indent` attribute (Phase 2 flat schema). */
+const indentableTextblocks: readonly NodeType[] = [
+  nodes.paragraph,
+  nodes.heading,
+  nodes.listRow,
+  nodes.codeBlock,
+];
 
 /**
- * Indent every paragraph/heading the selection touches by `delta`, clamped to
- * [0, MAX_INDENT]. Skips blocks whose direct parent is a list item — those are
- * handled by the list-item branch of `indentSelected`, never here.
+ * Adjust the `indent` attribute on every indentable textblock the selection
+ * touches by `delta`, clamped to [0, MAX_INDENT]. The flat-schema rewrite
+ * collapsed the previous "sinkListItem first, attr fallback" hybrid: list
+ * structure no longer exists, so Tab/Shift-Tab is a pure attribute edit on
+ * the cursor's textblock(s).
  */
-function adjustParagraphIndent(delta: number): Command {
+function adjustBlockIndent(delta: number): Command {
   return (state, dispatch) => {
     const { from, to } = state.selection;
     const tr = state.tr;
-    state.doc.nodesBetween(from, to, (node, pos, parent) => {
-      if (parent?.type === nodes.listItem || parent?.type === nodes.taskItem) {
-        return false;
+    state.doc.nodesBetween(from, to, (node, pos) => {
+      if (!indentableTextblocks.includes(node.type)) return true;
+      const current = (node.attrs.indent as number | undefined) ?? 0;
+      const next = Math.min(MAX_INDENT, Math.max(0, current + delta));
+      if (next !== current) {
+        // setNodeMarkup preserves node size, so positions from the original
+        // doc stay valid for the remaining iterations.
+        tr.setNodeMarkup(pos, undefined, { ...node.attrs, indent: next });
       }
-      if (node.type === nodes.paragraph || node.type === nodes.heading) {
-        const current = (node.attrs.indent as number | undefined) ?? 0;
-        const next = Math.min(MAX_INDENT, Math.max(0, current + delta));
-        if (next !== current) {
-          // setNodeMarkup preserves node size, so positions from the original
-          // doc stay valid for the remaining iterations.
-          tr.setNodeMarkup(pos, undefined, { ...node.attrs, indent: next });
-        }
-        return false;
-      }
-      return true;
+      return false;
     });
-    if (tr.steps.length === 0) {
-      return false;
-    }
-    if (dispatch) {
-      dispatch(tr.scrollIntoView());
-    }
+    if (tr.steps.length === 0) return false;
+    if (dispatch) dispatch(tr.scrollIntoView());
     return true;
   };
 }
 
 /**
- * Bump the `indent` attribute on a specific list/task item by `delta`, clamped
- * to [0, MAX_INDENT]. Returns false when already at the bound so the caller can
- * chain into a structural fallback (sinkListItem / liftListItem).
- */
-function bumpItemIndent(pos: number, node: Node, delta: number): Command {
-  return (state, dispatch) => {
-    const current = (node.attrs.indent as number | undefined) ?? 0;
-    const next = Math.min(MAX_INDENT, Math.max(0, current + delta));
-    if (next === current) {
-      return false;
-    }
-    if (dispatch) {
-      const tr = state.tr.setNodeMarkup(pos, undefined, {
-        ...node.attrs,
-        indent: next,
-      });
-      dispatch(tr.scrollIntoView());
-    }
-    return true;
-  };
-}
-
-/**
- * Hybrid indent. Three cases, picked in this order:
- *
- *   1. The cursor sits in the FIRST child of a `list_item` / `task_item`
- *      (its primary content row). Tab tries `sinkListItem` and falls back to
- *      bumping the item's `indent` attribute when sinking is structurally
- *      impossible (first-item-of-list case). Shift-Tab inverts: consume the
- *      attribute first, then `liftListItem`.
- *
- *   2. The cursor sits in a NON-FIRST child of a list_item — e.g. a heading
- *      a user just `#`-converted that came to live as the second child of a
- *      bullet. On Tab, increment that block's own indent attr; on Shift-Tab,
- *      first decrement the attr, then if already 0 call `lift` which
- *      automatically finds the highest valid lift depth (walking past the
- *      list_item and its surrounding bullet_list when needed) so the heading
- *      pops out as a sibling of the bullet, not by dragging the bullet along
- *      with it.
- *
- *   3. Plain paragraphs/headings outside any list — adjust indent attr only.
+ * Tab / Shift-Tab. Adjusts the `indent` attribute on the cursor's textblock
+ * (or every indentable textblock the selection touches). For Shift-Tab when
+ * already at indent 0 we fall through to `lift`, which peels the textblock
+ * out of its nearest non-doc wrapper (blockquote, callout, collapsible).
  */
 function indentSelectedDir(delta: 1 | -1): Command {
   return (state, dispatch, view) => {
-    const item = nearestListItem(state);
-    if (item) {
-      if (delta > 0) {
-        if (sinkListItem(item.type)(state, dispatch, view)) return true;
-        return bumpItemIndent(item.pos, item.node, 1)(state, dispatch, view);
-      }
-      if (bumpItemIndent(item.pos, item.node, -1)(state, dispatch, view)) {
-        return true;
-      }
-      return liftListItem(item.type)(state, dispatch, view);
-    }
-    if (delta < 0) {
-      // Try the paragraph-indent decrement first; if it changes nothing
-      // (already at 0), fall through to `lift` which will pop the cursor's
-      // block out of its nearest non-list wrapper (e.g. a heading sitting
-      // as the second child of a list_item lifts to the outer level).
-      if (adjustParagraphIndent(-1)(state, dispatch, view)) return true;
-      return lift(state, dispatch);
-    }
-    return adjustParagraphIndent(delta)(state, dispatch, view);
+    if (adjustBlockIndent(delta)(state, dispatch, view)) return true;
+    if (delta < 0) return lift(state, dispatch);
+    return false;
   };
 }
 
@@ -456,31 +390,18 @@ function moveBlock(dir: -1 | 1): Command {
  * Find the deepest ancestor depth where inserting a fresh block child is
  * structurally valid AND the cursor is conceptually "inside" that container.
  * Used by the slash-menu inserters (`insertCallout` / `insertCollapsible` /
- * `insertTable`) so dropping a callout from inside a bullet item three
- * levels deep inserts the callout NEXT TO that bullet — not way up at the
- * top of the doc, which the old `$from.before(1)` did.
+ * `insertTable`) so dropping a callout from inside a bullet row three levels
+ * deep inserts the callout NEXT TO that row — not way up at the top of the
+ * doc, which the old `$from.before(1)` did.
  *
- * The search descends from `$from.depth - 1` (the cursor's direct block
- * parent) upward, returning the deepest depth whose node accepts the target
- * type as a block child. Stops at containment boundaries that don't accept
- * arbitrary blocks (`bullet_list`/`ordered_list`/`task_list` reject anything
- * but `list_item` siblings, so inserting a callout between bullets would
- * fail; we walk past those to the enclosing list_item / container).
+ * Flat-schema simplification: list_rows are siblings of every other block,
+ * so there's no longer a list-wrapper container to step past — we just walk
+ * outward until we find an ancestor whose schema accepts the target.
  */
 function insertionDepthFor(state: EditorState, nodeType: NodeType): number {
   const { $from } = state.selection;
   for (let d = $from.depth - 1; d >= 1; d--) {
     const ancestor = $from.node(d);
-    // Pure-list containers can only hold their list-item type; an
-    // arbitrary block (callout/collapsible/table) doesn't fit between
-    // items. Skip up to the list_item that wraps the list.
-    if (
-      ancestor.type === nodes.bulletList ||
-      ancestor.type === nodes.orderedList ||
-      ancestor.type === nodes.taskList
-    ) {
-      continue;
-    }
     if (ancestor.canReplaceWith(0, 0, nodeType)) {
       return d;
     }
@@ -530,7 +451,12 @@ function insertNodeNextToCursor(state: EditorState, node: Node): Transaction {
   const block = $from.node(depth);
   const tr = state.tr;
   let insertPos: number;
-  if (block.type === nodes.paragraph && block.content.size === 0) {
+  // Replace a lone empty textblock (paragraph or list_row) rather than
+  // appending a new node beside it.
+  const replaceableEmpty =
+    (block.type === nodes.paragraph || block.type === nodes.listRow) &&
+    block.content.size === 0;
+  if (replaceableEmpty) {
     tr.replaceRangeWith(blockStart, blockEnd, node);
     insertPos = blockStart;
   } else {

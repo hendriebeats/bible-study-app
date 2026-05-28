@@ -91,11 +91,17 @@ export function StudyWorkspace({
     void import("@/components/studies/document-editor");
   }, []);
 
-  // The dock registers its panel-opener once ready; a focus request that
+  // The dock registers its panel handlers once ready; a focus request that
   // arrives before the (dynamically imported) dock has loaded is queued and
-  // flushed on registration.
+  // flushed on registration. Close/reset before registration are no-ops —
+  // there can't be any open member panels yet for them to act on.
   const openPersonRef = useRef<((studyId: string) => void) | null>(null);
+  const closePersonRef = useRef<((studyId: string) => void) | null>(null);
+  const resetMembersRef = useRef<(() => void) | null>(null);
   const pendingPersonRef = useRef<string | null>(null);
+  const [openMemberIds, setOpenMemberIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
 
   const publish = useCallback((payload: ActiveSectionPayload) => {
     setActive(payload);
@@ -125,16 +131,46 @@ export function StudyWorkspace({
     }
   }, []);
 
-  const registerOpenPerson = useCallback(
-    (open: ((studyId: string) => void) | null) => {
-      openPersonRef.current = open;
-      if (open && pendingPersonRef.current !== null) {
-        open(pendingPersonRef.current);
-        pendingPersonRef.current = null;
+  const closePerson = useCallback((personStudyId: string) => {
+    closePersonRef.current?.(personStudyId);
+  }, []);
+
+  const resetMembers = useCallback(() => {
+    resetMembersRef.current?.();
+  }, []);
+
+  const registerDockHandlers = useCallback(
+    (
+      handlers: {
+        open: (studyId: string) => void;
+        close: (studyId: string) => void;
+        reset: () => void;
+      } | null,
+    ) => {
+      if (handlers) {
+        openPersonRef.current = handlers.open;
+        closePersonRef.current = handlers.close;
+        resetMembersRef.current = handlers.reset;
+        if (pendingPersonRef.current !== null) {
+          handlers.open(pendingPersonRef.current);
+          pendingPersonRef.current = null;
+        }
+      } else {
+        openPersonRef.current = null;
+        closePersonRef.current = null;
+        resetMembersRef.current = null;
+        // No dock = no open panels.
+        setOpenMemberIds(new Set());
       }
     },
     [],
   );
+
+  // Called by the dock's syncPanels on every panel change. Stable identity so
+  // the dock can call it freely without re-registering.
+  const publishOpenMemberIds = useCallback((ids: ReadonlySet<string>) => {
+    setOpenMemberIds(ids);
+  }, []);
 
   const value = useMemo<StudyWorkspaceValue>(
     () => ({
@@ -143,9 +179,24 @@ export function StudyWorkspace({
       publish,
       clear,
       openPerson,
-      registerOpenPerson,
+      closePerson,
+      resetMembers,
+      openMemberIds,
+      registerDockHandlers,
+      publishOpenMemberIds,
     }),
-    [active, hasSections, publish, clear, openPerson, registerOpenPerson],
+    [
+      active,
+      hasSections,
+      publish,
+      clear,
+      openPerson,
+      closePerson,
+      resetMembers,
+      openMemberIds,
+      registerDockHandlers,
+      publishOpenMemberIds,
+    ],
   );
 
   return (

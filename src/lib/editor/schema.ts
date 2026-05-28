@@ -324,11 +324,70 @@ const headingSpec: NodeSpec = {
 };
 
 /**
+ * Blockquote override (was schema-basic's default). Adds the universal
+ * `indent` attribute so Tab/Shift-Tab on a blockquote's own line shifts the
+ * whole quote, matching every other block in the Phase 1b flat-schema target.
+ */
+const blockquoteSpec: NodeSpec = {
+  content: "block+",
+  group: "block",
+  defining: true,
+  attrs: { indent: { default: 0 } },
+  parseDOM: [
+    {
+      tag: "blockquote",
+      getAttrs(dom) {
+        if (typeof dom === "string") return null;
+        return { indent: clampIndent(numAttr(dom, "data-indent") ?? 0) };
+      },
+    },
+  ],
+  toDOM(node) {
+    return ["blockquote", indentDOMAttrs(node.attrs.indent as number), 0];
+  },
+};
+
+/**
+ * Code block override (was schema-basic's default). Same `indent` story as
+ * {@link blockquoteSpec}; code_block intentionally does NOT carry the new
+ * `listType` attribute (a list marker overlay would clash with the monospace
+ * gutter / line-number chrome), per Phase 1a sign-off.
+ */
+const codeBlockSpec: NodeSpec = {
+  content: "text*",
+  marks: "",
+  group: "block",
+  code: true,
+  defining: true,
+  attrs: { indent: { default: 0 } },
+  parseDOM: [
+    {
+      tag: "pre",
+      preserveWhitespace: "full",
+      getAttrs(dom) {
+        if (typeof dom === "string") return null;
+        return { indent: clampIndent(numAttr(dom, "data-indent") ?? 0) };
+      },
+    },
+  ],
+  toDOM(node) {
+    return ["pre", indentDOMAttrs(node.attrs.indent as number), ["code", 0]];
+  },
+};
+
+/**
  * `list_item` override. The base spec from `prosemirror-schema-list` doesn't
  * carry an indent attribute; we add one so the hybrid Tab handler can offset
  * the *first* item of a list (or any item where `sinkListItem` refuses to
  * apply) without splitting the list. Content + `defining` mirror what
  * `addListNodes(...)` produced.
+ *
+ * **Phase 1b status:** `list_item`/`task_item`/`bullet_list`/`ordered_list`/
+ * `task_list` are kept registered and live so the existing plugin set keeps
+ * working until Phase 2 swaps in `list_row`-aware commands. They are also
+ * what `addListNodes(...)` named in the doc content rule
+ * (`paragraph block*`); leaving them in place keeps that valid for any
+ * residual cached step JSON that escapes the step-log truncate.
  */
 const listItemSpec: NodeSpec = {
   content: "paragraph block*",
@@ -398,31 +457,98 @@ const taskItemSpec: NodeSpec = {
   },
 };
 
+/**
+ * Flat-schema list row (Phase 1b — additive, not yet driven by editing
+ * commands). One node type subsumes `list_item` AND `task_item`; `listType`
+ * discriminates bullet / ordered / task. Content is `inline*` (a row holds
+ * text directly — no inner paragraph), and visual grouping into a "list run"
+ * is a CSS concern over contiguous siblings sharing `listType`.
+ *
+ * - `indent` (0…{@link MAX_INDENT}) is the universal block indent.
+ * - `checked` is meaningful only when `listType === "task"`; ignored otherwise
+ *   but persisted so toggling list types round-trips the check state.
+ * - `listStart` is the explicit run-starting number for ordered rows (null →
+ *   continues the previous run's implicit count). Bullet/task rows ignore it.
+ *
+ * Phase 1b emits a `<div data-list-row>` (not `<li>`) so the row renders
+ * cleanly without a surrounding `<ul>`/`<ol>`; Phase 3 introduces a NodeView
+ * that draws the marker and the contiguous-run grouping in CSS. Until then,
+ * any list_row that *does* appear in a migrated doc shows as an indented
+ * line — no marker, but text + indent intact.
+ */
+const listRowSpec: NodeSpec = {
+  group: "block",
+  content: "inline*",
+  attrs: {
+    indent: { default: 0 },
+    listType: { default: "bullet" },
+    checked: { default: false },
+    listStart: { default: null },
+  },
+  parseDOM: [
+    {
+      tag: "div[data-list-row]",
+      getAttrs(dom) {
+        if (typeof dom === "string") return null;
+        const listType = dom.getAttribute("data-list-type") ?? "bullet";
+        return {
+          indent: clampIndent(numAttr(dom, "data-indent") ?? 0),
+          listType,
+          checked: dom.getAttribute("data-checked") === "true",
+          listStart: numAttr(dom, "data-list-start"),
+        };
+      },
+    },
+  ],
+  toDOM(node) {
+    const indent = clampIndent(node.attrs.indent as number);
+    const listType = String(node.attrs.listType);
+    const checked = node.attrs.checked === true;
+    const start = node.attrs.listStart as number | null;
+    const extra = indentDOMAttrs(indent);
+    const attrs: Record<string, string> = {
+      "data-list-row": "true",
+      "data-list-type": listType,
+      class: `list-row list-row-${listType}`,
+      ...extra,
+    };
+    if (listType === "task") attrs["data-checked"] = String(checked);
+    if (start !== null) attrs["data-list-start"] = String(start);
+    return ["div", attrs, 0];
+  },
+};
+
 /** Callout (admonition) box. `variant` (note/insight/warning/prayer/application)
- * drives the color + header via the CalloutView node view and CSS. */
+ * drives the color + header via the CalloutView node view and CSS. `indent`
+ * shifts the whole callout (Phase 1b universal indent). */
 const calloutSpec: NodeSpec = {
   group: "block",
   content: "block+",
   defining: true,
-  attrs: { variant: { default: "note" } },
+  attrs: { variant: { default: "note" }, indent: { default: 0 } },
   parseDOM: [
     {
       tag: "aside[data-callout]",
       contentElement: ".callout-body",
       getAttrs(dom) {
         if (typeof dom === "string") return null;
-        return { variant: dom.getAttribute("data-variant") ?? "note" };
+        return {
+          variant: dom.getAttribute("data-variant") ?? "note",
+          indent: clampIndent(numAttr(dom, "data-indent") ?? 0),
+        };
       },
     },
   ],
   toDOM(node) {
     const variant = String(node.attrs.variant);
+    const indent = clampIndent(node.attrs.indent as number);
     return [
       "aside",
       {
         "data-callout": "true",
         "data-variant": variant,
         class: `callout callout-${variant}`,
+        ...indentDOMAttrs(indent),
       },
       ["div", { class: "callout-body" }, 0],
     ];
@@ -452,7 +578,11 @@ const collapsibleSpec: NodeSpec = {
   group: "block",
   content: "block+",
   defining: true,
-  attrs: { open: { default: true }, summary: { default: "" } },
+  attrs: {
+    open: { default: true },
+    summary: { default: "" },
+    indent: { default: 0 },
+  },
   parseDOM: [
     {
       tag: "div[data-collapsible]",
@@ -467,17 +597,20 @@ const collapsibleSpec: NodeSpec = {
           // somehow missed a row we still parse the doc — the body just won't
           // show the legacy title (acceptable, and rare).
           summary: "",
+          indent: clampIndent(numAttr(dom, "data-indent") ?? 0),
         };
       },
     },
   ],
   toDOM(node) {
+    const indent = clampIndent(node.attrs.indent as number);
     return [
       "div",
       {
         "data-collapsible": "true",
         "data-open": String(node.attrs.open !== false),
         class: "collapsible",
+        ...indentDOMAttrs(indent),
       },
       ["div", { class: "collapsible-content" }, 0],
     ];
@@ -584,12 +717,15 @@ const tableNodeSpecs = tableNodes({
 const nodeSpecs = baseNodeSpecs
   .update("paragraph", paragraphSpec)
   .update("heading", headingSpec)
+  .update("blockquote", blockquoteSpec)
+  .update("code_block", codeBlockSpec)
   .update("list_item", listItemSpec)
   .addToEnd("verse_number", verseNumberSpec)
   .addToEnd("scripture", scriptureSpec)
   .addToEnd("study_block", studyBlockSpec)
   .addToEnd("task_list", taskListSpec)
   .addToEnd("task_item", taskItemSpec)
+  .addToEnd("list_row", listRowSpec)
   .addToEnd("callout", calloutSpec)
   .addToEnd("collapsible", collapsibleSpec)
   .addToEnd("note_entry", noteEntrySpec)
@@ -745,6 +881,7 @@ export const nodes = {
   studyBlock: requireNode("study_block"),
   taskList: requireNode("task_list"),
   taskItem: requireNode("task_item"),
+  listRow: requireNode("list_row"),
   callout: requireNode("callout"),
   collapsible: requireNode("collapsible"),
   noteEntry: requireNode("note_entry"),

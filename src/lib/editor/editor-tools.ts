@@ -54,10 +54,45 @@ export const DEFAULT_EDITOR_TOOLS: EditorTools = {
   customColor: false,
 };
 
+/**
+ * Coarse buckets the Account settings UI uses to sub-head the toggle list so
+ * it's easier to scan. Purely a display concern — the editor itself doesn't
+ * care which group a tool is in.
+ */
+export type EditorToolGroup = "formatting" | "blocks" | "media-smart";
+
+export const EDITOR_TOOL_GROUP_LABELS: Record<EditorToolGroup, string> = {
+  formatting: "Text formatting",
+  blocks: "Insertable blocks",
+  "media-smart": "Media & smart features",
+};
+
+/** Display order for the groups in the settings UI. */
+export const EDITOR_TOOL_GROUP_ORDER: readonly EditorToolGroup[] = [
+  "formatting",
+  "blocks",
+  "media-smart",
+];
+
 export interface EditorToolMeta {
   key: EditorToolKey;
   label: string;
   description: string;
+  /** Which sub-headed section to render the tool under in settings. */
+  group: EditorToolGroup;
+  /**
+   * Keyboard shortcut (e.g. "⌘⇧S"), rendered as a labelled <kbd> chip in the
+   * settings row. Kept separate from the description so non-keyboard users
+   * aren't confused by parenthetical glyph soup.
+   */
+  shortcut?: string;
+  /**
+   * Markdown-style shorthand that creates this tool when typed (e.g.
+   * "~~text~~"), rendered as a labelled "Type [code]" chip. Labelled "Type"
+   * rather than "Markdown" so the term doesn't trip up readers who've never
+   * heard of Markdown — curious users can still infer it's a typing trick.
+   */
+  markdownSyntax?: string;
   /** Wired into the editor yet? Drives the "Coming soon" state in settings. */
   available: boolean;
 }
@@ -66,61 +101,74 @@ export interface EditorToolMeta {
 export const EDITOR_TOOL_REGISTRY: readonly EditorToolMeta[] = [
   {
     key: "headings",
+    group: "formatting",
     label: "Headings",
     description:
-      "Heading styles 1, 2, and 3 (⌘ #/##/### in markdown). Pre-existing headings still render even when this is off.",
+      "Heading styles 1, 2, and 3. Pre-existing headings still render even when this is off.",
+    markdownSyntax: "# ## ###",
     available: true,
   },
   {
     key: "strikethrough",
+    group: "formatting",
     label: "Strikethrough",
-    description: "Cross out text (⌘⇧S, ~~text~~).",
+    description: "Cross out text.",
+    shortcut: "⌘⇧S",
+    markdownSyntax: "~~text~~",
     available: true,
   },
   {
     key: "links",
+    group: "formatting",
     label: "Links",
     description: "Add, edit, and remove hyperlinks; auto-link pasted URLs.",
     available: true,
   },
   {
     key: "collapsibles",
+    group: "blocks",
     label: "Collapsible sections",
     description: "Foldable sections to tuck away longer notes.",
     available: true,
   },
   {
     key: "callouts",
+    group: "blocks",
     label: "Callout boxes",
     description: "Note, Key insight, Warning, Prayer, and Application boxes.",
     available: true,
   },
   {
     key: "tables",
+    group: "blocks",
     label: "Tables",
     description: "Insert and edit tables for side-by-side comparisons.",
     available: true,
   },
   {
     key: "images",
+    group: "media-smart",
     label: "Images",
     description: "Add images by upload or URL, with an optional caption.",
     available: false,
   },
   {
     key: "mediaEmbeds",
+    group: "media-smart",
     label: "Video & audio embeds",
     description: "Embed YouTube/video and sermon audio players.",
     available: false,
   },
   {
     key: "crossRefAutoDetect",
+    group: "media-smart",
     label: "Auto-detect cross-references",
     description: "Turn scripture references you type into links automatically.",
     available: false,
   },
   {
     key: "customColor",
+    group: "formatting",
     label: "Custom colors",
     description: "Pick any highlight/text color beyond the preset palette.",
     available: false,
