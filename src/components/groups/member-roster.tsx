@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import {
@@ -12,6 +12,7 @@ import {
   type ActionResult,
 } from "@/app/groups/actions";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import type { GroupMember } from "@/lib/db/types";
 
 function initials(name: string): string {
@@ -39,6 +40,13 @@ export function MemberRoster({
 }) {
   const [pending, startTransition] = useTransition();
   const router = useRouter();
+  // One shared confirm — `pendingRemove` holds the target row when an owner has
+  // clicked Remove on a member. `confirmLeave` is the self-leave version.
+  const [pendingRemove, setPendingRemove] = useState<{
+    userId: string;
+    name: string;
+  } | null>(null);
+  const [confirmLeave, setConfirmLeave] = useState(false);
 
   function run(action: () => Promise<ActionResult>, onOk?: () => void) {
     startTransition(() => {
@@ -117,7 +125,7 @@ export function MemberRoster({
                   variant="ghost"
                   disabled={pending}
                   onClick={() => {
-                    run(() => removeMember(groupId, member.user_id));
+                    setPendingRemove({ userId: member.user_id, name });
                   }}
                 >
                   Remove
@@ -131,12 +139,7 @@ export function MemberRoster({
                 variant="ghost"
                 disabled={pending}
                 onClick={() => {
-                  run(
-                    () => leaveGroup(groupId),
-                    () => {
-                      router.push("/groups");
-                    },
-                  );
+                  setConfirmLeave(true);
                 }}
               >
                 Leave
@@ -145,6 +148,54 @@ export function MemberRoster({
           </li>
         );
       })}
+
+      <ConfirmDialog
+        open={pendingRemove !== null}
+        onOpenChange={(next) => {
+          if (!next) {
+            setPendingRemove(null);
+          }
+        }}
+        title="Remove this member?"
+        description={
+          <>
+            <span className="font-medium text-foreground">
+              {pendingRemove?.name ?? "This member"}
+            </span>{" "}
+            will lose access to the group&apos;s studies. They can be invited
+            back later.
+          </>
+        }
+        confirmLabel="Remove member"
+        destructive
+        pending={pending}
+        onConfirm={() => {
+          if (pendingRemove) {
+            const target = pendingRemove;
+            setPendingRemove(null);
+            run(() => removeMember(groupId, target.userId));
+          }
+        }}
+      />
+
+      <ConfirmDialog
+        open={confirmLeave}
+        onOpenChange={setConfirmLeave}
+        title="Leave this group?"
+        description="You will lose access to the group's studies. An owner can invite you back later."
+        confirmLabel="Leave group"
+        destructive
+        pending={pending}
+        onConfirm={() => {
+          setConfirmLeave(false);
+          run(
+            () => leaveGroup(groupId),
+            () => {
+              router.push("/groups");
+            },
+          );
+        }}
+      />
     </ul>
   );
 }

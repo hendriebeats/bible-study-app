@@ -75,7 +75,7 @@ export class StudyBlockView implements NodeView {
   private readonly view: EditorView;
   private readonly getPos: () => number | undefined;
   private readonly header: HTMLElement;
-  private readonly titleInput: HTMLInputElement;
+  private readonly titleInput: HTMLTextAreaElement;
   private readonly subtitleEl: HTMLParagraphElement;
 
   constructor(
@@ -108,8 +108,13 @@ export class StudyBlockView implements NodeView {
     const titleRow = document.createElement("div");
     titleRow.className = "study-block-titlerow";
 
-    const titleInput = document.createElement("input");
+    // Textarea (not input) so long titles wrap and the field grows vertically
+    // — `field-sizing: content` on `.study-block-title` (globals.css) does the
+    // growing. Enter still commits via the keydown handler below.
+    const titleInput = document.createElement("textarea");
     titleInput.className = "study-block-title";
+    titleInput.rows = 1;
+    titleInput.wrap = "soft";
     titleInput.value = attrs.title;
     titleInput.placeholder = "Block title";
     titleInput.readOnly = !editable;

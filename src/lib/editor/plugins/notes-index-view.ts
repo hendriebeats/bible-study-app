@@ -1,4 +1,5 @@
 import type { Node } from "prosemirror-model";
+import { TextSelection } from "prosemirror-state";
 import type {
   EditorView,
   NodeView,
@@ -20,6 +21,8 @@ export class NotesIndexView implements NodeView {
   public readonly dom: HTMLElement;
   public readonly contentDOM: HTMLElement;
   private readonly header: HTMLElement;
+  /** Non-PM slot above the entries. React portals the empty-blocks callout here. */
+  private readonly calloutHost: HTMLElement;
 
   constructor() {
     const wrapper = document.createElement("div");
@@ -39,21 +42,39 @@ export class NotesIndexView implements NodeView {
     title.textContent = "Notes";
     header.appendChild(title);
 
-    const body = document.createElement("div");
-    body.className = "notes-index-body study-block-body";
+    // bodyCol owns the body-side padding + wide-layout flex; contentDOM (the
+    // entries) is its inner child, with a sibling slot above for the callout
+    // shown when the section has no real study blocks.
+    const bodyCol = document.createElement("div");
+    bodyCol.className = "notes-index-body-col study-block-body";
 
+    const calloutHost = document.createElement("div");
+    calloutHost.className = "notes-index-callout-host";
+    calloutHost.contentEditable = "false";
+
+    const body = document.createElement("div");
+    body.className = "notes-index-body";
+
+    bodyCol.appendChild(calloutHost);
+    bodyCol.appendChild(body);
     layout.appendChild(header);
-    layout.appendChild(body);
+    layout.appendChild(bodyCol);
     wrapper.appendChild(layout);
 
     this.dom = wrapper;
     this.contentDOM = body;
     this.header = header;
+    this.calloutHost = calloutHost;
   }
 
   stopEvent(event: Event): boolean {
     const target = event.target;
-    return target instanceof HTMLElement && this.header.contains(target);
+    if (!(target instanceof HTMLElement)) {
+      return false;
+    }
+    // Don't let PM swallow events inside the callout (its buttons + focusables
+    // need their own click/keydown handling).
+    return this.header.contains(target) || this.calloutHost.contains(target);
   }
 
   ignoreMutation(mutation: ViewMutationRecord): boolean {
@@ -90,9 +111,11 @@ export class NoteEntryView implements NodeView {
   private node: Node;
   private readonly view: EditorView;
   private readonly getPos: () => number | undefined;
+  private readonly refEl: HTMLElement;
   private readonly refText: HTMLElement;
   private readonly handle: HTMLElement | null;
   private readonly detachReorder: (() => void) | null;
+  private readonly detachRefClick: () => void;
 
   constructor(
     node: Node,
@@ -151,8 +174,30 @@ export class NoteEntryView implements NodeView {
 
     this.dom = row;
     this.contentDOM = body;
+    this.refEl = refEl;
     this.refText = refText;
     this.handle = handle;
+
+    // Clicking the ref gutter (the column to the left of the body) drops the
+    // caret on the body line nearest the click — turning the verse-ref column
+    // into a tap target for the row's text field. The drag handle button gets
+    // its own caret-on-stationary-click via the reorder helper's `onClick`.
+    const onRefMouseDown = (event: MouseEvent): void => {
+      if (
+        handle &&
+        event.target instanceof globalThis.Node &&
+        handle.contains(event.target)
+      ) {
+        // The handle owns this press (drag-or-click); don't double-handle it.
+        return;
+      }
+      event.preventDefault();
+      this.placeCaretAtRowY(event.clientY);
+    };
+    refEl.addEventListener("mousedown", onRefMouseDown);
+    this.detachRefClick = () => {
+      refEl.removeEventListener("mousedown", onRefMouseDown);
+    };
 
     if (handle) {
       detachReorder = attachReorderHandle({
@@ -171,9 +216,60 @@ export class NoteEntryView implements NodeView {
         onReorder: (from, to) => {
           this.reorder(from, to);
         },
+        // Stationary press on the handle drops the caret at the row's start.
+        onClick: () => {
+          this.placeCaretAtBodyStart();
+        },
       });
     }
     this.detachReorder = detachReorder;
+  }
+
+  /**
+   * Map a vertical pixel coordinate inside the row to a position inside the
+   * note body — used by the gutter-click handler so clicking next to a given
+   * line of text places the caret at that line. Clicks above/below the body
+   * fall back to the body's start/end.
+   */
+  private placeCaretAtRowY(clientY: number): void {
+    const view = this.view;
+    const body = this.contentDOM;
+    const bodyRect = body.getBoundingClientRect();
+    let pos: number | null = null;
+    if (clientY >= bodyRect.top && clientY <= bodyRect.bottom) {
+      const found = view.posAtCoords({
+        left: bodyRect.left + 2,
+        top: clientY,
+      });
+      pos = found?.pos ?? null;
+    }
+    if (pos == null) {
+      const myPos = this.getPos();
+      if (myPos == null) {
+        return;
+      }
+      pos =
+        clientY > bodyRect.bottom ? myPos + this.node.nodeSize - 1 : myPos + 1;
+    }
+    const $pos = view.state.doc.resolve(pos);
+    view.dispatch(
+      view.state.tr.setSelection(TextSelection.near($pos)).scrollIntoView(),
+    );
+    view.focus();
+  }
+
+  /** Set the caret at the first valid position inside the note body. */
+  private placeCaretAtBodyStart(): void {
+    const myPos = this.getPos();
+    if (myPos == null) {
+      return;
+    }
+    const view = this.view;
+    const $pos = view.state.doc.resolve(myPos + 1);
+    view.dispatch(
+      view.state.tr.setSelection(TextSelection.near($pos)).scrollIntoView(),
+    );
+    view.focus();
   }
 
   /** Move this note from index `from` to `to` within the notes index. */
@@ -210,13 +306,17 @@ export class NoteEntryView implements NodeView {
   }
 
   stopEvent(event: Event): boolean {
-    // Let the drag handle's own pointer/keyboard handling run instead of PM's.
+    // Let the drag handle's own pointer/keyboard handling run instead of PM's,
+    // and route gutter clicks through `onRefMouseDown` (which places the caret
+    // explicitly) rather than PM's default selection logic.
     const target = event.target;
-    return (
-      this.handle != null &&
-      target instanceof globalThis.Node &&
-      this.handle.contains(target)
-    );
+    if (!(target instanceof globalThis.Node)) {
+      return false;
+    }
+    if (this.refEl.contains(target)) {
+      return true;
+    }
+    return this.handle?.contains(target) ?? false;
   }
 
   ignoreMutation(mutation: ViewMutationRecord): boolean {
@@ -225,5 +325,6 @@ export class NoteEntryView implements NodeView {
 
   destroy(): void {
     this.detachReorder?.();
+    this.detachRefClick();
   }
 }

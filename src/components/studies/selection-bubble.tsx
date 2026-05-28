@@ -254,8 +254,12 @@ export function SelectionBubble() {
     return null;
   }
 
-  const { runCommand, runFormatAction, createNote } = ctx;
+  const { runCommand, runFormatAction, createNote, activeKind } = ctx;
   const recents = formatRecents ?? EMPTY_RECENTS;
+  // Notes anchor on the active editor's selection AND insert an entry into the
+  // blocks doc's notes_index — neither concept exists for a dialog body editor
+  // (its doc is standalone), so the button is hidden when a dialog is focused.
+  const allowAddNote = activeKind !== "dialog";
 
   const handleAddNote = () => {
     const result = createNote();
@@ -285,6 +289,9 @@ export function SelectionBubble() {
         event.preventDefault();
       }}
       className="invisible fixed top-0 left-0 z-50 flex items-center gap-1 rounded-lg border bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10"
+      // Sits above the blocks dialog's overlay (z-50) so the bubble is reachable
+      // when the user selects text inside a dialog body editor.
+      style={{ zIndex: 60 }}
     >
       {shownRecents.length > 0 ? (
         <>
@@ -374,17 +381,20 @@ export function SelectionBubble() {
           <RemoveFormatting className="size-4" />
         </Button>
 
-        <Divider />
-
-        <Button
-          type="button"
-          size="icon-sm"
-          variant="ghost"
-          aria-label="Add note"
-          onClick={handleAddNote}
-        >
-          <MessageSquarePlus className="size-4" />
-        </Button>
+        {allowAddNote ? (
+          <>
+            <Divider />
+            <Button
+              type="button"
+              size="icon-sm"
+              variant="ghost"
+              aria-label="Add note"
+              onClick={handleAddNote}
+            >
+              <MessageSquarePlus className="size-4" />
+            </Button>
+          </>
+        ) : null}
 
         {hasVerse ? (
           <>

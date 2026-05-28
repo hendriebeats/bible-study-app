@@ -10,6 +10,7 @@ import { EditorState } from "prosemirror-state";
 import { tableEditing } from "prosemirror-tables";
 import { EditorView } from "prosemirror-view";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
 import {
@@ -107,20 +108,46 @@ function initialDoc(content: PMDocJSON) {
   return doc.childCount > 0 ? doc : (schema.topNodeType.createAndFill() ?? doc);
 }
 
-/**
- * Does the blocks doc hold real structure (a study block or the pinned notes
- * index), vs. just the empty placeholder paragraph? Drives both the editor's
- * editability and the empty-state prompt so the blocks area never accepts
- * freeform text when there's nothing in it.
- */
-function hasBlocksStructure(doc: Node): boolean {
+/** True if the blocks doc has at least one user-authored study block. */
+function hasStudyBlock(doc: Node): boolean {
   for (let i = 0; i < doc.childCount; i++) {
-    const type = doc.child(i).type;
-    if (type === nodes.studyBlock || type === nodes.notesIndex) {
+    if (doc.child(i).type === nodes.studyBlock) {
       return true;
     }
   }
   return false;
+}
+
+/**
+ * The blocks doc must always lead with the pinned `notes_index`; if a legacy /
+ * empty doc lacks one, prepend a fresh node so the index always renders and the
+ * editor never reverts to the freeform placeholder paragraph.
+ */
+function ensureNotesIndex(doc: Node): Node {
+  const indexType = nodes.notesIndex;
+  if (doc.firstChild?.type === indexType) {
+    return doc;
+  }
+  const index = indexType.createAndFill();
+  if (!index) {
+    return doc;
+  }
+  // If the only child is the empty placeholder paragraph, replace it; otherwise
+  // splice the index in at the front.
+  const first = doc.firstChild;
+  const onlyPlaceholder =
+    doc.childCount === 1 &&
+    first != null &&
+    first.type === schema.nodes.paragraph &&
+    first.content.size === 0;
+  const rest = onlyPlaceholder
+    ? []
+    : Array.from({ length: doc.childCount }, (_, i) => doc.child(i));
+  return doc.type.create(doc.attrs, [index, ...rest]);
+}
+
+function initialBlocksDoc(content: PMDocJSON): Node {
+  return ensureNotesIndex(initialDoc(content));
 }
 
 /**
@@ -137,9 +164,13 @@ function buildInitialState(
   placeholderText: string,
   role: EditorRole,
 ) {
+  const startDoc =
+    role === "blocks"
+      ? ensureNotesIndex(initialDoc(bundle.baseDoc))
+      : initialDoc(bundle.baseDoc);
   try {
     let state = EditorState.create({
-      doc: initialDoc(bundle.baseDoc),
+      doc: startDoc,
       plugins: createPlugins(placeholderText, role),
     });
     let prevCreatedAt: string | null = null;
@@ -158,7 +189,10 @@ function buildInitialState(
     return state;
   } catch {
     return EditorState.create({
-      doc: initialDoc(headContent),
+      doc:
+        role === "blocks"
+          ? ensureNotesIndex(initialDoc(headContent))
+          : initialDoc(headContent),
       plugins: createPlugins(placeholderText, role),
     });
   }
@@ -208,12 +242,17 @@ export function DocumentEditor({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyHead, setHistoryHead] = useState(0);
   const [seeding, setSeeding] = useState(false);
-  // The blocks editor shows a non-editable prompt (instead of an editable
-  // surface) until it holds a study block or the notes index — so a fresh
-  // section never has freeform text. Always false for the Study Body.
-  const [blocksEmpty, setBlocksEmpty] = useState(
-    () => doc.kind === "blocks" && !hasBlocksStructure(initialDoc(doc.content)),
+  // The blocks editor always renders (the pinned notes index is the lowest-level
+  // structure). `noStudyBlocks` toggles the inside-notes-body callout so the
+  // user can seed real study blocks. Always false for the Study Body.
+  const [noStudyBlocks, setNoStudyBlocks] = useState(
+    () =>
+      doc.kind === "blocks" && !hasStudyBlock(initialBlocksDoc(doc.content)),
   );
+  // Live host element for the empty-blocks callout React portal. The NotesIndex
+  // NodeView owns it; it gets re-created on view rebuilds, so we re-grab it
+  // whenever the editor's children change.
+  const [calloutHost, setCalloutHost] = useState<HTMLElement | null>(null);
   const [members, setMembers] = useState<PresenceMember[]>([]);
   const viewRef = useRef<EditorView | null>(null);
   const mountRef = useRef<HTMLDivElement | null>(null);
@@ -308,11 +347,22 @@ export function DocumentEditor({
             lastVersionRef.current = head.version;
             lastCheckpointRef.current = head.version;
             const fresh = EditorState.create({
-              doc: initialDoc(head.content),
+              doc:
+                role === "blocks"
+                  ? ensureNotesIndex(initialDoc(head.content))
+                  : initialDoc(head.content),
               plugins: createPlugins(placeholder, role),
             });
             view.updateState(fresh);
             editorRef.current?.setActive(view, fresh);
+            // The NodeView (and its callout host) was rebuilt — re-acquire it
+            // so the React portal targets the live DOM.
+            setCalloutHost(
+              view.dom.querySelector<HTMLElement>(".notes-index-callout-host"),
+            );
+            if (role === "blocks") {
+              setNoStudyBlocks(!hasStudyBlock(fresh.doc));
+            }
             setStatus("saved");
             toast.info("Synced with your latest edits from another tab.");
           }
@@ -401,7 +451,11 @@ export function DocumentEditor({
     const view = new EditorView(mount, {
       state: buildInitialState(docHistory, doc.content, placeholder, role),
       nodeViews: buildNodeViews(true),
-      editable: (state) => role !== "blocks" || hasBlocksStructure(state.doc),
+      // The blocks doc always carries the pinned notes index now, so the
+      // blocks editor is always editable. Kept as a callback to match prior
+      // shape in case the invariant slips for legacy docs.
+      editable: (state) =>
+        role !== "blocks" || state.doc.firstChild?.type === nodes.notesIndex,
       dispatchTransaction(transaction) {
         const current = viewRef.current;
         if (!current) {
@@ -419,9 +473,9 @@ export function DocumentEditor({
         // Track this edit in the section-wide undo order.
         recordUndo(current, next);
         if (transaction.docChanged && role === "blocks") {
-          // Toggle the empty-state prompt / editability as blocks come and go.
-          const empty = !hasBlocksStructure(next.doc);
-          setBlocksEmpty((prev) => (prev === empty ? prev : empty));
+          // Toggle the inside-notes-body callout as study blocks come and go.
+          const empty = !hasStudyBlock(next.doc);
+          setNoStudyBlocks((prev) => (prev === empty ? prev : empty));
         }
         if (transaction.docChanged) {
           for (const step of transaction.steps) {
@@ -455,6 +509,11 @@ export function DocumentEditor({
     viewRef.current = view;
     editorRef.current?.registerView(view, role);
     registerUndoView(view);
+    // The pinned notes index NodeView builds the host on construction; grab it
+    // immediately so the empty-blocks callout can portal in on first render.
+    setCalloutHost(
+      view.dom.querySelector<HTMLElement>(".notes-index-callout-host"),
+    );
 
     return () => {
       disposed = true;
@@ -499,10 +558,14 @@ export function DocumentEditor({
         return;
       }
       const fragment = jsonToDoc(sourceDoc).content;
-      // In the empty state the doc is the lone placeholder paragraph — no
-      // notes_index at top (it would have made hasBlocksStructure true).
+      // The blocks doc always leads with the pinned notes_index now — keep it
+      // and replace only the tail (the body section beneath the notes index).
+      // Falls back to a full replace for any legacy doc missing the index.
+      const firstChild = view.state.doc.firstChild;
+      const insertStart =
+        firstChild?.type === nodes.notesIndex ? firstChild.nodeSize : 0;
       const tr = view.state.tr.replaceWith(
-        0,
+        insertStart,
         view.state.doc.content.size,
         fragment,
       );
@@ -621,45 +684,48 @@ export function DocumentEditor({
           )}
         </div>
       </div>
-      <div ref={mountRef} className={blocksEmpty ? "hidden" : "min-h-32"} />
-      {doc.kind === "blocks" && blocksEmpty ? (
-        <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-          <p>No study blocks yet.</p>
-          {emptyStateHasTemplate || emptyStateHasPrevious ? (
-            <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
-              {emptyStateHasTemplate ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={seeding}
-                  onClick={() => {
-                    void seedFromTemplate();
-                  }}
-                >
-                  Use this study&rsquo;s template
-                </Button>
+      <div ref={mountRef} className="min-h-32" />
+      {doc.kind === "blocks" && noStudyBlocks && calloutHost
+        ? createPortal(
+            <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+              <p>No study blocks yet.</p>
+              {emptyStateHasTemplate || emptyStateHasPrevious ? (
+                <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+                  {emptyStateHasTemplate ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={seeding}
+                      onClick={() => {
+                        void seedFromTemplate();
+                      }}
+                    >
+                      Use this study&rsquo;s template
+                    </Button>
+                  ) : null}
+                  {emptyStateHasPrevious ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={seeding}
+                      onClick={() => {
+                        void seedFromPrevious();
+                      }}
+                    >
+                      Copy from previous section
+                    </Button>
+                  ) : null}
+                </div>
               ) : null}
-              {emptyStateHasPrevious ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={seeding}
-                  onClick={() => {
-                    void seedFromPrevious();
-                  }}
-                >
-                  Copy from previous section
-                </Button>
-              ) : null}
-            </div>
-          ) : null}
-          <p className="mt-2 text-xs">
-            Or use &ldquo;Edit blocks&rdquo; above to add them manually.
-          </p>
-        </div>
-      ) : null}
+              <p className="mt-2 text-xs">
+                Or use &ldquo;Edit blocks&rdquo; above to add them manually.
+              </p>
+            </div>,
+            calloutHost,
+          )
+        : null}
       {historyOpen ? (
         <VersionHistoryPanel
           documentId={doc.id}

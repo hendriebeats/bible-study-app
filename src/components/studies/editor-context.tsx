@@ -84,7 +84,7 @@ function nearestVerseRef(doc: Node, pos: number): string {
   return ref;
 }
 
-export type EditorRole = "notes" | "blocks";
+export type EditorRole = "notes" | "blocks" | "dialog";
 
 export interface ScriptureInsertResult {
   ok: boolean;
@@ -109,6 +109,9 @@ interface EditorContextValue {
   activeView: EditorView | null;
   /** That editor's latest state, for the toolbar's active/disabled states. */
   activeState: EditorState | null;
+  /** Which kind of editor is currently active — lets the toolbar/bubble hide
+   * doc-specific buttons (Note, Scripture) when a dialog body is focused. */
+  activeKind: EditorRole | null;
   registerView: (view: EditorView, role: EditorRole) => void;
   unregisterView: (view: EditorView) => void;
   setActive: (view: EditorView, state: EditorState) => void;
@@ -178,16 +181,25 @@ export function EditorProvider({
 }) {
   const [activeView, setActiveView] = useState<EditorView | null>(null);
   const [activeState, setActiveState] = useState<EditorState | null>(null);
+  const [activeKind, setActiveKind] = useState<EditorRole | null>(null);
   const activeViewRef = useRef<EditorView | null>(null);
   const notesViewRef = useRef<EditorView | null>(null);
   const blocksViewRef = useRef<EditorView | null>(null);
   const viewsRef = useRef<Set<EditorView>>(new Set());
+  // Per-view role — lets `setActive` derive the active kind without callers
+  // having to pass it on every focus/edit.
+  const viewKindRef = useRef<Map<EditorView, EditorRole>>(new Map());
 
   const adoptActive = useCallback(
-    (view: EditorView | null, state: EditorState | null) => {
+    (
+      view: EditorView | null,
+      state: EditorState | null,
+      kind: EditorRole | null,
+    ) => {
       activeViewRef.current = view;
       setActiveView(view);
       setActiveState(state);
+      setActiveKind(kind);
     },
     [],
   );
@@ -195,14 +207,18 @@ export function EditorProvider({
   const registerView = useCallback(
     (view: EditorView, role: EditorRole) => {
       viewsRef.current.add(view);
+      viewKindRef.current.set(view, role);
       if (role === "notes") {
         notesViewRef.current = view;
       }
       if (role === "blocks") {
         blocksViewRef.current = view;
       }
+      // "dialog" views don't override notesViewRef / blocksViewRef — those keep
+      // pointing at the underlying section's real editors (createNote/scripture
+      // still target the right doc).
       if (activeViewRef.current === null) {
-        adoptActive(view, view.state);
+        adoptActive(view, view.state, role);
       }
     },
     [adoptActive],
@@ -211,6 +227,7 @@ export function EditorProvider({
   const unregisterView = useCallback(
     (view: EditorView) => {
       viewsRef.current.delete(view);
+      viewKindRef.current.delete(view);
       if (notesViewRef.current === view) {
         notesViewRef.current = null;
       }
@@ -219,7 +236,8 @@ export function EditorProvider({
       }
       if (activeViewRef.current === view) {
         const next = viewsRef.current.values().next().value ?? null;
-        adoptActive(next, next ? next.state : null);
+        const nextKind = next ? (viewKindRef.current.get(next) ?? null) : null;
+        adoptActive(next, next ? next.state : null, nextKind);
       }
     },
     [adoptActive],
@@ -227,7 +245,7 @@ export function EditorProvider({
 
   const setActive = useCallback(
     (view: EditorView, state: EditorState) => {
-      adoptActive(view, state);
+      adoptActive(view, state, viewKindRef.current.get(view) ?? null);
     },
     [adoptActive],
   );
@@ -437,6 +455,7 @@ export function EditorProvider({
     () => ({
       activeView,
       activeState,
+      activeKind,
       registerView,
       unregisterView,
       setActive,
@@ -455,6 +474,7 @@ export function EditorProvider({
     [
       activeView,
       activeState,
+      activeKind,
       registerView,
       unregisterView,
       setActive,

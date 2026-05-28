@@ -26,6 +26,14 @@ export interface ReorderHandleOptions {
   getSiblings: () => HTMLElement[];
   /** Commit a move: the item at index `from` should end up at index `to`. */
   onReorder: (from: number, to: number) => void;
+  /**
+   * Optional fallback for a stationary click on the handle (mousedown→mouseup
+   * inside {@link DRAG_THRESHOLD}px, no reorder triggered). Lets the handle
+   * double as a "focus / place caret" target for rows whose handle sits inside
+   * the row's own content (e.g. the note-entry gutter). Skip for handles
+   * separated from content by a clear border (the blocks-dialog row handles).
+   */
+  onClick?: (event: PointerEvent) => void;
 }
 
 /** Move the element at `from` to index `to`, returning a new array. */
@@ -89,7 +97,7 @@ function positionIndicator(
  * and tears down any in-flight drag.
  */
 export function attachReorderHandle(options: ReorderHandleOptions): () => void {
-  const { handle, getItem, getSiblings, onReorder } = options;
+  const { handle, getItem, getSiblings, onReorder, onClick } = options;
 
   let armed = false;
   let dragging = false;
@@ -157,6 +165,7 @@ export function attachReorderHandle(options: ReorderHandleOptions): () => void {
   }
 
   function onPointerUp(event: PointerEvent): void {
+    const wasArmed = armed;
     const wasDragging = dragging;
     let target = -1;
     if (wasDragging) {
@@ -175,6 +184,12 @@ export function attachReorderHandle(options: ReorderHandleOptions): () => void {
       if (target >= 0 && target !== from) {
         onReorder(from, target);
       }
+    } else if (wasArmed && onClick) {
+      // Stationary press → fire the caller's "click" fallback so the handle
+      // can place the caret / focus the row. The native click also fires, but
+      // any caller-side handler attached to `handle` would have triggered
+      // anyway; routing through `onClick` keeps the callback colocated.
+      onClick(event);
     }
   }
 

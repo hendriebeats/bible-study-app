@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import {
@@ -24,6 +24,7 @@ import {
 import { useStudyChrome } from "@/components/studies/study-chrome-context";
 import { TrashButton } from "@/components/studies/trash-button";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -67,6 +68,30 @@ export function StudySidebar({
   const router = useRouter();
   const chrome = useStudyChrome();
   const [pending, startTransition] = useTransition();
+  // One shared confirm dialog for the whole list — `pendingDelete` holds the
+  // section id whose row triggered it (null = closed). Cheaper than mounting a
+  // confirm-dialog per row and avoids stale-row state on rapid menu reopens.
+  const [pendingDelete, setPendingDelete] = useState<{
+    id: string;
+    title: string;
+  } | null>(null);
+
+  function performDelete(id: string) {
+    startTransition(() => {
+      void deleteSection(id, study.id);
+    });
+    // deleteSection redirects, so fire the toast now; Undo restores it.
+    toast("Section moved to trash.", {
+      action: {
+        label: "Undo",
+        onClick: () => {
+          startTransition(() => {
+            void restoreSection(id, study.id);
+          });
+        },
+      },
+    });
+  }
 
   return (
     <aside className="flex h-full w-64 shrink-0 flex-col border-r bg-sidebar">
@@ -186,21 +211,7 @@ export function StudySidebar({
                         disabled={pending}
                         className="whitespace-nowrap"
                         onClick={() => {
-                          startTransition(() => {
-                            void deleteSection(section.id, study.id);
-                          });
-                          // deleteSection redirects, so fire the toast now; Undo
-                          // restores the section from the Trash.
-                          toast("Section moved to trash.", {
-                            action: {
-                              label: "Undo",
-                              onClick: () => {
-                                startTransition(() => {
-                                  void restoreSection(section.id, study.id);
-                                });
-                              },
-                            },
-                          });
+                          setPendingDelete({ id: section.id, title });
                         }}
                       >
                         <Trash2 className="size-4" />
@@ -234,6 +245,34 @@ export function StudySidebar({
           />
         </div>
       ) : null}
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        onOpenChange={(next) => {
+          if (!next) {
+            setPendingDelete(null);
+          }
+        }}
+        title="Delete this section?"
+        description={
+          <>
+            <span className="font-medium text-foreground">
+              {pendingDelete?.title ?? "This section"}
+            </span>{" "}
+            will move to the trash. You can restore it from the trash button at
+            the bottom of the sidebar.
+          </>
+        }
+        confirmLabel="Delete section"
+        destructive
+        pending={pending}
+        onConfirm={() => {
+          if (pendingDelete) {
+            performDelete(pendingDelete.id);
+          }
+          setPendingDelete(null);
+        }}
+      />
     </aside>
   );
 }

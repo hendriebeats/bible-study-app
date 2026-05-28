@@ -325,9 +325,29 @@
   .ProseMirror .notes-index-title {
     @apply text-sm font-semibold;
   }
+  /* The body column owns the entries' left edge directly — the row gutter (drag
+     handle + verse ref) sits flush against the wrapper's left side instead of
+     inset by `.study-block-body`'s p-3. Other sides keep that padding. The
+     extra `.notes-index` qualifier raises specificity above the later-defined
+     `.ProseMirror .study-block-body { padding: 0.75rem }`. */
+  .ProseMirror .notes-index .notes-index-body-col {
+    padding-left: 0;
+  }
+  /* Slot above the entries inside the notes-index body. React portals the
+     "No study blocks yet" callout into this element via document-editor.tsx;
+     when populated it gets its own left inset (the row gutter doesn't apply
+     to the callout) and a margin below it before the entries start. */
+  .ProseMirror .notes-index-callout-host:not(:empty) {
+    margin-bottom: 0.75rem;
+    padding-left: 0.75rem;
+  }
   .ProseMirror .note-entry {
-    @apply grid gap-3 py-2;
-    grid-template-columns: 4rem 1fr;
+    /* Fixed (not auto-sized) ref column keeps note body left edges aligned even
+       as verse-ref length varies. 2.75rem holds a 4px drag-handle gutter +
+       drag handle + verse ref; refs that overflow clip rather than widen the
+       column. 8px column gap separates the verse ref from the body. */
+    @apply grid items-start gap-2 py-2;
+    grid-template-columns: 2.75rem 1fr;
     border-top: 1px solid var(--border);
   }
   .ProseMirror .note-entry:first-child {
@@ -335,15 +355,39 @@
     padding-top: 0;
   }
   .ProseMirror .note-entry-ref {
-    @apply flex flex-col items-start gap-1 text-xs font-medium text-muted-foreground;
+    /* The whole gutter is one clickable text-field tap target (see
+       notes-index-view.ts: clicking here drops the caret on the matching body
+       line). The drag handle is absolute-positioned inside this column so the
+       "dead" space to its left is still part of the column's hit area. */
+    @apply text-xs font-medium text-muted-foreground;
+    position: relative;
+    cursor: text;
+    text-align: right;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    /* Reserve the drag-handle slot (4px gutter + 16px handle) so right-aligned
+       ref text never slides under the handle. */
+    padding-left: 1.25rem;
+    min-height: 1rem;
   }
   /* Drag handle for reordering a note row — revealed on row hover / focus. */
   .ProseMirror .note-entry-drag {
     @apply flex size-4 cursor-grab items-center justify-center rounded-sm text-muted-foreground opacity-0 hover:bg-muted hover:text-foreground;
+    position: absolute;
+    /* Anchored 4px in from the row's left so the handle sits a hair off the
+       wrapper border, while letting the ref-column's mousedown hit area cover
+       the gutter on either side of it. */
+    left: 4px;
+    top: 0.125rem;
+    /* When hidden, let clicks fall through to the ref column's caret handler
+       (the handle's own caret-on-stationary-click only fires while visible). */
+    pointer-events: none;
   }
   .ProseMirror .note-entry:hover .note-entry-drag,
   .ProseMirror .note-entry-drag:focus-visible {
     @apply opacity-100;
+    pointer-events: auto;
   }
   .ProseMirror .note-entry-drag svg {
     width: 0.85em;
@@ -502,9 +546,21 @@
   }
   .study-block-title {
     @apply min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none;
+    /* Used on both <input> and <textarea> (the editor and the blocks dialog).
+       For textarea: size-to-content + no manual resize handle + no scrollbar,
+       so a long title wraps and grows vertically instead of clipping. */
+    resize: none;
+    overflow: hidden;
+    field-sizing: content;
   }
   .study-block-subtitle {
     @apply mt-1 text-xs text-muted-foreground;
+    /* Mirrors .study-block-title: when this class is used on a textarea (the
+       blocks dialog's always-editable subtitle), the field grows with wrapped
+       content. No-op on the live editor's read-only <p>. */
+    resize: none;
+    overflow: hidden;
+    field-sizing: content;
   }
   /* Light-gray left column with a divider against the body. */
   .study-block-header {

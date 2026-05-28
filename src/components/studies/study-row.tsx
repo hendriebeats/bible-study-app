@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -57,6 +58,23 @@ function CoMemberAvatars({ members }: { members: StudyCoMember[] }) {
 export function StudyRow({ item }: { item: StudyListItem }) {
   const [pending, startTransition] = useTransition();
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [confirmTrash, setConfirmTrash] = useState(false);
+
+  function trashSolo() {
+    startTransition(() => {
+      void deleteStudy(item.id);
+    });
+    toast("Study moved to trash.", {
+      action: {
+        label: "Undo",
+        onClick: () => {
+          startTransition(() => {
+            void restoreStudy(item.id);
+          });
+        },
+      },
+    });
+  }
 
   return (
     <div className="relative">
@@ -105,26 +123,14 @@ export function StudyRow({ item }: { item: StudyListItem }) {
               variant="destructive"
               disabled={pending}
               onClick={() => {
-                // Group-attached studies route through a dialog that lets the
-                // user choose what happens to their membership; solo studies
-                // keep the frictionless one-click trash + Undo.
+                // Group-attached studies route through a dialog that already
+                // confirms (it asks how to handle the user's group membership);
+                // solo studies open a small confirm before the soft-delete.
                 if (item.group) {
                   setDialogOpen(true);
                   return;
                 }
-                startTransition(() => {
-                  void deleteStudy(item.id);
-                });
-                toast("Study moved to trash.", {
-                  action: {
-                    label: "Undo",
-                    onClick: () => {
-                      startTransition(() => {
-                        void restoreStudy(item.id);
-                      });
-                    },
-                  },
-                });
+                setConfirmTrash(true);
               }}
             >
               <Trash2 className="size-4" />
@@ -141,7 +147,27 @@ export function StudyRow({ item }: { item: StudyListItem }) {
           open={dialogOpen}
           onOpenChange={setDialogOpen}
         />
-      ) : null}
+      ) : (
+        <ConfirmDialog
+          open={confirmTrash}
+          onOpenChange={setConfirmTrash}
+          title="Move this study to the trash?"
+          description={
+            <>
+              <span className="font-medium text-foreground">{item.title}</span>{" "}
+              will move to the trash. You can restore it from the trash on the
+              dashboard.
+            </>
+          }
+          confirmLabel="Move to trash"
+          destructive
+          pending={pending}
+          onConfirm={() => {
+            setConfirmTrash(false);
+            trashSolo();
+          }}
+        />
+      )}
     </div>
   );
 }

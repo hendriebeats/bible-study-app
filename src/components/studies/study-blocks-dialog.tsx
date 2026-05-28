@@ -10,7 +10,9 @@ import {
 } from "@/app/studies/actions";
 import { BlockListEditor } from "@/components/studies/block-list-editor";
 import { useEditorContext } from "@/components/studies/editor-context";
+import { EditorToolbar } from "@/components/studies/editor-toolbar";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   Dialog,
   DialogContent,
@@ -67,13 +69,18 @@ export function StudyBlocksDialog({
   const [templateDrafts, setTemplateDraftsState] = useState<BlockDraft[]>([]);
   const [templateLoading, setTemplateLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
 
-  // Refs mirror the draft state so Save can read the latest synchronously after
-  // flushing a focused body editor (whose change commits on blur).
+  // Refs mirror the draft state so Save (and the dirty check) can read the
+  // latest synchronously after flushing a focused body editor (whose change
+  // commits on blur).
   const sectionRef = useRef<BlockDraft[]>([]);
   const templateRef = useRef<BlockDraft[]>([]);
   const sectionBaseline = useRef("");
   const templateBaseline = useRef("");
+  // Cancel button + the discard-confirm Accept skip the dirty check by flipping
+  // this for one close cycle — the user has already chosen to discard.
+  const bypassDirtyCheck = useRef(false);
 
   function setSectionDrafts(next: BlockDraft[]) {
     sectionRef.current = next;
@@ -122,6 +129,16 @@ export function StudyBlocksDialog({
     };
   }, [open, studyId]);
 
+  /** True when the user has unsaved edits in either tab. Flushes any focused
+   * body editor first so its blur-commit lands before we compare. */
+  function isDirty() {
+    (document.activeElement as HTMLElement | null)?.blur();
+    return (
+      specsJson(sectionRef.current) !== sectionBaseline.current ||
+      specsJson(templateRef.current) !== templateBaseline.current
+    );
+  }
+
   /** Apply the section drafts to the live blocks editor as one transaction. */
   function applySectionDrafts(drafts: BlockDraft[]) {
     const view = editorRef.current?.getBlocksView();
@@ -165,6 +182,7 @@ export function StudyBlocksDialog({
     const templateChanged =
       specsJson(templateRef.current) !== templateBaseline.current;
     if (!sectionChanged && !templateChanged) {
+      bypassDirtyCheck.current = true;
       setOpen(false);
       return;
     }
@@ -180,6 +198,9 @@ export function StudyBlocksDialog({
         );
         await saveStudyTemplateBlocksDoc(studyId, doc);
       }
+      // Save is the other "user committed to closing" path — skip the discard
+      // prompt on the resulting close.
+      bypassDirtyCheck.current = true;
       setOpen(false);
       toast.success("Study blocks updated.");
     } catch {
@@ -189,15 +210,37 @@ export function StudyBlocksDialog({
     }
   }
 
+  /** Intercepts the dialog's own close attempts (X / Esc / overlay click — all
+   * of which Radix routes through onOpenChange(false)). When the user has
+   * unsaved edits, we route them through the discard confirm instead of
+   * closing. The Cancel button + Save flip `bypassDirtyCheck` first because
+   * those are explicit "I'm done" actions. */
+  function handleOpenChange(next: boolean) {
+    if (next) {
+      setOpen(true);
+      return;
+    }
+    if (bypassDirtyCheck.current) {
+      bypassDirtyCheck.current = false;
+      setOpen(false);
+      return;
+    }
+    if (isDirty()) {
+      setConfirmDiscard(true);
+      return;
+    }
+    setOpen(false);
+  }
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button type="button" size="sm" variant="ghost">
           <SlidersHorizontal className="size-4" />
           Edit blocks
         </Button>
       </DialogTrigger>
-      <DialogContent className="flex max-h-screen w-full max-w-2xl flex-col gap-4">
+      <DialogContent className="flex max-h-screen w-full max-w-4xl flex-col gap-4">
         <DialogHeader>
           <DialogTitle>Study blocks</DialogTitle>
           <DialogDescription>
@@ -234,6 +277,18 @@ export function StudyBlocksDialog({
           ))}
         </div>
 
+        {/* Same component as the page's top toolbar — it reads EditorContext,
+            so it lights up and acts on whichever card body is currently
+            focused. Sits directly above the content it acts on (below the tab
+            switcher) so the relationship between toolbar and target is
+            unambiguous. The chrome toolbar behind the dialog overlay is dimmed
+            but untouched; the dialog's own copy is the one users interact with. */}
+        <EditorToolbar
+          variant="bar"
+          scope="dialog"
+          className="rounded-md border bg-card"
+        />
+
         <div className="min-h-0 flex-1 overflow-y-auto">
           {tab === "section" ? (
             <BlockListEditor
@@ -257,6 +312,8 @@ export function StudyBlocksDialog({
             type="button"
             variant="ghost"
             onClick={() => {
+              // Cancel = explicit discard intent; skip the confirm and close.
+              bypassDirtyCheck.current = true;
               setOpen(false);
             }}
           >
@@ -273,6 +330,21 @@ export function StudyBlocksDialog({
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      <ConfirmDialog
+        open={confirmDiscard}
+        onOpenChange={setConfirmDiscard}
+        title="Discard your changes?"
+        description="You have unsaved changes to the study blocks. Closing now will lose them."
+        confirmLabel="Discard changes"
+        cancelLabel="Keep editing"
+        destructive
+        onConfirm={() => {
+          setConfirmDiscard(false);
+          bypassDirtyCheck.current = true;
+          setOpen(false);
+        }}
+      />
     </Dialog>
   );
 }

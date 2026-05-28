@@ -105,7 +105,8 @@ export function SlashMenu() {
       onMouseDown={(event) => {
         event.preventDefault();
       }}
-      style={{ position: "fixed", left, top, width: MENU_WIDTH }}
+      // zIndex 60 puts the menu above the blocks-dialog overlay (z-50).
+      style={{ position: "fixed", left, top, width: MENU_WIDTH, zIndex: 60 }}
       className="z-50 max-h-72 overflow-auto rounded-lg border bg-popover p-1 shadow-md ring-1 ring-foreground/10"
     >
       {items.map((item, i) => {

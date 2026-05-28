@@ -46,6 +46,7 @@ import {
   sectionUndoCommand,
 } from "@/lib/editor/section-undo";
 import { marks, nodes } from "@/lib/editor/schema";
+import { cn } from "@/lib/utils";
 
 interface ToolbarItem {
   icon: LucideIcon;
@@ -66,10 +67,18 @@ interface ToolbarItem {
 export function EditorToolbar({
   className,
   variant = "card",
+  scope = "page",
   trailing,
 }: {
   className?: string;
   variant?: "card" | "bar";
+  /** `"page"` (default) = page-level toolbar that acts on whichever editor is
+   * focused. `"dialog"` = an instance rendered inside the blocks dialog;
+   * formatting buttons are disabled until a dialog body is the active editor
+   * (so the toolbar can't reach through the modal and edit the live doc
+   * behind it), and the Note / Scripture buttons are hidden (they target the
+   * notes_index / notes editor that the dialog body doesn't have). */
+  scope?: "page" | "dialog";
   /** Extra controls pinned to the end of the bar (e.g. the group members menu). */
   trailing?: ReactNode;
 }) {
@@ -79,7 +88,17 @@ export function EditorToolbar({
   if (!ctx) {
     return null;
   }
-  const { activeState, runCommand, createNote } = ctx;
+  const { activeState, runCommand, createNote, activeKind } = ctx;
+  // In `scope="dialog"`, the toolbar is rendered inside the blocks dialog and
+  // must only act on dialog-body editors — otherwise it would target the
+  // underlying section editor through the modal overlay.
+  const effectivelyDisabled =
+    activeState === null || (scope === "dialog" && activeKind !== "dialog");
+  // Notes anchor on the active view AND insert into the blocks doc's notes
+  // index; Scripture inserts into the notes editor. Both are meaningless when
+  // a dialog body is active, so they're hidden in dialog scope or when the
+  // active editor is a dialog body.
+  const allowDocSpecific = scope !== "dialog" && activeKind !== "dialog";
 
   function handleAddNote() {
     const result = createNote();
@@ -176,11 +195,20 @@ export function EditorToolbar({
   return (
     <div className={className}>
       <div
-        className={
+        // Whole-bar disabled treatment: when there's no editor to act on (or, in
+        // dialog scope, when focus is in a plain textarea like the title /
+        // subtitle / placeholder), the entire bar reads as "not usable right
+        // now" — muted background + dropped opacity + pointer-events stripped —
+        // rather than leaving a row of half-greyed icons over a normal bg.
+        aria-disabled={effectivelyDisabled}
+        className={cn(
           variant === "bar"
             ? "flex flex-wrap items-center gap-1 px-2 py-1.5"
-            : "flex flex-wrap items-center gap-1 rounded-md border bg-card p-1"
-        }
+            : "flex flex-wrap items-center gap-1 rounded-md border bg-card p-1",
+          effectivelyDisabled
+            ? "pointer-events-none bg-muted/60 opacity-60"
+            : "",
+        )}
       >
         {groups.map((group, index) => (
           <div
@@ -198,7 +226,7 @@ export function EditorToolbar({
                 variant={item.active ? "secondary" : "ghost"}
                 aria-label={item.label}
                 aria-pressed={item.active}
-                disabled={activeState === null}
+                disabled={effectivelyDisabled}
                 // Keep the editor focused (and its selection) when clicking.
                 onMouseDown={(event) => {
                   event.preventDefault();
@@ -216,36 +244,47 @@ export function EditorToolbar({
         <LinkControl size="icon" />
         <ColorControl kind="highlight" size="icon" />
         <ColorControl kind="text" size="icon" />
-        <Separator orientation="vertical" className="mx-1 h-6" />
-        <Button
-          type="button"
-          size="sm"
-          variant={scriptureOpen ? "secondary" : "ghost"}
-          onMouseDown={(event) => {
-            event.preventDefault();
-          }}
-          onClick={() => {
-            setScriptureOpen((open) => !open);
-          }}
-        >
-          <BookOpen className="size-4" />
-          Scripture
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          disabled={activeState === null}
-          onMouseDown={(event) => {
-            event.preventDefault();
-          }}
-          onClick={handleAddNote}
-        >
-          <MessageSquarePlus className="size-4" />
-          Note
-        </Button>
-        <Separator orientation="vertical" className="mx-1 h-6" />
-        <ShortcutCheatsheet />
+        {allowDocSpecific ? (
+          <>
+            <Separator orientation="vertical" className="mx-1 h-6" />
+            <Button
+              type="button"
+              size="sm"
+              variant={scriptureOpen ? "secondary" : "ghost"}
+              onMouseDown={(event) => {
+                event.preventDefault();
+              }}
+              onClick={() => {
+                setScriptureOpen((open) => !open);
+              }}
+            >
+              <BookOpen className="size-4" />
+              Scripture
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={activeState === null}
+              onMouseDown={(event) => {
+                event.preventDefault();
+              }}
+              onClick={handleAddNote}
+            >
+              <MessageSquarePlus className="size-4" />
+              Note
+            </Button>
+          </>
+        ) : null}
+        {/* Cheatsheet / Group are page-level concerns (whole-section shortcuts,
+            whole-group roster) and don't apply to a single block's body editor,
+            so they're omitted from the dialog scope's preset. */}
+        {scope !== "dialog" ? (
+          <>
+            <Separator orientation="vertical" className="mx-1 h-6" />
+            <ShortcutCheatsheet />
+          </>
+        ) : null}
         {trailing ? (
           <>
             <Separator orientation="vertical" className="mx-1 h-6" />
