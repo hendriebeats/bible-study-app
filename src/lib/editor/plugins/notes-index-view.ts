@@ -21,8 +21,8 @@ export class NotesIndexView implements NodeView {
   public readonly dom: HTMLElement;
   public readonly contentDOM: HTMLElement;
   private readonly header: HTMLElement;
-  /** Non-PM slot above the entries. React portals the empty-blocks callout here. */
-  private readonly calloutHost: HTMLElement;
+  /** Non-PM "no notes yet" placeholder; CSS hides it when the body has entries. */
+  private readonly empty: HTMLElement;
 
   constructor() {
     const wrapper = document.createElement("div");
@@ -43,20 +43,29 @@ export class NotesIndexView implements NodeView {
     header.appendChild(title);
 
     // bodyCol owns the body-side padding + wide-layout flex; contentDOM (the
-    // entries) is its inner child, with a sibling slot above for the callout
-    // shown when the section has no real study blocks.
+    // entries) is its inner child, with an empty-state placeholder sibling
+    // *after* the body — `globals.css` uses an adjacent-sibling rule to hide
+    // the placeholder whenever the body has at least one entry.
     const bodyCol = document.createElement("div");
     bodyCol.className = "notes-index-body-col study-block-body";
-
-    const calloutHost = document.createElement("div");
-    calloutHost.className = "notes-index-callout-host";
-    calloutHost.contentEditable = "false";
 
     const body = document.createElement("div");
     body.className = "notes-index-body";
 
-    bodyCol.appendChild(calloutHost);
+    const empty = document.createElement("div");
+    empty.className = "notes-index-empty";
+    empty.contentEditable = "false";
+    // Speech-bubble path mirrors the inline note-anchor icon (see
+    // note-anchors.ts buildIcon) so the empty state visually points at the
+    // affordance users click on a block's text to create a note.
+    empty.innerHTML =
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+      'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>' +
+      "<span>Notes you add will appear here.</span>";
+
     bodyCol.appendChild(body);
+    bodyCol.appendChild(empty);
     layout.appendChild(header);
     layout.appendChild(bodyCol);
     wrapper.appendChild(layout);
@@ -64,7 +73,7 @@ export class NotesIndexView implements NodeView {
     this.dom = wrapper;
     this.contentDOM = body;
     this.header = header;
-    this.calloutHost = calloutHost;
+    this.empty = empty;
   }
 
   stopEvent(event: Event): boolean {
@@ -72,9 +81,11 @@ export class NotesIndexView implements NodeView {
     if (!(target instanceof HTMLElement)) {
       return false;
     }
-    // Don't let PM swallow events inside the callout (its buttons + focusables
-    // need their own click/keydown handling).
-    return this.header.contains(target) || this.calloutHost.contains(target);
+    // Keep PM out of the non-editable chrome: the header label and the empty
+    // placeholder are both `contentEditable=false`, but PM still tries to
+    // place selections on mousedown — bail on those so it doesn't disturb the
+    // caret in the entries body.
+    return this.header.contains(target) || this.empty.contains(target);
   }
 
   ignoreMutation(mutation: ViewMutationRecord): boolean {

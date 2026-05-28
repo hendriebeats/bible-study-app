@@ -10,7 +10,6 @@ import { EditorState } from "prosemirror-state";
 import { tableEditing } from "prosemirror-tables";
 import { EditorView } from "prosemirror-view";
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
 import {
@@ -250,16 +249,13 @@ export function DocumentEditor({
   const [historyHead, setHistoryHead] = useState(0);
   const [seeding, setSeeding] = useState(false);
   // The blocks editor always renders (the pinned notes index is the lowest-level
-  // structure). `noStudyBlocks` toggles the inside-notes-body callout so the
-  // user can seed real study blocks. Always false for the Study Body.
+  // structure). `noStudyBlocks` toggles the empty-state callout below the
+  // editor so the user can seed real study blocks. Always false for the
+  // Study Body.
   const [noStudyBlocks, setNoStudyBlocks] = useState(
     () =>
       doc.kind === "blocks" && !hasStudyBlock(initialBlocksDoc(doc.content)),
   );
-  // Live host element for the empty-blocks callout React portal. The NotesIndex
-  // NodeView owns it; it gets re-created on view rebuilds, so we re-grab it
-  // whenever the editor's children change.
-  const [calloutHost, setCalloutHost] = useState<HTMLElement | null>(null);
   const [members, setMembers] = useState<PresenceMember[]>([]);
   const viewRef = useRef<EditorView | null>(null);
   const mountRef = useRef<HTMLDivElement | null>(null);
@@ -362,11 +358,6 @@ export function DocumentEditor({
             });
             view.updateState(fresh);
             editorRef.current?.setActive(view, fresh);
-            // The NodeView (and its callout host) was rebuilt — re-acquire it
-            // so the React portal targets the live DOM.
-            setCalloutHost(
-              view.dom.querySelector<HTMLElement>(".notes-index-callout-host"),
-            );
             if (role === "blocks") {
               setNoStudyBlocks(!hasStudyBlock(fresh.doc));
             }
@@ -516,11 +507,6 @@ export function DocumentEditor({
     viewRef.current = view;
     editorRef.current?.registerView(view, role);
     registerUndoView(view);
-    // The pinned notes index NodeView builds the host on construction; grab it
-    // immediately so the empty-blocks callout can portal in on first render.
-    setCalloutHost(
-      view.dom.querySelector<HTMLElement>(".notes-index-callout-host"),
-    );
 
     return () => {
       disposed = true;
@@ -703,48 +689,60 @@ export function DocumentEditor({
           )}
         </div>
       </div>
-      <div ref={mountRef} className="min-h-32" />
-      {doc.kind === "blocks" && noStudyBlocks && calloutHost
-        ? createPortal(
-            <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-              <p>No study blocks yet.</p>
-              {emptyStateHasTemplate || emptyStateHasPrevious ? (
-                <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
-                  {emptyStateHasTemplate ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={seeding}
-                      onClick={() => {
-                        void seedFromTemplate();
-                      }}
-                    >
-                      Use this study&rsquo;s template
-                    </Button>
-                  ) : null}
-                  {emptyStateHasPrevious ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={seeding}
-                      onClick={() => {
-                        void seedFromPrevious();
-                      }}
-                    >
-                      Copy from previous section
-                    </Button>
-                  ) : null}
-                </div>
-              ) : null}
-              <p className="mt-2 text-xs">
-                Or use &ldquo;Edit blocks&rdquo; above to add them manually.
-              </p>
-            </div>,
-            calloutHost,
-          )
-        : null}
+      {/* The blocks editor always has the pinned notes index, so it doesn't
+          need a min-height clickable canvas — applying one would just stretch
+          the wrapper and leave a tall empty gap before the empty-state
+          callout. The notes editor stays with `min-h-32` so an empty notes
+          doc still offers a sensible click target. */}
+      <div
+        ref={mountRef}
+        className={doc.kind === "blocks" ? undefined : "min-h-32"}
+      />
+      {doc.kind === "blocks" && noStudyBlocks ? (
+        <div className="mt-2 rounded-lg border border-dashed border-muted-foreground/40 p-6 text-center text-sm text-muted-foreground">
+          <p className="font-medium text-foreground">No study blocks yet.</p>
+          {/* Both buttons always render so the empty state's shape is stable;
+              each disables (with a tooltip) when its prerequisite is missing
+              — no usable template, or this is the first section. */}
+          <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={seeding || !emptyStateHasTemplate}
+              title={
+                emptyStateHasTemplate
+                  ? undefined
+                  : "This study has no template blocks to copy."
+              }
+              onClick={() => {
+                void seedFromTemplate();
+              }}
+            >
+              Use Template Study Blocks
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={seeding || !emptyStateHasPrevious}
+              title={
+                emptyStateHasPrevious
+                  ? undefined
+                  : "This is the first section in the study."
+              }
+              onClick={() => {
+                void seedFromPrevious();
+              }}
+            >
+              Copy from Last Section
+            </Button>
+          </div>
+          <p className="mt-2 text-xs">
+            Or use &ldquo;Edit blocks&rdquo; above to add them manually.
+          </p>
+        </div>
+      ) : null}
       {historyOpen ? (
         <VersionHistoryPanel
           documentId={doc.id}

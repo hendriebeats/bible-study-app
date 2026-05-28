@@ -333,13 +333,27 @@
   .ProseMirror .notes-index .notes-index-body-col {
     padding-left: 0;
   }
-  /* Slot above the entries inside the notes-index body. React portals the
-     "No study blocks yet" callout into this element via document-editor.tsx;
-     when populated it gets its own left inset (the row gutter doesn't apply
-     to the callout) and a margin below it before the entries start. */
-  .ProseMirror .notes-index-callout-host:not(:empty) {
-    margin-bottom: 0.75rem;
+  /* Empty-state placeholder shown inside the notes block when no entries
+     exist (see notes-index-view.ts). Inset matches the body's normal padding
+     so the speech-bubble icon visually echoes the inline note-anchor icon
+     (note-anchors.ts) users click in block text to add a note. */
+  .ProseMirror .notes-index-empty {
+    @apply flex items-center gap-2 py-2 text-xs text-muted-foreground;
     padding-left: 0.75rem;
+  }
+  /* Explicit dimensions match the inline note-anchor icon pattern above —
+     relying on Tailwind `size-*` alone loses to default SVG sizing (300×150
+     when width/height attrs are missing), which is what made this icon
+     render huge before. */
+  .ProseMirror .notes-index-empty svg {
+    width: 1rem;
+    height: 1rem;
+    flex-shrink: 0;
+  }
+  /* Hide the placeholder once any entry exists. Adjacent-sibling combinator
+     — the NodeView appends `.notes-index-empty` directly after the body. */
+  .ProseMirror .notes-index-body:not(:empty) + .notes-index-empty {
+    display: none;
   }
   .ProseMirror .note-entry {
     /* Fixed (not auto-sized) ref column keeps note body left edges aligned even

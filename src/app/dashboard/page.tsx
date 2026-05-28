@@ -16,6 +16,18 @@ import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = { title: "Your studies" };
 
+/**
+ * Validate at build + dev time that this route produces an instant static
+ * shell at every possible entry point. With `cacheComponents: true`, the
+ * implicit Suspense from `dashboard/loading.tsx` catches the page's data
+ * fetches, so the shell is just `<DashboardLoading />` — Next checks this
+ * holds for both initial page loads and client navigations.
+ *
+ * Roll this out one route at a time per the plan's sequence (dashboard →
+ * groups → study/section). See node_modules/next/dist/docs/01-app/02-guides/instant-navigation.md.
+ */
+export const unstable_instant = { prefetch: "static" };
+
 export default async function DashboardPage() {
   const supabase = await createClient();
   const {

@@ -1,4 +1,3 @@
-// loading-exempt: redirect-only page (sends to first section).
 import { redirect } from "next/navigation";
 
 import { listSections } from "@/lib/db/studies";

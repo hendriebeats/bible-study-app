@@ -237,12 +237,19 @@ export async function createStudyFromSelection(
   return { ok: true, path: `/studies/${data}` };
 }
 
-/** Where to seed a new section's blocks from. Defaults to the study template. */
-export type NewSectionSource = "template" | "previous";
+/**
+ * Where to seed a new section's blocks from. Defaults to `"blank"` — the
+ * sidebar's plain "Add section" button creates an empty section so the
+ * in-section empty-state callout (DocumentEditor) is where the owner picks
+ * a source. `"template"` / `"previous"` remain available for callers that
+ * want one-click seeding (e.g. the callout's own buttons would route through
+ * here if they ever moved server-side).
+ */
+export type NewSectionSource = "template" | "previous" | "blank";
 
 export async function createSection(
   studyId: string,
-  source: NewSectionSource = "template",
+  source: NewSectionSource = "blank",
 ): Promise<void> {
   const { supabase } = await requireUser();
 
@@ -279,9 +286,11 @@ export async function createSection(
         .eq("section_id", sectionId)
         .eq("kind", "blocks");
     }
-  } else {
+  } else if (source === "template") {
     await supabase.rpc("seed_section_blocks", { _section_id: sectionId });
   }
+  // `"blank"`: leave the blank paragraph from the section-insert trigger so
+  // the editor's empty-state callout drives the choice.
   revalidatePath(`/studies/${studyId}`);
   redirect(`/studies/${studyId}/${sectionId}`);
 }

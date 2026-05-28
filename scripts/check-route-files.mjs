@@ -1,20 +1,23 @@
 #!/usr/bin/env node
 /**
- * Verifies that every `app/**\/page.tsx` has a sibling `loading.tsx`.
+ * Verifies that every `app/**\/page.tsx` is covered by a `loading.tsx` —
+ * either in its own directory or in an ancestor directory under `app/` (the
+ * Next.js convention: a parent `loading.tsx` automatically wraps all child
+ * page.tsx files in its Suspense boundary).
  *
- * In Next 16, `loading.tsx` is the Suspense fallback that streams while the page
- * resolves uncached data. Without it, the user sees a blank gap between
- * navigation and the page render — the flicker we're trying to eliminate.
+ * In Next 16 with `cacheComponents: true`, the implicit Suspense around the
+ * page is what lets the page's awaits stream behind a fallback. Without it the
+ * user sees a blank gap between navigation and the page render — the flicker
+ * we're trying to eliminate.
  *
  * To exempt a page that genuinely doesn't need a fallback (a static landing
- * page, an auth-only redirect shell, etc.), add a top-of-file comment in the
- * page:
+ * page, a redirect-only shell, etc.), add a top-of-file comment:
  *
  *     // loading-exempt: <one-line reason>
  *
  * Exit codes:
  *   0 — every page is either covered or explicitly exempted
- *   1 — at least one page is missing both a sibling loading.tsx and an exemption
+ *   1 — at least one page is missing both a covering loading.tsx and an exemption
  *
  * Wired into `npm run check:routes` and the top-level `npm run check`.
  */
@@ -31,6 +34,25 @@ const PAGE_NAMES = new Set(["page.tsx", "page.ts", "page.jsx", "page.js"]);
 const LOADING_PATTERN = /^loading\.(tsx|ts|jsx|js)$/;
 const EXEMPT_PATTERN = /\/\/\s*loading-exempt\s*:/;
 
+/**
+ * Walk up from `dir` toward `APP_DIR` looking for a loading.tsx in any
+ * directory along the way. Stops once it reaches `APP_DIR`'s parent.
+ */
+async function ancestorHasLoading(dir) {
+  let cur = dir;
+  while (cur.startsWith(APP_DIR)) {
+    const entries = await readdir(cur, { withFileTypes: true });
+    if (entries.some((e) => e.isFile() && LOADING_PATTERN.test(e.name))) {
+      return true;
+    }
+    if (cur === APP_DIR) {
+      return false;
+    }
+    cur = dirname(cur);
+  }
+  return false;
+}
+
 async function walk(dir, missing) {
   let entries;
   try {
@@ -41,10 +63,8 @@ async function walk(dir, missing) {
   }
   const pageEntry = entries.find((e) => e.isFile() && PAGE_NAMES.has(e.name));
   if (pageEntry) {
-    const hasLoading = entries.some(
-      (e) => e.isFile() && LOADING_PATTERN.test(e.name),
-    );
-    if (!hasLoading) {
+    const covered = await ancestorHasLoading(dir);
+    if (!covered) {
       const pagePath = join(dir, pageEntry.name);
       const source = await readFile(pagePath, "utf8");
       // Check only the first ~30 lines for the marker; deeper is suspicious.

@@ -1,39 +1,29 @@
-import { notFound, redirect } from "next/navigation";
-import type { ReactNode } from "react";
+import { Suspense, type ReactNode } from "react";
 
+import { AdminGate } from "@/components/admin/admin-gate";
 import { AppHeader } from "@/components/app-header";
-import { createClient } from "@/lib/supabase/server";
+import { AppHeaderSkeleton } from "@/components/app-header-skeleton";
+import { PageListSkeleton } from "@/components/ui/page-list-skeleton";
 
-/** Global admin area — super-admins only. Gated server-side via is_admin(). */
-export default async function AdminLayout({
-  children,
-}: {
-  children: ReactNode;
-}) {
-  const supabase = await createClient();
-  // lint-allow-await-in-layout: TODO(3C cacheComponents) auth check stays in the layout until
-  // the cacheComponents migration (3C) wraps auth-gated content in <Suspense>;
-  // routing to /login here is the simplest way to keep the entire admin tree
-  // off the wire for non-admins.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
-    redirect("/login");
-  }
-  // lint-allow-await-in-layout: TODO(3C cacheComponents) admin-gate check; co-located with the
-  // auth check above so we 404 instead of revealing the admin area exists.
-  const { data: isAdmin } = await supabase.rpc("is_admin");
-  if (!isAdmin) {
-    // Don't reveal the admin area exists to non-admins.
-    notFound();
-  }
-
+/**
+ * Global admin area — super-admins only. Gated server-side via `is_admin()`,
+ * inside `<AdminGate>` which sits below a `<Suspense>` boundary so this layout
+ * file itself stays synchronous (required by `cacheComponents: true` for child
+ * loading.tsx fallbacks to stream).
+ *
+ * `<AppHeader />` is also async (reads the current user's org for the chrome)
+ * and lives behind its own Suspense boundary with a matching skeleton.
+ */
+export default function AdminLayout({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-svh flex-col">
-      <AppHeader />
+      <Suspense fallback={<AppHeaderSkeleton />}>
+        <AppHeader />
+      </Suspense>
       <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-10">
-        {children}
+        <Suspense fallback={<PageListSkeleton headingWidth="w-32" rows={3} />}>
+          <AdminGate>{children}</AdminGate>
+        </Suspense>
       </main>
     </div>
   );

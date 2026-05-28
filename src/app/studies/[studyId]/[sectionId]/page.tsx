@@ -1,14 +1,13 @@
-// loading-exempt: the studies layout has unavoidable uncached awaits (auth +
-// getStudy + isOwner) for chrome data; in Next 16 those block child loading.tsx
-// from streaming until the cacheComponents migration (task 3C) wraps that data
-// in <Suspense>. Once 3C lands, drop this marker and add a real loading.tsx.
 import { notFound } from "next/navigation";
+import { Suspense } from "react";
 
 import {
   getPreviousSectionBlockSpecs,
-  getStudyTemplateBlockSpecs,
+  getStudyTemplateBlocksDoc,
 } from "@/app/studies/actions";
 import { SectionBridge } from "@/components/studies/section-bridge";
+import { SectionHistoryBridge } from "@/components/studies/section-history-bridge";
+import { specsFromBlocksDoc } from "@/lib/editor/blocks";
 import { getDocumentHistory } from "@/lib/db/history";
 import { getSection, getSectionDocuments } from "@/lib/db/studies";
 import { createClient } from "@/lib/supabase/server";
@@ -49,50 +48,74 @@ export default async function SectionPage({
 
   // Pre-compute which sources the blocks empty-state can offer. Owners only;
   // viewers never see the empty-state controls. "Previous" is the section
-  // immediately before THIS one by position (passes the threshold).
+  // immediately before THIS one by position (passes the threshold). The
+  // template precheck must use the SAME source of truth as the seed action
+  // (`getStudyTemplateBlocksDoc`, which prioritizes the user-edited
+  // `template_blocks_doc`) — checking only the spec source missed studies
+  // where the user has customized the template via the blocks dialog.
   let emptyStateHasTemplate = false;
   let emptyStateHasPrevious = false;
   if (isOwner) {
-    const [templateSpecs, previousSpecs] = await Promise.all([
-      getStudyTemplateBlockSpecs(studyId),
+    const [templateDoc, previousSpecs] = await Promise.all([
+      getStudyTemplateBlocksDoc(studyId),
       getPreviousSectionBlockSpecs(studyId, section.position),
     ]);
-    emptyStateHasTemplate = templateSpecs.length > 0;
+    emptyStateHasTemplate = specsFromBlocksDoc(templateDoc).length > 0;
     emptyStateHasPrevious = previousSpecs.length > 0;
   }
 
-  // The owner edits (and needs each document's history for refresh-surviving
-  // undo); co-members get the read-only live viewer.
-  const notesHistory = isOwner
-    ? await getDocumentHistory(
+  // Two-phase publish (2A):
+  //   1. `<SectionBridge>` publishes the section + documents + flags immediately,
+  //      with null history. The dock's editor falls back to the read-only viewer
+  //      for owners, and the read-only viewer is what co-members see anyway.
+  //   2. `<SectionHistoryBridge>` resolves the (potentially slow) per-document
+  //      history Promises inside its own Suspense boundary, then patches the
+  //      active payload via `publishHistory`. Owners' editor upgrades in place
+  //      (notes/blocks remount with undo enabled) once history arrives.
+  //
+  // For viewers, both history Promises resolve to `null` immediately — they
+  // never see the upgrade.
+  const notesHistoryPromise: Promise<Awaited<
+    ReturnType<typeof getDocumentHistory>
+  > | null> = isOwner
+    ? getDocumentHistory(
         documents.notes.id,
         documents.notes.current_version,
         documents.notes.content,
       )
-    : null;
-  const blocksHistory = isOwner
-    ? await getDocumentHistory(
+    : Promise.resolve(null);
+  const blocksHistoryPromise: Promise<Awaited<
+    ReturnType<typeof getDocumentHistory>
+  > | null> = isOwner
+    ? getDocumentHistory(
         documents.blocks.id,
         documents.blocks.current_version,
         documents.blocks.content,
       )
-    : null;
+    : Promise.resolve(null);
 
-  // Publish this section's data up into the persistent study workspace (the
-  // dock + hoisted editor live at the layout level). Renders nothing itself.
   return (
-    <SectionBridge
-      focus={focus ?? null}
-      payload={{
-        section,
-        documents,
-        notesHistory,
-        blocksHistory,
-        isOwner,
-        isTemplate,
-        emptyStateHasTemplate,
-        emptyStateHasPrevious,
-      }}
-    />
+    <>
+      <SectionBridge
+        focus={focus ?? null}
+        payload={{
+          section,
+          documents,
+          notesHistory: null,
+          blocksHistory: null,
+          isOwner,
+          isTemplate,
+          emptyStateHasTemplate,
+          emptyStateHasPrevious,
+        }}
+      />
+      <Suspense fallback={null}>
+        <SectionHistoryBridge
+          sectionId={section.id}
+          notesPromise={notesHistoryPromise}
+          blocksPromise={blocksHistoryPromise}
+        />
+      </Suspense>
+    </>
   );
 }

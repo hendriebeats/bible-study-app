@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  ChevronDown,
   History,
   MoreVertical,
   PanelLeft,
@@ -17,7 +16,6 @@ import { toast } from "sonner";
 import {
   createSection,
   deleteSection,
-  type NewSectionSource,
   restoreSection,
   setStudyGenre,
 } from "@/app/studies/actions";
@@ -33,31 +31,17 @@ import {
 import type { Genre, SectionSummary, Study } from "@/lib/db/types";
 import { cn } from "@/lib/utils";
 
-/**
- * What the "Add section" sidebar control can seed a new section from. Computed
- * server-side in the study layout (template doc vs. the last existing section's
- * blocks). When both sources exist AND structurally differ, the trigger becomes
- * a chooser dropdown; otherwise it stays a plain button (defaults to template).
- */
-export interface AddSectionSources {
-  hasTemplate: boolean;
-  hasPrevious: boolean;
-  sourcesDiffer: boolean;
-}
-
 export function StudySidebar({
   study,
   sections,
   isOwner,
   genres,
-  addSectionSources,
   onCollapse,
 }: {
   study: Study;
   sections: SectionSummary[];
   isOwner: boolean;
   genres: Genre[];
-  addSectionSources: AddSectionSources;
   /** Collapse the sidebar (the re-open control then floats over the body). */
   onCollapse: () => void;
 }) {
@@ -225,16 +209,24 @@ export function StudySidebar({
 
       {isOwner ? (
         <div className="grid gap-1 border-t p-2">
-          <AddSectionTrigger
-            studyId={study.id}
-            sources={addSectionSources}
-            pending={pending}
-            onCreate={(source) => {
+          {/* New sections are intentionally created blank — the in-section
+              empty-state callout (DocumentEditor) is where the owner picks
+              between Use Template / Copy from Last Section / manual. Removing
+              the chooser dropdown that used to live here keeps the two paths
+              from diverging. */}
+          <Button
+            variant="ghost"
+            className="w-full justify-start"
+            disabled={pending}
+            onClick={() => {
               startTransition(() => {
-                void createSection(study.id, source);
+                void createSection(study.id);
               });
             }}
-          />
+          >
+            <Plus className="size-4" />
+            Add section
+          </Button>
         </div>
       ) : null}
 
@@ -266,80 +258,5 @@ export function StudySidebar({
         }}
       />
     </aside>
-  );
-}
-
-/**
- * The "Add section" sidebar control. Renders a plain button when there's only
- * one source (or both sources are structurally the same, or neither exists);
- * renders a small dropdown ("Add section ▾") only when the study template and
- * the previous section's blocks actually differ — so the user is only asked
- * to choose when the choice is meaningful.
- */
-function AddSectionTrigger({
-  studyId: _studyId,
-  sources,
-  pending,
-  onCreate,
-}: {
-  studyId: string;
-  sources: AddSectionSources;
-  pending: boolean;
-  onCreate: (source: NewSectionSource) => void;
-}) {
-  const showChooser =
-    sources.hasTemplate && sources.hasPrevious && sources.sourcesDiffer;
-  // Defaults when no chooser: template wins when available (today's behavior);
-  // otherwise fall back to "previous" (which also no-ops if neither has blocks).
-  const defaultSource: NewSectionSource = sources.hasTemplate
-    ? "template"
-    : "previous";
-
-  if (!showChooser) {
-    return (
-      <Button
-        variant="ghost"
-        className="w-full justify-start"
-        disabled={pending}
-        onClick={() => {
-          onCreate(defaultSource);
-        }}
-      >
-        <Plus className="size-4" />
-        Add section
-      </Button>
-    );
-  }
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          className="w-full justify-start"
-          disabled={pending}
-        >
-          <Plus className="size-4" />
-          Add section
-          <ChevronDown className="ml-auto size-4 text-muted-foreground" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-56">
-        <DropdownMenuItem
-          onClick={() => {
-            onCreate("template");
-          }}
-        >
-          From study template
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onClick={() => {
-            onCreate("previous");
-          }}
-        >
-          Copy from previous section
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }

@@ -4,10 +4,7 @@ import { ChevronLeft, Layers, PanelLeft } from "lucide-react";
 import Link from "next/link";
 import { type ReactNode, useCallback, useMemo, useState } from "react";
 
-import {
-  type AddSectionSources,
-  StudySidebar,
-} from "@/components/studies/study-sidebar";
+import { StudySidebar } from "@/components/studies/study-sidebar";
 import { StudyChromeContext } from "@/components/studies/study-chrome-context";
 import { StudyOverflowMenu } from "@/components/studies/study-overflow-menu";
 import type { StudyChromeValue } from "@/components/studies/study-chrome-context";
@@ -38,7 +35,6 @@ export function StudyChrome({
   genres,
   isTemplate,
   templateBackHref,
-  addSectionSources,
   actions,
   children,
 }: {
@@ -49,8 +45,6 @@ export function StudyChrome({
   genres: Genre[];
   isTemplate: boolean;
   templateBackHref: string;
-  /** Drives the "Add section" trigger (plain button vs. dropdown chooser). */
-  addSectionSources: AddSectionSources;
   /** Server-rendered top-bar right cluster (theme, notifications, account). */
   actions: ReactNode;
   children: ReactNode;
@@ -175,7 +169,6 @@ export function StudyChrome({
               sections={sections}
               isOwner={isOwner}
               genres={genres}
-              addSectionSources={addSectionSources}
               onCollapse={toggleSidebar}
             />
           </div>

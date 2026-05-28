@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useActionState } from "react";
 
 import { login, type AuthState } from "@/app/(auth)/actions";
@@ -10,7 +11,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-export function LoginForm({ redirectTo }: { redirectTo?: string }) {
+export function LoginForm() {
+  // Read `?redirectTo=` here rather than as a server prop so the parent page
+  // can stay synchronous (see comment in app/(auth)/login/page.tsx).
+  const searchParams = useSearchParams();
+  const redirectTo = searchParams.get("redirectTo") ?? undefined;
   const [state, formAction, pending] = useActionState<AuthState, FormData>(
     login,
     undefined,

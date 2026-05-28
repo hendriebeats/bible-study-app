@@ -1,4 +1,3 @@
-// loading-exempt: brief flow / no data fetching.
 import type { Metadata } from "next";
 
 import { ForgotPasswordForm } from "@/components/auth/forgot-password-form";

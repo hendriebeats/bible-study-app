@@ -36,6 +36,21 @@ export interface StudyWorkspaceValue {
   /** Publish the section the page just rendered (called from `SectionBridge`). */
   publish: (payload: ActiveSectionPayload) => void;
   /**
+   * Patch the active payload's history when the (separately-streamed) history
+   * fetch resolves — called from `SectionHistoryBridge` after its Suspense
+   * boundary settles. Guarded by `sectionId` so a late arrival from a
+   * previous section can't overwrite the current one's history.
+   *
+   * Until this fires, the editor renders against `notesHistory: null` (the
+   * read-only viewer fallback in `study-dockview.tsx`); once it fires the
+   * editor upgrades in place.
+   */
+  publishHistory: (
+    sectionId: string,
+    notesHistory: DocumentHistory | null,
+    blocksHistory: DocumentHistory | null,
+  ) => void;
+  /**
    * Clear the active payload when a section page unmounts — guarded so a stale
    * unmount (the section we just navigated AWAY from) can't wipe the section we
    * just navigated TO.

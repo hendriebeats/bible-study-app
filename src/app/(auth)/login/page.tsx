@@ -1,18 +1,16 @@
-// loading-exempt: brief flow / no data fetching.
 import type { Metadata } from "next";
 
 import { LoginForm } from "@/components/auth/login-form";
 
 export const metadata: Metadata = { title: "Sign in" };
 
-export default async function LoginPage({
-  searchParams,
-}: {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}) {
-  const params = await searchParams;
-  const redirectTo =
-    typeof params.redirectTo === "string" ? params.redirectTo : undefined;
-
-  return <LoginForm redirectTo={redirectTo} />;
+/**
+ * `?redirectTo=` is read client-side via `useSearchParams()` inside
+ * `<LoginForm>` rather than awaited here. Under `cacheComponents: true`,
+ * awaiting `searchParams` server-side counts as uncached request data and
+ * must be wrapped in `<Suspense>`; pushing the read into the (already
+ * client) form is the cleaner option for a route that does no other work.
+ */
+export default function LoginPage() {
+  return <LoginForm />;
 }

@@ -71,6 +71,21 @@ export function StudyWorkspace({
     setActive(payload);
   }, []);
 
+  const publishHistory = useCallback(
+    (
+      sectionId: string,
+      notesHistory: ActiveSectionPayload["notesHistory"],
+      blocksHistory: ActiveSectionPayload["blocksHistory"],
+    ) => {
+      setActive((prev) =>
+        prev?.section.id === sectionId
+          ? { ...prev, notesHistory, blocksHistory }
+          : prev,
+      );
+    },
+    [],
+  );
+
   const clear = useCallback((sectionId: string) => {
     setActive((prev) => (prev?.section.id === sectionId ? null : prev));
   }, []);
@@ -95,8 +110,15 @@ export function StudyWorkspace({
   );
 
   const value = useMemo<StudyWorkspaceValue>(
-    () => ({ active, publish, clear, openPerson, registerOpenPerson }),
-    [active, publish, clear, openPerson, registerOpenPerson],
+    () => ({
+      active,
+      publish,
+      publishHistory,
+      clear,
+      openPerson,
+      registerOpenPerson,
+    }),
+    [active, publish, publishHistory, clear, openPerson, registerOpenPerson],
   );
 
   return (

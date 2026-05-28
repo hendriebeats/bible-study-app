@@ -20,6 +20,12 @@ const useIsomorphicLayoutEffect =
  * The dock, editor provider, and any open co-member panels live at the layout
  * level, so switching sections only swaps this payload — they never remount.
  *
+ * Phase 1 of the two-phase publish: the page hands this the section + documents
+ * + flags with `notesHistory: null` / `blocksHistory: null`. The editor sees
+ * a viewer-shaped payload and renders content immediately. {@link SectionHistoryBridge}
+ * follows up under its own Suspense boundary to patch in the per-document undo
+ * history once it resolves, at which point the editor upgrades in place.
+ *
  * A `?focus=<studyId>` deep link (e.g. a roster name) opens that member's panel
  * once, then strips the param so a refresh doesn't reopen it.
  */

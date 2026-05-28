@@ -72,7 +72,7 @@ const rule = {
     schema: [],
     messages: {
       blockingAwait:
-        "`await` of a database call in a layout blocks `loading.tsx` and page-level `<Suspense>` from streaming. Move this fetch into the page, or pass it down as a Promise prop and `use()` it inside a `<Suspense>` boundary. If the await is unavoidable here, add `// lint-allow-await-in-layout: <reason>` on the line above.",
+        "`await` of a database call in a layout.tsx blocks `loading.tsx` and page-level `<Suspense>` from streaming. With `cacheComponents: true` it also produces a build error. Move the async work into a separate file (e.g. `study-layout-inner.tsx` / `admin-gate.tsx`) and render it under a `<Suspense fallback={…}>` boundary inside the layout. If unavoidable, add `// lint-allow-await-in-layout: <reason>` on the line above.",
     },
   },
   create(context) {
