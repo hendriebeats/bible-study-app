@@ -1,7 +1,7 @@
 "use client";
 
 import { Users } from "lucide-react";
-import { useCallback, useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import { loadGroupInfo } from "@/app/groups/actions";
@@ -13,7 +13,11 @@ import type { StudyGroupInfo } from "@/lib/db/types";
  * place (roster, invites, template) rather than navigating to a detail page —
  * the popup fully replaces the retired group detail route. `initialGroupId`
  * (from a `?group=` param, e.g. right after creating a group) auto-opens it.
- * The full info is fetched on demand so the list itself stays cheap.
+ *
+ * The full info is fetched on demand. To hide the round-trip we kick off the
+ * fetch as soon as the user hovers/focuses the row (`prefetch`) and store the
+ * in-flight Promise; the subsequent click reuses it, so by the time the dialog
+ * mounts the data is usually already resolved.
  */
 export function GroupsList({
   groups,
@@ -27,24 +31,42 @@ export function GroupsList({
   const [pending, startTransition] = useTransition();
   const [active, setActive] = useState<StudyGroupInfo | null>(null);
   const [open, setOpen] = useState(false);
+  // In-flight `loadGroupInfo` promises keyed by group id. Hover/focus triggers
+  // populate this map; click reuses whatever is already there.
+  const prefetchRef = useRef(new Map<string, Promise<StudyGroupInfo | null>>());
 
-  const select = useCallback((groupId: string) => {
-    startTransition(() => {
-      void loadGroupInfo(groupId).then(
-        (info) => {
+  const prefetch = useCallback((groupId: string) => {
+    if (prefetchRef.current.has(groupId)) {
+      return;
+    }
+    const promise = loadGroupInfo(groupId).catch(() => null);
+    prefetchRef.current.set(groupId, promise);
+  }, []);
+
+  const select = useCallback(
+    (groupId: string) => {
+      prefetch(groupId);
+      const promise = prefetchRef.current.get(groupId);
+      // Guarded by `prefetch` above — promise is always populated here, but
+      // narrow for TypeScript.
+      if (!promise) {
+        return;
+      }
+      startTransition(() => {
+        void promise.then((info) => {
           if (info) {
             setActive(info);
             setOpen(true);
           } else {
+            // Drop the failed entry so a retry can re-fetch.
+            prefetchRef.current.delete(groupId);
             toast.error("Couldn't open that group.");
           }
-        },
-        () => {
-          toast.error("Couldn't open that group.");
-        },
-      );
-    });
-  }, []);
+        });
+      });
+    },
+    [prefetch],
+  );
 
   // Auto-open the popup for a `?group=` deep link (e.g. just after creating a
   // group) once on mount.
@@ -64,6 +86,12 @@ export function GroupsList({
               disabled={pending}
               onClick={() => {
                 select(group.id);
+              }}
+              onPointerEnter={() => {
+                prefetch(group.id);
+              }}
+              onFocus={() => {
+                prefetch(group.id);
               }}
               className="flex w-full items-center gap-3 rounded-lg border bg-card p-4 text-left hover:bg-accent/50 disabled:opacity-60"
             >

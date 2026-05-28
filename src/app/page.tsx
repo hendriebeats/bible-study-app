@@ -1,3 +1,4 @@
+// loading-exempt: static landing page — no server data fetching.
 import Link from "next/link";
 import { BookOpenText, PenLine, Users } from "lucide-react";
 

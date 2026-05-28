@@ -54,22 +54,26 @@ export async function listMyStudiesEnriched(): Promise<StudyListItem[]> {
     return [];
   }
 
-  // 1. My own active studies (group templates have owner_id null, so excluded).
-  const { data: studies, error } = await supabase
-    .from("studies")
-    .select("*")
-    .eq("owner_id", user.id)
-    .is("deleted_at", null)
-    .order("updated_at", { ascending: false });
+  // 1+2. My own active studies (group templates have owner_id null, so excluded)
+  // and genre id -> name (for the study-type badge), fetched in parallel — genres
+  // are independent of the studies query so there's no reason to wait. The cost
+  // when a user has no studies is one extra cheap query.
+  const [studiesResult, genres] = await Promise.all([
+    supabase
+      .from("studies")
+      .select("*")
+      .eq("owner_id", user.id)
+      .is("deleted_at", null)
+      .order("updated_at", { ascending: false }),
+    listGenres(),
+  ]);
+  const { data: studies, error } = studiesResult;
   if (error) {
     throw new Error(error.message);
   }
   if (studies.length === 0) {
     return [];
   }
-
-  // 2. Genre id -> name, for the study-type badge.
-  const genres = await listGenres();
   const genreNameById = new Map(genres.map((g) => [g.id, g.name]));
 
   // 3. Which of my studies are attached to a group (my own membership rows).

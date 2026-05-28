@@ -492,15 +492,21 @@ export async function customizeOrgBook(
   bookOrdinal: number,
 ): Promise<NavResult> {
   const { supabase } = await requireUser();
-  await supabase
-    .from("org_disabled_book_templates")
-    .delete()
-    .eq("organization_id", orgId)
-    .eq("book_ordinal", bookOrdinal);
-  const { data, error } = await supabase.rpc("create_org_template", {
-    _type: "book",
-    _book_ordinal: bookOrdinal,
-  });
+  // Disabled flag and override live in different tables; running them in
+  // parallel is safe — a brief intermediate state where both coexist is fine
+  // (no constraint forbids it; the invariant is enforced by the UI showing
+  // only one branch at a time).
+  const [, { data, error }] = await Promise.all([
+    supabase
+      .from("org_disabled_book_templates")
+      .delete()
+      .eq("organization_id", orgId)
+      .eq("book_ordinal", bookOrdinal),
+    supabase.rpc("create_org_template", {
+      _type: "book",
+      _book_ordinal: bookOrdinal,
+    }),
+  ]);
   if (error) {
     return { ok: false, error: error.message };
   }

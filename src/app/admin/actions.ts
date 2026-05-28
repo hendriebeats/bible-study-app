@@ -303,14 +303,16 @@ export async function moveBlockTemplate(
     return;
   }
   // Swap their positions (two independent updates — positions need not be gapless).
-  const { error: e1 } = await supabase
-    .from("genre_block_templates")
-    .update({ position: b.position })
-    .eq("id", a.id);
-  const { error: e2 } = await supabase
-    .from("genre_block_templates")
-    .update({ position: a.position })
-    .eq("id", b.id);
+  const [{ error: e1 }, { error: e2 }] = await Promise.all([
+    supabase
+      .from("genre_block_templates")
+      .update({ position: b.position })
+      .eq("id", a.id),
+    supabase
+      .from("genre_block_templates")
+      .update({ position: a.position })
+      .eq("id", b.id),
+  ]);
   if (e1 ?? e2) {
     throw new Error((e1 ?? e2)?.message ?? "Couldn't reorder blocks.");
   }

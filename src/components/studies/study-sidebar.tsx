@@ -22,7 +22,6 @@ import {
   setStudyGenre,
 } from "@/app/studies/actions";
 import { useStudyChrome } from "@/components/studies/study-chrome-context";
-import { TrashButton } from "@/components/studies/trash-button";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
@@ -31,7 +30,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import type { Genre, SectionSummary, Study, TrashItem } from "@/lib/db/types";
+import type { Genre, SectionSummary, Study } from "@/lib/db/types";
 import { cn } from "@/lib/utils";
 
 /**
@@ -50,7 +49,6 @@ export function StudySidebar({
   study,
   sections,
   isOwner,
-  trashedSections,
   genres,
   addSectionSources,
   onCollapse,
@@ -58,7 +56,6 @@ export function StudySidebar({
   study: Study;
   sections: SectionSummary[];
   isOwner: boolean;
-  trashedSections: TrashItem[];
   genres: Genre[];
   addSectionSources: AddSectionSources;
   /** Collapse the sidebar (the re-open control then floats over the body). */
@@ -238,11 +235,6 @@ export function StudySidebar({
               });
             }}
           />
-          <TrashButton
-            kind="section"
-            items={trashedSections}
-            studyId={study.id}
-          />
         </div>
       ) : null}
 
@@ -259,8 +251,8 @@ export function StudySidebar({
             <span className="font-medium text-foreground">
               {pendingDelete?.title ?? "This section"}
             </span>{" "}
-            will move to the trash. You can restore it from the trash button at
-            the bottom of the sidebar.
+            will move to the trash. You can restore it from the ⋮ menu in the
+            top bar (&ldquo;Recently deleted sections&rdquo;).
           </>
         }
         confirmLabel="Delete section"

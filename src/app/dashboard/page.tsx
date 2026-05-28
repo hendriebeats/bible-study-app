@@ -12,10 +12,6 @@ import { Button } from "@/components/ui/button";
 import { listGenres } from "@/lib/db/genres";
 import { listActiveAnnouncements } from "@/lib/db/organizations";
 import { listMyStudiesEnriched, listTrashedStudies } from "@/lib/db/studies";
-import {
-  getOrgBookContext,
-  listAvailableCustomTemplates,
-} from "@/lib/db/templates";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = { title: "Your studies" };
@@ -29,20 +25,15 @@ export default async function DashboardPage() {
     redirect("/login");
   }
 
-  const [
-    studies,
-    genres,
-    trashedStudies,
-    announcements,
-    customTemplates,
-    orgContext,
-  ] = await Promise.all([
+  // Note: the New-study dialog's data (custom templates + org book context)
+  // is intentionally NOT fetched here — `NewStudyDialog` requests it lazily on
+  // first hover/open via `loadNewStudyOptions`, since most dashboard visits
+  // never open the dialog.
+  const [studies, genres, trashedStudies, announcements] = await Promise.all([
     listMyStudiesEnriched(),
     listGenres(),
     listTrashedStudies(),
     listActiveAnnouncements(),
-    listAvailableCustomTemplates(),
-    getOrgBookContext(),
   ]);
 
   return (
@@ -61,10 +52,7 @@ export default async function DashboardPage() {
               </Link>
             </Button>
             <TrashButton kind="study" items={trashedStudies} />
-            <NewStudyDialog
-              customTemplates={customTemplates}
-              orgContext={orgContext}
-            />
+            <NewStudyDialog />
           </div>
         </div>
 

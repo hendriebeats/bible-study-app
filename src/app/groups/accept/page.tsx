@@ -1,3 +1,4 @@
+// loading-exempt: brief flow / no data fetching.
 import Link from "next/link";
 
 import { AcceptForm } from "@/components/groups/accept-form";

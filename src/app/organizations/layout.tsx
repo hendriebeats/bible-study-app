@@ -1,22 +1,23 @@
 import type { ReactNode } from "react";
-import { redirect } from "next/navigation";
 
 import { AppHeader } from "@/components/app-header";
-import { createClient } from "@/lib/supabase/server";
 
-export default async function OrganizationsLayout({
+/**
+ * Layout for the /organizations area. Intentionally synchronous so the route's
+ * `loading.tsx` fallback streams immediately on navigation — an `await` here
+ * (even just for auth) would suspend the layout and suppress the fallback.
+ *
+ * Unauthenticated visitors never reach this layout: `src/proxy.ts` →
+ * `updateSession` redirects them to `/login` before the layout renders.
+ * `<AppHeader />` is itself an async server component, but it sits inside the
+ * implicit `<Suspense>` boundary that `loading.tsx` introduces and so streams
+ * in alongside the page content.
+ */
+export default function OrganizationsLayout({
   children,
 }: {
   children: ReactNode;
 }) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
-    redirect("/login");
-  }
-
   return (
     <div className="flex min-h-svh flex-col">
       <AppHeader />

@@ -1,3 +1,4 @@
+// loading-exempt: brief flow / no data fetching.
 import type { Metadata } from "next";
 
 import { LoginForm } from "@/components/auth/login-form";

@@ -33,8 +33,10 @@ export default async function AccountPage() {
     redirect("/login");
   }
 
-  const profile = await getMyProfile();
-  const editorTools = await getEditorTools();
+  const [profile, editorTools] = await Promise.all([
+    getMyProfile(),
+    getEditorTools(),
+  ]);
   const displayName = profile?.display_name ?? "";
   const email = user.email ?? "";
   const avatarUrl = profile?.avatar_url ?? null;

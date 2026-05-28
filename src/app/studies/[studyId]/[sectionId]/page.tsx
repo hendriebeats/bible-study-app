@@ -1,3 +1,7 @@
+// loading-exempt: the studies layout has unavoidable uncached awaits (auth +
+// getStudy + isOwner) for chrome data; in Next 16 those block child loading.tsx
+// from streaming until the cacheComponents migration (task 3C) wraps that data
+// in <Suspense>. Once 3C lands, drop this marker and add a real loading.tsx.
 import { notFound } from "next/navigation";
 
 import {

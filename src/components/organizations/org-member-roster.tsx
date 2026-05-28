@@ -126,8 +126,10 @@ export function OrgMemberRoster({
                   run(
                     () => leaveOrganization(),
                     () => {
+                      // The action calls `revalidatePath("/organizations")`,
+                      // so push fetches fresh server state — no explicit
+                      // refresh is needed.
                       router.push("/organizations");
-                      router.refresh();
                     },
                   );
                 }}

@@ -21,11 +21,14 @@ import type { Genre, StudyTemplate } from "@/lib/db/types";
 function CustomRow({
   template,
   onReorder,
+  onSaved,
+  onRemoved,
 }: {
   template: StudyTemplate;
   onReorder: (from: number, to: number) => void;
+  onSaved: (id: string, patch: { name: string; description: string }) => void;
+  onRemoved: (id: string) => void;
 }) {
-  const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(template.name);
   const [description, setDescription] = useState(template.description ?? "");
@@ -33,7 +36,9 @@ function CustomRow({
   const setDragHandle = useReorderHandle(onReorder);
 
   function save() {
-    if (name.trim() === "") {
+    const cleanName = name.trim();
+    const cleanDescription = description.trim();
+    if (cleanName === "") {
       toast.error("Name is required.");
       return;
     }
@@ -41,13 +46,16 @@ function CustomRow({
       void updateOrgTemplateMeta(
         template.id,
         template.template_study_id,
-        name.trim(),
-        description.trim(),
+        cleanName,
+        cleanDescription,
       ).then((r) => {
         if (r.ok) {
           toast.success("Saved.");
           setEditing(false);
-          router.refresh();
+          onSaved(template.id, {
+            name: cleanName,
+            description: cleanDescription,
+          });
         } else {
           toast.error(r.error);
         }
@@ -66,7 +74,7 @@ function CustomRow({
     startTransition(() => {
       void deleteOrgTemplate(template.template_study_id).then((r) => {
         if (r.ok) {
-          router.refresh();
+          onRemoved(template.id);
         } else {
           toast.error(r.error);
         }
@@ -226,7 +234,28 @@ export function OrgCustomTemplates({
       ) : (
         <ul data-reorder-group className="grid gap-2">
           {items.map((t) => (
-            <CustomRow key={t.id} template={t} onReorder={handleReorder} />
+            <CustomRow
+              key={t.id}
+              template={t}
+              onReorder={handleReorder}
+              onSaved={(id, patch) => {
+                setItems((current) =>
+                  current.map((row) =>
+                    row.id === id
+                      ? {
+                          ...row,
+                          name: patch.name,
+                          description:
+                            patch.description === "" ? null : patch.description,
+                        }
+                      : row,
+                  ),
+                );
+              }}
+              onRemoved={(id) => {
+                setItems((current) => current.filter((row) => row.id !== id));
+              }}
+            />
           ))}
         </ul>
       )}

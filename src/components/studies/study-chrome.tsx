@@ -9,6 +9,7 @@ import {
   StudySidebar,
 } from "@/components/studies/study-sidebar";
 import { StudyChromeContext } from "@/components/studies/study-chrome-context";
+import { StudyOverflowMenu } from "@/components/studies/study-overflow-menu";
 import type { StudyChromeValue } from "@/components/studies/study-chrome-context";
 import { StudyTitleControl } from "@/components/studies/study-title-control";
 import { Button } from "@/components/ui/button";
@@ -129,7 +130,14 @@ export function StudyChrome({
             />
           </div>
 
-          <div className="flex shrink-0 items-center gap-1">{actions}</div>
+          <div className="flex shrink-0 items-center gap-1">
+            <StudyOverflowMenu
+              isOwner={isOwner}
+              trashedSections={trashedSections}
+              studyId={study.id}
+            />
+            {actions}
+          </div>
         </header>
 
         <div
@@ -166,7 +174,6 @@ export function StudyChrome({
               study={study}
               sections={sections}
               isOwner={isOwner}
-              trashedSections={trashedSections}
               genres={genres}
               addSectionSources={addSectionSources}
               onCollapse={toggleSidebar}

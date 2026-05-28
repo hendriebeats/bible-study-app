@@ -2,9 +2,8 @@ import type { Metadata } from "next";
 import { BookOpen, Layers } from "lucide-react";
 import Link from "next/link";
 
+import { AdminCustomTemplatesList } from "@/components/admin/admin-custom-templates-list";
 import { NewAppTemplateForm } from "@/components/admin/new-app-template-form";
-import { DeleteTemplateButton } from "@/components/templates/delete-template-button";
-import { TemplateMetaEditor } from "@/components/templates/template-meta-editor";
 import { listGenres } from "@/lib/db/genres";
 import {
   listAppBookTemplates,
@@ -71,39 +70,7 @@ export default async function AdminTemplatesPage() {
           Custom templates
         </h2>
         <NewAppTemplateForm genres={genres} />
-        {customTemplates.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No custom templates yet.
-          </p>
-        ) : (
-          <ul className="grid gap-2">
-            {customTemplates.map((t) => (
-              <li key={t.id} className="grid gap-2 rounded-md border p-3">
-                <TemplateMetaEditor
-                  templateId={t.id}
-                  templateStudyId={t.template_study_id}
-                  name={t.name}
-                  description={t.description}
-                  scope="app"
-                />
-                <div className="flex items-center gap-3 text-sm">
-                  <Link
-                    href={`/studies/${t.template_study_id}`}
-                    className="text-primary hover:underline"
-                  >
-                    Open in editor
-                  </Link>
-                  <span className="ml-auto">
-                    <DeleteTemplateButton
-                      templateStudyId={t.template_study_id}
-                      scope="app"
-                    />
-                  </span>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
+        <AdminCustomTemplatesList templates={customTemplates} />
       </section>
 
       <section className="grid gap-3">

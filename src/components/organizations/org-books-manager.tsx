@@ -27,6 +27,11 @@ import {
 } from "@/lib/scripture/books";
 import { cn } from "@/lib/utils";
 
+interface BookOverride {
+  ordinal: number;
+  templateStudyId: string;
+}
+
 type BookState = "override" | "disabled" | "default";
 
 export function OrgBooksManager({
@@ -37,7 +42,7 @@ export function OrgBooksManager({
 }: {
   orgId: string;
   usesDefaults: boolean;
-  overrides: { ordinal: number; templateStudyId: string }[];
+  overrides: BookOverride[];
   disabledOrdinals: number[];
 }) {
   const router = useRouter();
@@ -45,12 +50,21 @@ export function OrgBooksManager({
   const [disabled, setDisabled] = useState<Set<number>>(
     new Set(disabledOrdinals),
   );
+  // Local overrides state so `reset()` can drop a row in place without an RSC
+  // refetch + blank-then-fill flash. Re-syncs when the server prop changes
+  // (render-time reset, the same idiom used for `items` order below).
+  const [localOverrides, setLocalOverrides] = useState(overrides);
+  const [prevOverrides, setPrevOverrides] = useState(overrides);
+  if (overrides !== prevOverrides) {
+    setPrevOverrides(overrides);
+    setLocalOverrides(overrides);
+  }
   const [query, setQuery] = useState("");
   const [pending, startTransition] = useTransition();
 
   const overrideMap = useMemo(
-    () => new Map(overrides.map((o) => [o.ordinal, o.templateStudyId])),
-    [overrides],
+    () => new Map(localOverrides.map((o) => [o.ordinal, o.templateStudyId])),
+    [localOverrides],
   );
 
   const groups = useMemo(() => {
@@ -114,11 +128,14 @@ export function OrgBooksManager({
   }
 
   function reset(ordinal: number) {
+    const previous = localOverrides;
+    setLocalOverrides((current) =>
+      current.filter((o) => o.ordinal !== ordinal),
+    );
     startTransition(() => {
       void resetOrgBook(orgId, ordinal).then((r) => {
-        if (r.ok) {
-          router.refresh();
-        } else {
+        if (!r.ok) {
+          setLocalOverrides(previous);
           toast.error(r.error);
         }
       });

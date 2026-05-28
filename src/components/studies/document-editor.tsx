@@ -3,7 +3,7 @@
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { gapCursor } from "prosemirror-gapcursor";
 import { closeHistory, history, undo } from "prosemirror-history";
-import { History } from "lucide-react";
+import { History, PanelRight } from "lucide-react";
 import { keymap } from "prosemirror-keymap";
 import type { Node } from "prosemirror-model";
 import { EditorState } from "prosemirror-state";
@@ -217,6 +217,7 @@ export function DocumentEditor({
   sectionPosition,
   emptyStateHasTemplate = false,
   emptyStateHasPrevious = false,
+  onDetach,
 }: {
   document: StudyDocument;
   history: DocumentHistory;
@@ -236,6 +237,12 @@ export function DocumentEditor({
   /** Empty-state action availability (pre-computed in the section page). */
   emptyStateHasTemplate?: boolean;
   emptyStateHasPrevious?: boolean;
+  /**
+   * If set, renders a toolbar button that opens this editor in its own dockview
+   * panel. Owner-only callers wire this on the inline blocks editor; the
+   * dockview-panel copy doesn't pass it, so the button only shows once.
+   */
+  onDetach?: () => void;
 }) {
   const editor = useEditorContext();
   const [status, setStatus] = useState<SaveStatus>("idle");
@@ -667,6 +674,18 @@ export function DocumentEditor({
           </span>
           {doc.kind === "blocks" && studyId ? (
             <StudyBlocksDialog studyId={studyId} isTemplate={isTemplate} />
+          ) : null}
+          {doc.kind === "blocks" && onDetach ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={onDetach}
+              title="Move study blocks to its own panel"
+            >
+              <PanelRight className="size-4" />
+              Open in panel
+            </Button>
           ) : null}
           {hideHistory ? null : (
             <Button

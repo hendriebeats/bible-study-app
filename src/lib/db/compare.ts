@@ -45,29 +45,33 @@ export async function listCompareTargets(
   // Drop members whose contributed study is trashed — a soft-deleted study is
   // hidden by RLS, so it would open as a blank pane. (RLS already withholds the
   // row for co-members; this also covers any locally-readable edge cases.)
+  //
+  // Fetch the three follow-up lookups in parallel. Profiles are fetched for the
+  // union of candidate user ids (before filtering by liveStudies) — slightly more
+  // rows than strictly needed when a co-member's study is trashed, but trashed
+  // studies are rare and one fewer round trip is the better trade.
   const candidateStudyIds = [...new Set(others.map((o) => o.study_id))];
-  const { data: liveStudies } = await supabase
-    .from("studies")
-    .select("id")
-    .in("id", candidateStudyIds)
-    .is("deleted_at", null);
+  const candidateUserIds = [...new Set(others.map((o) => o.user_id))];
+  const [{ data: liveStudies }, { data: groups }, { data: profiles }] =
+    await Promise.all([
+      supabase
+        .from("studies")
+        .select("id")
+        .in("id", candidateStudyIds)
+        .is("deleted_at", null),
+      supabase.from("group_studies").select("id, name").in("id", groupIds),
+      supabase
+        .from("profiles")
+        .select("id, display_name")
+        .in("id", candidateUserIds),
+    ]);
+
   const liveStudyIds = new Set((liveStudies ?? []).map((s) => s.id));
   const liveOthers = others.filter((o) => liveStudyIds.has(o.study_id));
   if (liveOthers.length === 0) {
     return [];
   }
-
-  const { data: groups } = await supabase
-    .from("group_studies")
-    .select("id, name")
-    .in("id", groupIds);
   const groupName = new Map((groups ?? []).map((g) => [g.id, g.name]));
-
-  const userIds = [...new Set(liveOthers.map((o) => o.user_id))];
-  const { data: profiles } = await supabase
-    .from("profiles")
-    .select("id, display_name")
-    .in("id", userIds);
   const nameById = new Map((profiles ?? []).map((p) => [p.id, p.display_name]));
 
   const targets: CompareTarget[] = [];

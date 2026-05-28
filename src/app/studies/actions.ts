@@ -727,6 +727,27 @@ export async function getStudyGroupLinks(studyId: string) {
   return listStudyGroupLinks(studyId);
 }
 
+/**
+ * Data the New-study dialog needs (custom templates + org book context).
+ * Lazily fetched when the dialog opens so the dashboard page doesn't burn two
+ * extra queries on every load — most dashboard visits never open the dialog.
+ *
+ * Returned via a server action so the dialog can `startTransition` it and the
+ * fetches share the same auth context the rest of the app uses.
+ */
+export async function loadNewStudyOptions() {
+  await requireUser();
+  // Imports are inline so the module graph for actions.ts doesn't always pull
+  // these in for the (frequent) other server-action call sites.
+  const { listAvailableCustomTemplates, getOrgBookContext } =
+    await import("@/lib/db/templates");
+  const [customTemplates, orgContext] = await Promise.all([
+    listAvailableCustomTemplates(),
+    getOrgBookContext(),
+  ]);
+  return { customTemplates, orgContext };
+}
+
 /** Restore a soft-deleted study from the Trash. */
 export async function restoreStudy(studyId: string): Promise<void> {
   const { supabase } = await requireUser();

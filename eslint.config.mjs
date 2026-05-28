@@ -3,10 +3,27 @@ import nextVitals from "eslint-config-next/core-web-vitals";
 import nextTs from "eslint-config-next/typescript";
 import tseslint from "typescript-eslint";
 import betterTailwind from "eslint-plugin-better-tailwindcss";
+import local from "./lint-rules/index.mjs";
 
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
+
+  // Repo-local rules enforcing the perf / streaming patterns documented in the
+  // plan at .claude/plans/when-i-am-harmonic-rainbow.md. Each rule has docs in
+  // the header of its file under lint-rules/. Together they prevent regressions
+  // of the parallelization (1D), thin-layout (1B), useOptimistic (2C), and
+  // lazy-heavy-module (2B) patterns.
+  {
+    files: ["src/**/*.{ts,tsx,mts,cts}"],
+    plugins: { local },
+    rules: {
+      "local/no-sequential-db-await": "error",
+      "local/no-await-in-layout": "error",
+      "local/no-router-refresh": "error",
+      "local/no-eager-heavy-import": "error",
+    },
+  },
 
   // Heavy, type-aware TypeScript rules for our own source.
   // Requires full type information (projectService) so rules like

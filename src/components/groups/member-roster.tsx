@@ -1,5 +1,6 @@
 "use client";
 
+import { LogOut, MoreVertical, UserMinus } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
@@ -13,12 +14,32 @@ import {
 } from "@/app/groups/actions";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type { GroupMember } from "@/lib/db/types";
 
 function initials(name: string): string {
   return name.slice(0, 1).toUpperCase() || "?";
 }
 
+const ROLE_LABEL: Record<string, string> = {
+  owner: "Owner",
+  member: "Member",
+};
+
+/**
+ * One uniform row shape per member: avatar + name + role + ⋮. Owners see the
+ * role as an interactive `<select>` (including on their own row — the
+ * `enforce_group_has_owner` trigger guards the last-owner case via PT409, which
+ * surfaces through the existing toast). The ⋮ menu carries "Leave group" on
+ * your row and "Remove from group" on others' rows when you're an owner; it's
+ * hidden otherwise. Keeping the shape identical fixes the previous
+ * "me / the owner / other members" feel where each row rendered differently.
+ */
 export function MemberRoster({
   groupId,
   members,
@@ -40,8 +61,9 @@ export function MemberRoster({
 }) {
   const [pending, startTransition] = useTransition();
   const router = useRouter();
-  // One shared confirm — `pendingRemove` holds the target row when an owner has
-  // clicked Remove on a member. `confirmLeave` is the self-leave version.
+  // One shared confirm for each destructive action. `pendingRemove` holds the
+  // target row when an owner removes someone; `confirmLeave` is the self-leave
+  // version. Triggered from the ⋮ menu on the matching row.
   const [pendingRemove, setPendingRemove] = useState<{
     userId: string;
     name: string;
@@ -76,6 +98,12 @@ export function MemberRoster({
           compareSectionId
             ? `/studies/${compareStudyId}/${compareSectionId}?focus=${member.study_id}`
             : null;
+
+        // The kebab is only worth rendering when it has something to offer:
+        // your own row always gets "Leave"; other rows get "Remove" only when
+        // you're an owner. Non-owners viewing others get no menu.
+        const hasMenu = isMe || (isOwner && !isMe);
+
         return (
           <li
             key={member.user_id}
@@ -90,6 +118,7 @@ export function MemberRoster({
                 className="min-w-0 flex-1 truncate font-medium hover:underline"
               >
                 {name}
+                {isMe ? " (you)" : ""}
               </Link>
             ) : (
               <span className="min-w-0 flex-1 truncate">
@@ -97,53 +126,70 @@ export function MemberRoster({
                 {isMe ? " (you)" : ""}
               </span>
             )}
-            <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground capitalize">
-              {member.role}
-            </span>
-            {isOwner && !isMe ? (
-              <div className="flex shrink-0 items-center gap-1">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  disabled={pending}
-                  onClick={() => {
-                    run(() =>
-                      setMemberRole(
-                        groupId,
-                        member.user_id,
-                        member.role === "owner" ? "member" : "owner",
-                      ),
-                    );
-                  }}
-                >
-                  {member.role === "owner" ? "Demote" : "Make owner"}
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  disabled={pending}
-                  onClick={() => {
-                    setPendingRemove({ userId: member.user_id, name });
-                  }}
-                >
-                  Remove
-                </Button>
-              </div>
-            ) : null}
-            {isMe ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
+
+            {isOwner ? (
+              <select
+                aria-label={`Role for ${name}`}
+                value={member.role}
                 disabled={pending}
-                onClick={() => {
-                  setConfirmLeave(true);
+                onChange={(event) => {
+                  const next = event.target.value as "owner" | "member";
+                  if (next === member.role) {
+                    return;
+                  }
+                  run(() => setMemberRole(groupId, member.user_id, next));
                 }}
+                className="h-7 shrink-0 rounded-md border bg-background px-2 text-xs"
               >
-                Leave
-              </Button>
+                <option value="owner">Owner</option>
+                <option value="member">Member</option>
+              </select>
+            ) : (
+              <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                {ROLE_LABEL[member.role] ?? member.role}
+              </span>
+            )}
+
+            {hasMenu ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    aria-label={`Actions for ${name}`}
+                    disabled={pending}
+                    className="size-7 text-muted-foreground"
+                  >
+                    <MoreVertical className="size-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {isMe ? (
+                    <DropdownMenuItem
+                      onSelect={(event) => {
+                        // Keep the menu out of the confirm dialog's way so
+                        // focus doesn't fight Radix's auto-close.
+                        event.preventDefault();
+                        setConfirmLeave(true);
+                      }}
+                    >
+                      <LogOut className="size-4" />
+                      <span className="flex-1">Leave group</span>
+                    </DropdownMenuItem>
+                  ) : (
+                    <DropdownMenuItem
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        setPendingRemove({ userId: member.user_id, name });
+                      }}
+                    >
+                      <UserMinus className="size-4" />
+                      <span className="flex-1">Remove from group</span>
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
             ) : null}
           </li>
         );

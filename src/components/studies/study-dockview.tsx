@@ -11,7 +11,7 @@ import {
   type IDockviewPanelProps,
   themeLight,
 } from "dockview";
-import { Check, Plus, RotateCcw } from "lucide-react";
+import { Check, PanelLeft, Plus, RotateCcw } from "lucide-react";
 import {
   createContext,
   type FunctionComponent,
@@ -30,9 +30,34 @@ import {
   saveWorkspaceLayout,
   setAlignment,
 } from "@/app/studies/compare-actions";
-import { DocumentEditor } from "@/components/studies/document-editor";
+import dynamic from "next/dynamic";
+
 import { DocumentViewer } from "@/components/studies/document-viewer";
-import { SectionHistoryPanel } from "@/components/studies/section-history-panel";
+import {
+  EditorChromeSkeleton,
+  HistoryPanelSkeleton,
+} from "@/components/studies/editor-skeletons";
+
+// The editor and history panel are by far the largest client modules in the
+// app (ProseMirror schema + plugins, history virtualization). Splitting them
+// out of the dockview chunk shrinks the initial study-route bundle and lets
+// the dock chrome paint a frame earlier; the real editor swaps in once its
+// chunk downloads. `ssr: false` matches the dockview's own boundary — both
+// require the DOM. See lint-rules/heavy-modules.mjs.
+const DocumentEditor = dynamic(
+  () =>
+    import("@/components/studies/document-editor").then(
+      (m) => m.DocumentEditor,
+    ),
+  { ssr: false, loading: () => <EditorChromeSkeleton /> },
+);
+const SectionHistoryPanel = dynamic(
+  () =>
+    import("@/components/studies/section-history-panel").then(
+      (m) => m.SectionHistoryPanel,
+    ),
+  { ssr: false, loading: () => <HistoryPanelSkeleton /> },
+);
 import { useStudyChrome } from "@/components/studies/study-chrome-context";
 import {
   type ActiveSectionPayload,
@@ -53,12 +78,27 @@ import type { StudyDocument } from "@/lib/db/types";
 import { WORKSPACE_LAYOUT_VERSION } from "@/lib/db/workspace";
 import { cn } from "@/lib/utils";
 
-/** Dock-scoped identity (presence + labeled cursor) for every panel's editors. */
+/**
+ * Dock-scoped state shared by every panel inside the workspace:
+ *
+ *   - `me` — identity for presence + the labeled remote cursor.
+ *   - `blocksDetached` — whether the study-blocks doc has been pulled out of
+ *     the inline "Mine" panel into its own sibling dockview panel. The flag
+ *     drives both MinePanel's render branch (inline editor vs. placeholder)
+ *     and the panel-management effect in StudyDockview that adds/removes
+ *     the `"blocks"` panel via the dockview api.
+ */
 const DockContext = createContext<{
   me: { id: string; name: string } | null;
+  blocksDetached: boolean;
+  setBlocksDetached: (next: boolean) => void;
 } | null>(null);
 
-function useDock(): { me: { id: string; name: string } | null } {
+function useDock(): {
+  me: { id: string; name: string } | null;
+  blocksDetached: boolean;
+  setBlocksDetached: (next: boolean) => void;
+} {
   const value = useContext(DockContext);
   if (!value) {
     throw new Error("Dock panels must render inside DockContext");
@@ -86,6 +126,122 @@ function MinePanel(): React.ReactElement {
   // Re-key on the section so the title field + editors remount cleanly when
   // switching sections (the panel itself, and the dock, stay mounted).
   return <MineSectionBody key={active.section.id} payload={active} />;
+}
+
+/**
+ * Inline blocks renderer used inside the "Mine" panel. When the user has
+ * detached blocks into its own dockview panel, this swaps for a slim
+ * placeholder so we don't co-edit the same doc twice; the placeholder's
+ * "Bring blocks back" button flips the dock state and re-attaches.
+ */
+function InlineBlocksEditor({
+  blocksDoc,
+  blocksHistory,
+  me,
+  studyId,
+  isTemplate,
+  sectionPosition,
+  emptyStateHasTemplate,
+  emptyStateHasPrevious,
+}: {
+  blocksDoc: StudyDocument;
+  blocksHistory: NonNullable<ActiveSectionPayload["blocksHistory"]>;
+  me: { id: string; name: string } | null;
+  studyId: string;
+  isTemplate: boolean;
+  sectionPosition: number;
+  emptyStateHasTemplate: boolean;
+  emptyStateHasPrevious: boolean;
+}): React.ReactElement {
+  const { blocksDetached, setBlocksDetached } = useDock();
+  if (blocksDetached) {
+    return (
+      <div className="flex items-center justify-between gap-3 rounded-lg border border-dashed bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+        <span>Study blocks open in a separate panel.</span>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1.5 rounded-md border bg-background px-2 py-1 text-xs text-foreground hover:bg-muted"
+          onClick={() => {
+            setBlocksDetached(false);
+          }}
+        >
+          <PanelLeft className="size-3.5" />
+          Bring back here
+        </button>
+      </div>
+    );
+  }
+  return (
+    <DocumentEditor
+      document={blocksDoc}
+      history={blocksHistory}
+      me={me}
+      label="Study blocks"
+      hideLabel
+      hideHistory
+      placeholder="Work through your study here…"
+      studyId={studyId}
+      isTemplate={isTemplate}
+      sectionPosition={sectionPosition}
+      emptyStateHasTemplate={emptyStateHasTemplate}
+      emptyStateHasPrevious={emptyStateHasPrevious}
+      onDetach={() => {
+        setBlocksDetached(true);
+      }}
+    />
+  );
+}
+
+/**
+ * The dockview "blocks" panel — opened when the user clicks "Open in panel"
+ * on the inline blocks editor, and removed when they close the tab or hit
+ * "Bring back here". Renders the *active* section's blocks editor, re-keyed
+ * on `section.id` so navigating sections remounts the editor cleanly the
+ * same way {@link MinePanel} does.
+ */
+function BlocksDockPanel(): React.ReactElement {
+  const { active } = useStudyWorkspace();
+  const { me } = useDock();
+  if (!active) {
+    return (
+      <div className="flex h-full items-center justify-center p-8 text-center text-sm text-muted-foreground">
+        No active section.
+      </div>
+    );
+  }
+  // Read-only viewers can't detach (no button), but a layout restore could
+  // bring back a stale "blocks" panel — render the viewer for safety.
+  if (!active.isOwner || !active.blocksHistory) {
+    return (
+      <div className="h-full overflow-auto px-6 py-5">
+        <DocumentViewer
+          document={active.documents.blocks}
+          me={me}
+          label="Study blocks"
+          hideLabel
+        />
+      </div>
+    );
+  }
+  return (
+    <div className="h-full overflow-auto px-6 py-5">
+      <DocumentEditor
+        key={active.section.id}
+        document={active.documents.blocks}
+        history={active.blocksHistory}
+        me={me}
+        label="Study blocks"
+        hideLabel
+        hideHistory
+        placeholder="Work through your study here…"
+        studyId={active.section.study_id}
+        isTemplate={active.isTemplate}
+        sectionPosition={active.section.position}
+        emptyStateHasTemplate={active.emptyStateHasTemplate}
+        emptyStateHasPrevious={active.emptyStateHasPrevious}
+      />
+    </div>
+  );
 }
 
 function MineSectionBody({
@@ -201,14 +357,10 @@ function MineSectionBody({
         <Separator />
 
         {isOwner && blocksHistory ? (
-          <DocumentEditor
-            document={documents.blocks}
-            history={blocksHistory}
+          <InlineBlocksEditor
+            blocksDoc={documents.blocks}
+            blocksHistory={blocksHistory}
             me={me}
-            label="Study blocks"
-            hideLabel
-            hideHistory
-            placeholder="Work through your study here…"
             studyId={section.study_id}
             isTemplate={isTemplate}
             sectionPosition={section.position}
@@ -434,12 +586,15 @@ function MineTab(props: IDockviewPanelHeaderProps): React.ReactElement {
   return <DockviewDefaultTab {...props} hideClose />;
 }
 
+const BLOCKS_PANEL_ID = "blocks";
+
 const PANEL_COMPONENTS: Record<
   string,
   FunctionComponent<IDockviewPanelProps>
 > = {
   mine: MinePanel,
   person: PersonPanel as FunctionComponent<IDockviewPanelProps>,
+  blocks: BlocksDockPanel,
 };
 
 const TAB_COMPONENTS: Record<
@@ -471,6 +626,10 @@ export function StudyDockview({
   const [openIds, setOpenIds] = useState<Set<string>>(new Set());
   const [panelCount, setPanelCount] = useState(0);
   const [ready, setReady] = useState(false);
+  // Whether the study-blocks doc is in its own dockview panel (true) vs.
+  // inlined inside the "Mine" panel (false). The on-ready handler reconciles
+  // this with any restored layout so the placeholder isn't stale.
+  const [blocksDetached, setBlocksDetached] = useState(false);
 
   // `registerOpenPerson` is stable (useCallback in the provider); depend on it,
   // not the whole workspace value (which changes identity every section nav and
@@ -579,10 +738,20 @@ export function StudyDockview({
     }
 
     syncPanels(api);
-    api.onDidAddPanel(() => {
+    // If a restored layout brought back the blocks panel, mirror that into
+    // state so the inline placeholder renders instead of the editor.
+    setBlocksDetached(api.getPanel(BLOCKS_PANEL_ID) !== undefined);
+    api.onDidAddPanel((panel) => {
+      if (panel.id === BLOCKS_PANEL_ID) {
+        setBlocksDetached(true);
+      }
       syncPanels(api);
     });
-    api.onDidRemovePanel(() => {
+    api.onDidRemovePanel((panel) => {
+      // The user closed the blocks tab → bring it back inline.
+      if (panel.id === BLOCKS_PANEL_ID) {
+        setBlocksDetached(false);
+      }
       syncPanels(api);
     });
     api.onDidLayoutChange(() => {
@@ -609,6 +778,32 @@ export function StudyDockview({
     };
   }, [registerOpenPerson]);
 
+  // Reconcile the dockview panel state with the React `blocksDetached` flag.
+  // The flag is the source of truth; this effect adds the panel when it goes
+  // true and closes it when it goes false. Both branches are idempotent:
+  // adds when missing, closes when present — so re-fires of this effect
+  // (e.g. from the close handler flipping state back) are no-ops.
+  useEffect(() => {
+    if (!ready) {
+      return;
+    }
+    const api = apiRef.current;
+    if (!api) {
+      return;
+    }
+    const existing = api.getPanel(BLOCKS_PANEL_ID);
+    if (blocksDetached && !existing) {
+      api.addPanel({
+        id: BLOCKS_PANEL_ID,
+        component: BLOCKS_PANEL_ID,
+        title: "Study blocks",
+        position: { referencePanel: "mine", direction: "right" },
+      });
+    } else if (!blocksDetached && existing) {
+      existing.api.close();
+    }
+  }, [ready, blocksDetached]);
+
   function resetLayout() {
     const api = apiRef.current;
     if (api) {
@@ -622,7 +817,7 @@ export function StudyDockview({
   const singlePanel = panelCount <= 1;
 
   return (
-    <DockContext.Provider value={{ me }}>
+    <DockContext.Provider value={{ me, blocksDetached, setBlocksDetached }}>
       <div
         className="flex h-full min-h-0 min-w-0 flex-1 flex-col gap-2"
         data-study-dock=""

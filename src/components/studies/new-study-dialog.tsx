@@ -2,10 +2,14 @@
 
 import { Plus, Search } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 
-import { createStudyFromSelection } from "@/app/studies/actions";
+import {
+  createStudyFromSelection,
+  loadNewStudyOptions,
+} from "@/app/studies/actions";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -30,13 +34,21 @@ import { cn } from "@/lib/utils";
 
 type Tab = "book" | "custom" | "blank";
 
-export function NewStudyDialog({
-  customTemplates,
-  orgContext,
-}: {
-  customTemplates: StudyTemplate[];
-  orgContext: OrgBookContext;
-}) {
+const EMPTY_ORG_CONTEXT: OrgBookContext = {
+  inOrg: false,
+  usesDefaults: true,
+  disabledOrdinals: [],
+  overriddenOrdinals: [],
+};
+
+/**
+ * The dashboard doesn't fetch the dialog's data upfront — those two extra DB
+ * queries (custom templates + org book context) would block every dashboard
+ * render even though most visits never open the dialog. Instead we fetch on
+ * first open (or first hover/focus of the trigger, as a prefetch), and render
+ * a small skeleton in the data-dependent areas while it's in flight.
+ */
+export function NewStudyDialog() {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<Tab>("book");
   const [name, setName] = useState("");
@@ -45,6 +57,40 @@ export function NewStudyDialog({
   const [query, setQuery] = useState("");
   const [pending, startTransition] = useTransition();
   const router = useRouter();
+
+  // Lazy options state. `null` = not yet requested; once requested we keep the
+  // loaded data for the rest of the page's life (no need to re-fetch on
+  // subsequent opens since the dashboard list itself is the source of truth
+  // for changes during the session).
+  const [options, setOptions] = useState<{
+    customTemplates: StudyTemplate[];
+    orgContext: OrgBookContext;
+  } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const requestedRef = useRef(false);
+
+  function ensureOptions() {
+    if (requestedRef.current) {
+      return;
+    }
+    requestedRef.current = true;
+    setLoading(true);
+    void loadNewStudyOptions()
+      .then((next) => {
+        setOptions(next);
+      })
+      .catch(() => {
+        // Reset so a future open can retry. The dialog still works against the
+        // empty defaults — the user just won't see org badges or templates.
+        requestedRef.current = false;
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  }
+
+  const orgContext = options?.orgContext ?? EMPTY_ORG_CONTEXT;
+  const customTemplates = options?.customTemplates ?? [];
 
   const overridden = new Set(orgContext.overriddenOrdinals);
   const disabled = new Set(orgContext.disabledOrdinals);
@@ -111,13 +157,21 @@ export function NewStudyDialog({
       open={open}
       onOpenChange={(next) => {
         setOpen(next);
-        if (!next) {
+        if (next) {
+          ensureOptions();
+        } else {
           reset();
         }
       }}
     >
       <DialogTrigger asChild>
-        <Button type="button">
+        <Button
+          type="button"
+          // Prefetch on hover/focus so the dialog usually has its data ready by
+          // the time the user actually clicks the trigger.
+          onPointerEnter={ensureOptions}
+          onFocus={ensureOptions}
+        >
           <Plus className="size-4" />
           New study
         </Button>
@@ -209,7 +263,13 @@ export function NewStudyDialog({
 
           {tab === "custom" ? (
             <div className="max-h-56 overflow-auto rounded-md border">
-              {customTemplates.length === 0 ? (
+              {loading && options === null ? (
+                <div className="grid gap-2 p-3">
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <Skeleton key={i} className="h-8 w-full" />
+                  ))}
+                </div>
+              ) : customTemplates.length === 0 ? (
                 <p className="p-4 text-center text-sm text-muted-foreground">
                   No custom templates available.
                 </p>
