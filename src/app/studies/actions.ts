@@ -7,7 +7,11 @@ import { Transform } from "prosemirror-transform";
 
 import { EMPTY_DOC, type DocumentStepMeta } from "@/lib/db/types";
 import type { DocumentTimeline } from "@/lib/db/types";
-import { specsFromBlocksDoc, type BlockSpec } from "@/lib/editor/blocks";
+import {
+  blocksDocFromSpecs,
+  specsFromBlocksDoc,
+  type BlockSpec,
+} from "@/lib/editor/blocks";
 import { docToJSON, jsonToDoc, jsonToStep } from "@/lib/editor/serialize";
 import type { PMDocJSON, PMNodeJSON, SerializedStep } from "@/lib/editor/types";
 import { getGenreIdBySlug } from "@/lib/db/genres";
@@ -23,41 +27,9 @@ import type { Json } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
 
 /**
- * Block specs from the section's most recent OTHER section — the source for the
- * editor's "Copy from previous section" action. Empty if there's no prior one.
- */
-export async function getPreviousSectionBlockSpecs(
-  studyId: string,
-  sectionId: string,
-): Promise<BlockSpec[]> {
-  const { supabase } = await requireUser();
-  const { data: prevSections } = await supabase
-    .from("sections")
-    .select("id")
-    .eq("study_id", studyId)
-    .is("deleted_at", null)
-    .neq("id", sectionId)
-    .order("position", { ascending: false })
-    .limit(1);
-  const prev = prevSections?.[0];
-  if (!prev) {
-    return [];
-  }
-  const { data: prevBlocks } = await supabase
-    .from("documents")
-    .select("content")
-    .eq("section_id", prev.id)
-    .eq("kind", "blocks")
-    .maybeSingle();
-  if (!prevBlocks) {
-    return [];
-  }
-  return specsFromBlocksDoc(prevBlocks.content as unknown as PMDocJSON);
-}
-
-/**
- * Block specs for the editor's "Use this study's template blocks" action: the
- * study's source template's first-section blocks, else its genre default set.
+ * Block specs the study's template resolves to — the source template's
+ * first-section blocks, else its genre default set. Used to lazily derive the
+ * per-study template doc on first open (see getStudyTemplateBlocksDoc).
  */
 export async function getStudyTemplateBlockSpecs(
   studyId: string,
@@ -123,6 +95,49 @@ export async function getStudyTemplateBlockSpecs(
   }
 
   return [];
+}
+
+/**
+ * The study's editable template blocks doc (the "Template" tab). Returns the
+ * stored `template_blocks_doc` when set (authoritative — even an emptied one),
+ * else lazily derives it from the source template / genre defaults so the tab is
+ * never blank when a study has a backing template.
+ */
+export async function getStudyTemplateBlocksDoc(
+  studyId: string,
+): Promise<PMDocJSON> {
+  const { supabase } = await requireUser();
+  const { data: study } = await supabase
+    .from("studies")
+    .select("template_blocks_doc")
+    .eq("id", studyId)
+    .maybeSingle();
+  const stored = study?.template_blocks_doc as PMDocJSON | null | undefined;
+  if (stored != null) {
+    return stored;
+  }
+  const specs = await getStudyTemplateBlockSpecs(studyId);
+  return blocksDocFromSpecs(specs);
+}
+
+/**
+ * Save the study's editable template blocks doc. RLS (`is_study_owner`) gates
+ * who can write it. This seeds future sections (and, for a template study,
+ * propagates to studies created from the template).
+ */
+export async function saveStudyTemplateBlocksDoc(
+  studyId: string,
+  doc: PMDocJSON,
+): Promise<void> {
+  const { supabase } = await requireUser();
+  const { error } = await supabase
+    .from("studies")
+    .update({ template_blocks_doc: doc as unknown as Json })
+    .eq("id", studyId);
+  if (error) {
+    throw new Error(error.message);
+  }
+  revalidatePath(`/studies/${studyId}`);
 }
 
 /** Resolves the current user id, redirecting to login if unauthenticated. */
@@ -206,7 +221,10 @@ export async function createSection(studyId: string): Promise<void> {
   }
 
   const sectionId = data.id;
-  // New sections start empty; the editor's "Add blocks" button fills them.
+  // Seed the new section's blocks from the study's template (best-effort: a no-op
+  // when the study has no template with blocks, and a failure just leaves the
+  // section empty — the owner can still populate it via the blocks dialog).
+  await supabase.rpc("seed_section_blocks", { _section_id: sectionId });
   revalidatePath(`/studies/${studyId}`);
   redirect(`/studies/${studyId}/${sectionId}`);
 }

@@ -20,10 +20,10 @@ export interface ActiveSectionPayload {
   /** The owner's per-document undo history (null for read-only co-members). */
   notesHistory: DocumentHistory | null;
   blocksHistory: DocumentHistory | null;
-  /** Whether "Copy from previous section" has a source (drives the blocks menu). */
-  hasPreviousSection: boolean;
   /** Whether the viewer owns this study (editable) vs. reads along (viewer). */
   isOwner: boolean;
+  /** App/org template study — the blocks dialog's Template tab edits the default. */
+  isTemplate: boolean;
 }
 
 export interface StudyWorkspaceValue {

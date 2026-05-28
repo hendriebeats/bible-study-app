@@ -3,7 +3,7 @@
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { gapCursor } from "prosemirror-gapcursor";
 import { closeHistory, history, undo } from "prosemirror-history";
-import { ChevronDown, History, Plus } from "lucide-react";
+import { History } from "lucide-react";
 import { keymap } from "prosemirror-keymap";
 import type { Node } from "prosemirror-model";
 import { EditorState } from "prosemirror-state";
@@ -16,21 +16,13 @@ import {
   appendDocumentSteps,
   createDocumentCheckpoint,
   fetchDocumentHead,
-  getPreviousSectionBlockSpecs,
-  getStudyTemplateBlockSpecs,
 } from "@/app/studies/actions";
 import { useEditorContext } from "@/components/studies/editor-context";
 import { PresenceAvatars } from "@/components/studies/presence-avatars";
+import { StudyBlocksDialog } from "@/components/studies/study-blocks-dialog";
 import { VersionHistoryPanel } from "@/components/studies/version-history-panel";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import type { DocumentHistory, StudyDocument } from "@/lib/db/types";
-import { blocksDocFromSpecs, type BlockSpec } from "@/lib/editor/blocks";
 import { selectCurrentBlock } from "@/lib/editor/commands";
 import { buildNodeViews } from "@/lib/editor/node-views";
 import { buildInputRules } from "@/lib/editor/plugins/input-rules";
@@ -184,7 +176,7 @@ export function DocumentEditor({
   hideHistory = false,
   placeholder,
   studyId,
-  hasPreviousSection = false,
+  isTemplate = false,
 }: {
   document: StudyDocument;
   history: DocumentHistory;
@@ -195,15 +187,15 @@ export function DocumentEditor({
   /** Hide this editor's own History button (a section-level history is used instead). */
   hideHistory?: boolean;
   placeholder: string;
-  /** Set on the blocks editor to enable the "Add blocks" menu. */
+  /** Set on the blocks editor to enable the study-blocks dialog. */
   studyId?: string;
-  hasPreviousSection?: boolean;
+  /** Template study — the blocks dialog's Template tab edits the default. */
+  isTemplate?: boolean;
 }) {
   const editor = useEditorContext();
   const [status, setStatus] = useState<SaveStatus>("idle");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyHead, setHistoryHead] = useState(0);
-  const [addingBlocks, setAddingBlocks] = useState(false);
   // The blocks editor shows a non-editable prompt (instead of an editable
   // surface) until it holds a study block or the notes index — so a fresh
   // section never has freeform text. Always false for the Study Body.
@@ -477,87 +469,6 @@ export function DocumentEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Append a new (empty, rename-able) study block. If the doc is still just the
-  // placeholder paragraph, replace it so the blocks doc holds only blocks.
-  function addBlock() {
-    const view = viewRef.current;
-    if (!view) {
-      return;
-    }
-    const block = nodes.studyBlock.createAndFill({
-      title: "New block",
-      subtitle: "",
-      placeholder: "",
-      lineageId: null,
-      templateId: null,
-    });
-    if (!block) {
-      return;
-    }
-    const { doc: current } = view.state;
-    const first = current.firstChild;
-    const isLonePlaceholder =
-      current.childCount === 1 &&
-      first?.type === nodes.paragraph &&
-      first.content.size === 0;
-    const tr = isLonePlaceholder
-      ? view.state.tr.replaceWith(0, current.content.size, block)
-      : view.state.tr.insert(current.content.size, block);
-    view.dispatch(tr);
-    view.focus();
-  }
-
-  // Add a set of blocks. If the doc is still the lone placeholder, replace it;
-  // otherwise append — never overwrites existing blocks. Flows through the
-  // normal step pipeline (persisted, broadcast, undoable).
-  function applyBlockSpecs(specs: BlockSpec[]) {
-    const view = viewRef.current;
-    if (!view || specs.length === 0) {
-      return;
-    }
-    const node = jsonToDoc(blocksDocFromSpecs(specs));
-    const { doc: current } = view.state;
-    const first = current.firstChild;
-    const isLonePlaceholder =
-      current.childCount === 1 &&
-      first?.type === nodes.paragraph &&
-      first.content.size === 0;
-    const tr = isLonePlaceholder
-      ? view.state.tr.replaceWith(0, current.content.size, node.content)
-      : view.state.tr.insert(current.content.size, node.content);
-    tr.setMeta("allowVerseEdit", true);
-    if (tr.docChanged) {
-      view.dispatch(tr);
-    }
-    view.focus();
-  }
-
-  async function addBlocksFrom(source: "previous" | "template") {
-    if (!studyId || addingBlocks) {
-      return;
-    }
-    setAddingBlocks(true);
-    try {
-      const specs =
-        source === "previous"
-          ? await getPreviousSectionBlockSpecs(studyId, doc.section_id)
-          : await getStudyTemplateBlockSpecs(studyId);
-      if (specs.length === 0) {
-        toast(
-          source === "previous"
-            ? "No previous section to copy blocks from."
-            : "This study has no template blocks to add.",
-        );
-        return;
-      }
-      applyBlockSpecs(specs);
-    } catch {
-      toast.error("Couldn't add blocks.");
-    } finally {
-      setAddingBlocks(false);
-    }
-  }
-
   // Restore by replacing the whole doc with a past version — flows through the
   // normal step pipeline, so it's persisted, broadcast, and itself undoable.
   function applyRestore(targetDoc: PMDocJSON) {
@@ -618,6 +529,9 @@ export function DocumentEditor({
           >
             {statusLabel}
           </span>
+          {doc.kind === "blocks" && studyId ? (
+            <StudyBlocksDialog studyId={studyId} isTemplate={isTemplate} />
+          ) : null}
           {hideHistory ? null : (
             <Button
               type="button"
@@ -637,47 +551,7 @@ export function DocumentEditor({
       <div ref={mountRef} className={blocksEmpty ? "hidden" : "min-h-32"} />
       {doc.kind === "blocks" && blocksEmpty ? (
         <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-          No study blocks yet. Use “Add block” below to begin.
-        </div>
-      ) : null}
-      {doc.kind === "blocks" ? (
-        <div className="mt-2 flex items-center gap-1">
-          <Button type="button" size="sm" variant="ghost" onClick={addBlock}>
-            <Plus className="size-4" />
-            Add block
-          </Button>
-          {studyId ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  disabled={addingBlocks}
-                >
-                  Add blocks
-                  <ChevronDown className="size-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start">
-                <DropdownMenuItem
-                  disabled={!hasPreviousSection}
-                  onSelect={() => {
-                    void addBlocksFrom("previous");
-                  }}
-                >
-                  Copy from previous section
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onSelect={() => {
-                    void addBlocksFrom("template");
-                  }}
-                >
-                  Use this study&rsquo;s template blocks
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : null}
+          No study blocks yet. Use “Edit blocks” above to add them.
         </div>
       ) : null}
       {historyOpen ? (

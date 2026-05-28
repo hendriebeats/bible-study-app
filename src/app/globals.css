@@ -483,9 +483,6 @@
   .study-block-title {
     @apply min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none;
   }
-  .study-block-remove {
-    @apply shrink-0 rounded-sm px-1.5 text-lg leading-none text-muted-foreground hover:text-destructive;
-  }
   .study-block-subtitle {
     @apply mt-1 text-xs text-muted-foreground;
   }

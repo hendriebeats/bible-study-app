@@ -50,14 +50,33 @@ export function StudyChrome({
 }) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [toolbarSlot, setToolbarSlot] = useState<HTMLElement | null>(null);
+  const [sectionTitleOverrides, setSectionTitleOverrides] = useState<
+    Record<string, string>
+  >({});
 
   const toggleSidebar = useCallback(() => {
     setSidebarOpen((open) => !open);
   }, []);
 
+  const setSectionTitle = useCallback((sectionId: string, title: string) => {
+    setSectionTitleOverrides((prev) => ({ ...prev, [sectionId]: title }));
+  }, []);
+
   const value = useMemo<StudyChromeValue>(
-    () => ({ sidebarOpen, toggleSidebar, toolbarSlot }),
-    [sidebarOpen, toggleSidebar, toolbarSlot],
+    () => ({
+      sidebarOpen,
+      toggleSidebar,
+      toolbarSlot,
+      sectionTitleOverrides,
+      setSectionTitle,
+    }),
+    [
+      sidebarOpen,
+      toggleSidebar,
+      toolbarSlot,
+      sectionTitleOverrides,
+      setSectionTitle,
+    ],
   );
 
   return (

@@ -23,8 +23,14 @@ interface InlineOptions {
  */
 interface VerseLocation {
   bookOrdinal: number | null;
-  /** Chapter the next bare `[v]` marker belongs to; bumped by each `[c:v]`. */
+  /** Chapter the next bare `[v]` marker belongs to. */
   currentChapter: number | null;
+  /**
+   * The last verse number stamped, in reading order. ESV never prints a `[c:v]`
+   * marker at a chapter boundary — it just resets the bare `[v]` to a lower
+   * number — so a marker whose verse doesn't increase signals a new chapter.
+   */
+  prevVerse: number | null;
 }
 
 /** Structured location passed in by the caller (from the parsed reference). */
@@ -34,7 +40,10 @@ export interface ScriptureLocation {
 }
 
 /** Stamp a verse_number's `chapter`/`verse` from its ESV marker, advancing the
- * running chapter when the marker crosses a boundary (`[c:v]`). */
+ * running chapter at a boundary. The boundary signal is the verse number
+ * RESETTING (the ESV text API does not emit `[c:v]` between chapters — it just
+ * restarts the bare marker at a lower number, typically `[1]`); the `[c:v]`
+ * branch below is a defensive fallback the parser still honors. */
 function verseNumberNode(marker: string, loc: VerseLocation): PMNodeJSON {
   let chapter = loc.currentChapter;
   let verse: number | null = null;
@@ -49,7 +58,23 @@ function verseNumberNode(marker: string, loc: VerseLocation): PMNodeJSON {
     if (Number.isFinite(v)) verse = v;
   } else {
     const v = Number.parseInt(marker, 10);
-    if (Number.isFinite(v)) verse = v;
+    if (Number.isFinite(v)) {
+      // A contiguous passage's intermediate chapters always start at verse 1,
+      // and verses strictly increase within a chapter, so a non-increasing verse
+      // marker reliably means we crossed into the next chapter.
+      if (
+        loc.currentChapter != null &&
+        loc.prevVerse != null &&
+        v <= loc.prevVerse
+      ) {
+        loc.currentChapter += 1;
+        chapter = loc.currentChapter;
+      }
+      verse = v;
+    }
+  }
+  if (verse != null) {
+    loc.prevVerse = verse;
   }
   return {
     type: "verse_number",
@@ -232,6 +257,7 @@ export function scriptureParagraphsToNodes(
   const loc: VerseLocation = {
     bookOrdinal: location?.bookOrdinal ?? null,
     currentChapter: location?.startChapter ?? null,
+    prevVerse: null,
   };
 
   if (opts.layout === "single-block") {

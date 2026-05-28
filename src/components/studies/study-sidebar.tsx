@@ -12,6 +12,7 @@ import {
   restoreSection,
   setStudyGenre,
 } from "@/app/studies/actions";
+import { useStudyChrome } from "@/components/studies/study-chrome-context";
 import { TrashButton } from "@/components/studies/trash-button";
 import { Button } from "@/components/ui/button";
 import {
@@ -40,6 +41,7 @@ export function StudySidebar({
   onCollapse: () => void;
 }) {
   const pathname = usePathname();
+  const chrome = useStudyChrome();
   const [pending, startTransition] = useTransition();
 
   return (
@@ -92,6 +94,10 @@ export function StudySidebar({
           {sections.map((section) => {
             const href = `/studies/${study.id}/${section.id}`;
             const active = pathname === href;
+            // Prefer the live title published while editing the section, so a
+            // rename shows here as you type; fall back to the server title.
+            const title =
+              chrome?.sectionTitleOverrides[section.id] ?? section.title;
             return (
               <li key={section.id} className="group flex items-center gap-1">
                 <Link
@@ -103,7 +109,7 @@ export function StudySidebar({
                       : "hover:bg-sidebar-accent/50",
                   )}
                 >
-                  {section.title}
+                  {title}
                 </Link>
                 {isOwner ? (
                   <DropdownMenu>

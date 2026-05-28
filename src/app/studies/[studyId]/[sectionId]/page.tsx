@@ -29,14 +29,15 @@ export default async function SectionPage({
   });
   const isOwner = ownerFlag ?? false;
 
-  // Whether the editor's "Copy from previous section" option has a source.
-  const { count: otherSectionCount } = await supabase
-    .from("sections")
-    .select("id", { count: "exact", head: true })
-    .eq("study_id", studyId)
-    .is("deleted_at", null)
-    .neq("id", sectionId);
-  const hasPreviousSection = (otherSectionCount ?? 0) > 0;
+  // A template study (app default or org-owned) — the blocks dialog's Template
+  // tab then edits the default that seeds studies created from this template.
+  const { data: studyMeta } = await supabase
+    .from("studies")
+    .select("is_app_template, owner_org_id")
+    .eq("id", studyId)
+    .maybeSingle();
+  const isTemplate =
+    Boolean(studyMeta?.is_app_template) || studyMeta?.owner_org_id != null;
 
   // The owner edits (and needs each document's history for refresh-surviving
   // undo); co-members get the read-only live viewer.
@@ -65,8 +66,8 @@ export default async function SectionPage({
         documents,
         notesHistory,
         blocksHistory,
-        hasPreviousSection,
         isOwner,
+        isTemplate,
       }}
     />
   );

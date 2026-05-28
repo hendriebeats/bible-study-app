@@ -63,9 +63,9 @@ function syncDataAttrs(el: HTMLElement, attrs: StudyBlockAttrs): void {
  * subtitle as non-editable chrome, with the user's editable content in the body
  * (`contentDOM`). The body's empty-state placeholder is rendered by the
  * placeholder plugin (a decoration), not here. Owners get an inline-editable
- * title and a remove button; read-only viewers get neither. Title edits commit
- * on blur as a single `setNodeMarkup` step (so they flow through the normal
- * persist/broadcast path).
+ * title (read-only viewers don't); adding, removing, and reordering blocks live
+ * in the study-blocks dialog. Title edits commit on blur as a single
+ * `setNodeMarkup` step (so they flow through the normal persist/broadcast path).
  */
 export class StudyBlockView implements NodeView {
   public readonly dom: HTMLElement;
@@ -124,18 +124,6 @@ export class StudyBlockView implements NodeView {
     });
     titleRow.appendChild(titleInput);
 
-    if (editable) {
-      const remove = document.createElement("button");
-      remove.type = "button";
-      remove.className = "study-block-remove";
-      remove.setAttribute("aria-label", "Remove block");
-      remove.textContent = "×";
-      remove.addEventListener("click", () => {
-        this.remove();
-      });
-      titleRow.appendChild(remove);
-    }
-
     const subtitleEl = document.createElement("p");
     subtitleEl.className = "study-block-subtitle";
     subtitleEl.textContent = attrs.subtitle;
@@ -172,17 +160,6 @@ export class StudyBlockView implements NodeView {
       title: this.titleInput.value,
     });
     this.view.dispatch(tr);
-  }
-
-  private remove(): void {
-    const pos = this.getPos();
-    if (pos == null) {
-      return;
-    }
-    this.view.dispatch(
-      this.view.state.tr.delete(pos, pos + this.node.nodeSize),
-    );
-    this.view.focus();
   }
 
   update(node: Node): boolean {

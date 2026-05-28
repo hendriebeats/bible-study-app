@@ -9,6 +9,15 @@ export interface StudyChromeValue {
   toggleSidebar: () => void;
   /** Full-width row beneath the top bar the editor toolbar portals into. */
   toolbarSlot: HTMLElement | null;
+  /**
+   * Live section titles by section id, published as the user types in the
+   * editable "mine" panel so the left TOC + dock tab update in real time —
+   * before the renamed title is persisted/revalidated. Consumers fall back to
+   * the server-rendered `section.title` when a section has no override.
+   */
+  sectionTitleOverrides: Record<string, string>;
+  /** Publish the current text of a section's title field (session-only). */
+  setSectionTitle: (sectionId: string, title: string) => void;
 }
 
 export const StudyChromeContext = createContext<StudyChromeValue | null>(null);

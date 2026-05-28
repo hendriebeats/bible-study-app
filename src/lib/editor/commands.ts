@@ -458,34 +458,6 @@ export const selectCurrentBlock: Command = (state, dispatch) => {
   return true;
 };
 
-/**
- * Delete the top-level block containing the selection. If it's the only block,
- * replace it with an empty paragraph so the doc stays non-empty.
- */
-export const deleteCurrentBlock: Command = (state, dispatch) => {
-  const { $from } = state.selection;
-  if ($from.depth < 1) {
-    return false;
-  }
-  if (dispatch) {
-    const blockStart = $from.before(1);
-    const block = $from.node(1);
-    const tr = state.tr;
-    if (state.doc.childCount <= 1) {
-      tr.replaceWith(
-        blockStart,
-        blockStart + block.nodeSize,
-        nodes.paragraph.create(),
-      );
-    } else {
-      tr.delete(blockStart, blockStart + block.nodeSize);
-    }
-    tr.setMeta("allowVerseEdit", true);
-    dispatch(tr.scrollIntoView());
-  }
-  return true;
-};
-
 /** Remove the link mark across an explicit range (captured at popover open). */
 export function clearLink(from: number, to: number): Command {
   return (state, dispatch) => {

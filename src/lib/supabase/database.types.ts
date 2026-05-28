@@ -917,6 +917,7 @@ export type Database = {
           owner_id: string | null
           owner_org_id: string | null
           source_template_id: string | null
+          template_blocks_doc: Json | null
           title: string
           updated_at: string
         }
@@ -931,6 +932,7 @@ export type Database = {
           owner_id?: string | null
           owner_org_id?: string | null
           source_template_id?: string | null
+          template_blocks_doc?: Json | null
           title?: string
           updated_at?: string
         }
@@ -945,6 +947,7 @@ export type Database = {
           owner_id?: string | null
           owner_org_id?: string | null
           source_template_id?: string | null
+          template_blocks_doc?: Json | null
           title?: string
           updated_at?: string
         }
@@ -1281,6 +1284,7 @@ export type Database = {
         Args: { _group_study_id: string }
         Returns: string
       }
+      seed_section_blocks: { Args: { _section_id: string }; Returns: undefined }
       seed_study_from_template: {
         Args: { _group_study_id: string }
         Returns: string

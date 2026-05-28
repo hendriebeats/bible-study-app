@@ -101,8 +101,8 @@ function MineSectionBody({
     documents,
     notesHistory,
     blocksHistory,
-    hasPreviousSection,
     isOwner,
+    isTemplate,
   } = payload;
   const [title, setTitle] = useState(section.title);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -131,6 +131,9 @@ function MineSectionBody({
             value={title}
             onChange={(event) => {
               setTitle(event.target.value);
+              // Publish live so the left TOC + dock tab update as you type;
+              // handleTitleBlur still persists the trimmed value on commit.
+              chrome?.setSectionTitle(section.id, event.target.value);
             }}
             onBlur={handleTitleBlur}
             aria-label="Section title"
@@ -189,7 +192,7 @@ function MineSectionBody({
             hideHistory
             placeholder="Work through your study here…"
             studyId={section.study_id}
-            hasPreviousSection={hasPreviousSection}
+            isTemplate={isTemplate}
           />
         ) : (
           <DocumentViewer
@@ -441,6 +444,7 @@ export function StudyDockview({
   savedLayout,
 }: StudyDockviewProps): React.ReactElement {
   const workspace = useStudyWorkspace();
+  const chrome = useStudyChrome();
   const apiRef = useRef<DockviewApi | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [openIds, setOpenIds] = useState<Set<string>>(new Set());
@@ -451,13 +455,20 @@ export function StudyDockview({
   // not the whole workspace value (which changes identity every section nav and
   // would otherwise unregister the opener on every navigation).
   const { active, registerOpenPerson } = workspace;
+  // Prefer the live title the "mine" panel publishes as you type, so the tab
+  // tracks a rename in real time; fall back to the server-rendered title.
+  const activeTitle = active
+    ? (chrome?.sectionTitleOverrides[active.section.id] ?? active.section.title)
+    : null;
   useEffect(() => {
     if (!ready) {
       return;
     }
     const panel = apiRef.current?.getPanel("mine");
-    panel?.api.setTitle(active ? `${active.section.title} · You` : "My study");
-  }, [ready, active]);
+    panel?.api.setTitle(
+      activeTitle != null ? `${activeTitle} · You` : "My study",
+    );
+  }, [ready, activeTitle]);
 
   // handleReady runs once; read the freshest targets through a ref so a member
   // who joins mid-session can still be opened by id.

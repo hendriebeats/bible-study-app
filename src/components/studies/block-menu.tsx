@@ -30,7 +30,6 @@ import { createPortal } from "react-dom";
 import { useEditorContext } from "@/components/studies/editor-context";
 import {
   allowVerseEdit,
-  deleteCurrentBlock,
   moveBlockDown,
   moveBlockUp,
 } from "@/lib/editor/commands";
@@ -221,7 +220,6 @@ export function BlockMenu() {
           <div className="my-1 border-t border-border/60" />
           {item("move-up", ArrowUp, "Move up", moveBlockUp)}
           {item("move-down", ArrowDown, "Move down", moveBlockDown)}
-          {item("delete", Trash2, "Delete", deleteCurrentBlock, true)}
         </>
       )}
     </div>,
