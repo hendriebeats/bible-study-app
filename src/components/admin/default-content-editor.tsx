@@ -24,6 +24,7 @@ import { buildKeymaps } from "@/lib/editor/plugins/keymap";
 import { marks, nodes } from "@/lib/editor/schema";
 import { docToJSON, jsonToDoc } from "@/lib/editor/serialize";
 import type { PMNodeJSON } from "@/lib/editor/types";
+import { UNDO_GROUP_DELAY_MS, withUndoBoundary } from "@/lib/editor/word-undo";
 
 function initialDoc(content: PMNodeJSON[] | null) {
   return jsonToDoc({
@@ -73,11 +74,12 @@ export function DefaultContentEditor({
           buildInputRules(),
           ...buildKeymaps(),
           gapCursor(),
-          history(),
+          history({ newGroupDelay: UNDO_GROUP_DELAY_MS }),
           tableEditing(),
         ],
       }),
-      dispatchTransaction(tr) {
+      dispatchTransaction(incoming) {
+        const tr = withUndoBoundary(view, incoming);
         const next = view.state.apply(tr);
         view.updateState(next);
         setEditorState(next);

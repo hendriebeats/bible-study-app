@@ -14,7 +14,9 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
 import type { DocumentStepMeta } from "@/lib/db/types";
+import { groupMomentsIntoSessions } from "@/lib/editor/history-sessions";
 import { jsonToDoc } from "@/lib/editor/serialize";
+import { cn } from "@/lib/utils";
 
 /** Debounce before materializing a scrubbed-to point (keeps dragging smooth). */
 const PREVIEW_DEBOUNCE_MS = 180;
@@ -70,6 +72,8 @@ export function SectionHistoryPanel({
   );
   // Index into the merged moments; the last index is "now" (current head).
   const [index, setIndex] = useState<number | null>(null);
+  // Which editing session is expanded; null defaults to the most recent.
+  const [sessionIdx, setSessionIdx] = useState<number | null>(null);
   const [preview, setPreview] = useState<{
     notesDoc: Node;
     blocksDoc: Node;
@@ -118,6 +122,33 @@ export function SectionHistoryPanel({
   const current = index ?? maxIndex;
   const atHead = current >= maxIndex;
   const currentIso = atHead ? null : (moments[current] ?? null);
+
+  // Cluster the dense per-save moments into coarse editing sessions for display.
+  const sessions = useMemo(() => groupMomentsIntoSessions(moments), [moments]);
+  // Default to the most recent session so the panel opens on recent work.
+  const selectedIdx =
+    sessionIdx ?? (sessions.length > 0 ? sessions.length - 1 : 0);
+  const session = sessions[selectedIdx] ?? null;
+  const isLastSession = selectedIdx === sessions.length - 1;
+  // Scrub within the selected session only; the most recent one extends to "now".
+  const sliderMin = session ? session.startIndex : 0;
+  const sliderMax = session
+    ? isLastSession
+      ? maxIndex
+      : session.endIndex
+    : maxIndex;
+  const showSlider = sliderMax > sliderMin;
+  const sliderValue = Math.min(Math.max(current, sliderMin), sliderMax);
+
+  // Jump to a session's latest point (the head itself for the most recent one).
+  function selectSession(i: number) {
+    const picked = sessions[i];
+    if (!picked) {
+      return;
+    }
+    setSessionIdx(i);
+    setIndex(i === sessions.length - 1 ? maxIndex : picked.endIndex);
+  }
 
   // Materialize both documents at the selected moment (debounced, on demand).
   useEffect(() => {
@@ -195,17 +226,41 @@ export function SectionHistoryPanel({
           </p>
         ) : (
           <>
+            <div className="max-h-48 space-y-1 overflow-auto p-2">
+              {sessions.map((s, i) => (
+                <button
+                  key={s.startIso}
+                  type="button"
+                  onClick={() => {
+                    selectSession(i);
+                  }}
+                  aria-pressed={i === selectedIdx}
+                  className={cn(
+                    "w-full rounded-md px-3 py-2 text-left text-sm",
+                    i === selectedIdx
+                      ? "bg-accent text-accent-foreground"
+                      : "hover:bg-muted",
+                  )}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+            <Separator />
+
             <div className="space-y-3 p-4">
-              <Slider
-                min={0}
-                max={maxIndex}
-                step={1}
-                value={[current]}
-                onValueChange={(values) => {
-                  setIndex(values[0] ?? maxIndex);
-                }}
-                aria-label="Point in time"
-              />
+              {showSlider ? (
+                <Slider
+                  min={sliderMin}
+                  max={sliderMax}
+                  step={1}
+                  value={[sliderValue]}
+                  onValueChange={(values) => {
+                    setIndex(values[0] ?? sliderMax);
+                  }}
+                  aria-label="Point in time within session"
+                />
+              ) : null}
               <span className="text-xs text-muted-foreground">
                 {currentIso === null
                   ? "Now (latest)"

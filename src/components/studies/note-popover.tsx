@@ -28,6 +28,7 @@ import {
 } from "@/lib/editor/plugins/note-anchors";
 import { setNoteSticky } from "@/lib/editor/note-highlight";
 import { schema } from "@/lib/editor/schema";
+import { UNDO_GROUP_DELAY_MS, withUndoBoundary } from "@/lib/editor/word-undo";
 
 const WIDTH = 360;
 /** Debounce before writing popover edits back into the blocks doc. */
@@ -113,7 +114,12 @@ export function NotePopover() {
     const view = new EditorView(mount, {
       state: EditorState.create({
         doc: schema.topNodeType.create(null, hit.node.content),
-        plugins: [buildInputRules(), ...buildKeymaps(), gapCursor(), history()],
+        plugins: [
+          buildInputRules(),
+          ...buildKeymaps(),
+          gapCursor(),
+          history({ newGroupDelay: UNDO_GROUP_DELAY_MS }),
+        ],
       }),
       nodeViews: buildNodeViews(true),
       dispatchTransaction(transaction) {
@@ -121,7 +127,7 @@ export function NotePopover() {
         if (!v) {
           return;
         }
-        v.updateState(v.state.apply(transaction));
+        v.updateState(v.state.apply(withUndoBoundary(v, transaction)));
         if (transaction.docChanged) {
           if (writeTimer) {
             clearTimeout(writeTimer);

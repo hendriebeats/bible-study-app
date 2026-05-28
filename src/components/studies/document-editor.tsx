@@ -58,6 +58,7 @@ import {
   stepToJSON,
 } from "@/lib/editor/serialize";
 import type { PMDocJSON, SerializedStep } from "@/lib/editor/types";
+import { UNDO_GROUP_DELAY_MS, withUndoBoundary } from "@/lib/editor/word-undo";
 import {
   broadcastCursor,
   broadcastSteps,
@@ -82,7 +83,7 @@ function createPlugins(placeholderText: string, role: EditorRole) {
     buildInputRules(),
     ...buildKeymaps(),
     gapCursor(),
-    history(),
+    history({ newGroupDelay: UNDO_GROUP_DELAY_MS }),
     verseGuard(),
     verseLabel(),
     slashMenu(),
@@ -402,7 +403,11 @@ export function DocumentEditor({
         if (!current) {
           return;
         }
-        const next = current.state.apply(transaction);
+        // Open a fresh undo group at word/action boundaries (Google-Docs-style).
+        // `withUndoBoundary` returns the same transaction (possibly meta-tagged),
+        // so the autosave step loop below is unaffected.
+        const tr = withUndoBoundary(current, transaction);
+        const next = current.state.apply(tr);
         current.updateState(next);
         // Editing (or moving the cursor in) this editor makes it the toolbar's
         // active target and refreshes the toolbar's active-mark states.
