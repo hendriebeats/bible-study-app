@@ -86,8 +86,20 @@ export function StudyWorkspace({
     [],
   );
 
-  const clear = useCallback((sectionId: string) => {
-    setActive((prev) => (prev?.section.id === sectionId ? null : prev));
+  // Intentionally a no-op. The old `SectionBridge`'s `useLayoutEffect` cleanup
+  // fires BEFORE the new section's mount effect, so naïvely clearing would
+  // flash `active` to null between sections — the toolbar, dock chrome, and
+  // per-section bits would visibly unmount + remount.
+  //
+  // Section nav always publishes the new payload immediately on mount, so we
+  // let `active` stay sticky to the previous section until the new one
+  // overwrites it. When the user truly leaves the studies area, the workspace
+  // itself unmounts and `active` is discarded with it.
+  //
+  // The `sectionId` parameter is kept for API stability — `SectionBridge`
+  // still calls `clear(payload.section.id)` on unmount.
+  const clear = useCallback((_sectionId: string) => {
+    // No-op — see comment above.
   }, []);
 
   const openPerson = useCallback((personStudyId: string) => {

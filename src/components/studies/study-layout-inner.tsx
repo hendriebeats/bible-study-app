@@ -7,7 +7,12 @@ import { StudyWorkspace } from "@/components/studies/study-workspace";
 import { listCompareTargets } from "@/lib/db/compare";
 import { listGenres } from "@/lib/db/genres";
 import { getStudyGroupContext } from "@/lib/db/groups";
-import { getStudy, listSections, listTrashedSections } from "@/lib/db/studies";
+import {
+  getStudy,
+  isStudyOwner,
+  listSections,
+  listTrashedSections,
+} from "@/lib/db/studies";
 import {
   getEditorTools,
   getFormatRecents,
@@ -45,17 +50,17 @@ export async function StudyLayoutInner({
   }
 
   // Study existence and ownership are independent; running them in parallel
-  // shaves one round trip off every entry. The notFound() and isOwner
-  // branching both happen below after this resolves.
-  const [study, ownerFlagResult] = await Promise.all([
+  // shaves one round trip off every entry. Both calls go through React's
+  // `cache()` so the per-section page reuses the result (saving another two
+  // round trips per section navigation).
+  const [study, isOwner] = await Promise.all([
     getStudy(studyId),
-    supabase.rpc("is_study_owner", { _study_id: studyId }),
+    isStudyOwner(studyId),
   ]);
   if (!study) {
     notFound();
   }
   // Ownership covers personal owner AND group owners of a group's template.
-  const isOwner = ownerFlagResult.data ?? false;
   const isTemplate = study.is_app_template || study.owner_org_id !== null;
   const templateBackHref = study.is_app_template
     ? "/admin/templates"

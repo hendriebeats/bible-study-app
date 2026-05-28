@@ -1,3 +1,5 @@
+import { cache } from "react";
+
 import { listGenres } from "@/lib/db/genres";
 import type {
   Section,
@@ -176,32 +178,62 @@ export async function listTrashedStudies(): Promise<TrashItem[]> {
   }));
 }
 
-export async function getStudy(studyId: string): Promise<Study | null> {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("studies")
-    .select("*")
-    .eq("id", studyId)
-    .maybeSingle();
-  if (error) {
-    throw new Error(error.message);
-  }
-  return data;
-}
+/**
+ * Wrapped in `cache()` so the layout and the per-section page (which both
+ * need the study row, for chrome metadata and `isTemplate` respectively) share
+ * a single DB call per request instead of duplicating the round trip. The
+ * dedupe key is `studyId`.
+ */
+export const getStudy = cache(
+  async (studyId: string): Promise<Study | null> => {
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("studies")
+      .select("*")
+      .eq("id", studyId)
+      .maybeSingle();
+    if (error) {
+      throw new Error(error.message);
+    }
+    return data;
+  },
+);
 
-export async function listSections(studyId: string): Promise<SectionSummary[]> {
+/**
+ * Per-request memoized ownership check. Layout uses it to gate the sidebar's
+ * "Add section" button; the per-section page uses it to decide whether to
+ * fetch undo history and the empty-state precheck. Sharing the same `cache()`
+ * entry means section navigation only spends ONE round trip on the RPC even
+ * though both the layout and the page need the answer.
+ */
+export const isStudyOwner = cache(async (studyId: string): Promise<boolean> => {
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("sections")
-    .select("id, study_id, title, position")
-    .eq("study_id", studyId)
-    .is("deleted_at", null)
-    .order("position", { ascending: true });
-  if (error) {
-    throw new Error(error.message);
-  }
-  return data;
-}
+  const { data } = await supabase.rpc("is_study_owner", {
+    _study_id: studyId,
+  });
+  return data ?? false;
+});
+
+/**
+ * Cached so layout + sidebar + studyId-index redirect all share one DB call.
+ * Section-mutation actions still revalidate the path; the cache only lives
+ * within a single request, not across them.
+ */
+export const listSections = cache(
+  async (studyId: string): Promise<SectionSummary[]> => {
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("sections")
+      .select("id, study_id, title, position")
+      .eq("study_id", studyId)
+      .is("deleted_at", null)
+      .order("position", { ascending: true });
+    if (error) {
+      throw new Error(error.message);
+    }
+    return data;
+  },
+);
 
 /** Trashed (soft-deleted, recoverable) sections within a study. */
 export async function listTrashedSections(

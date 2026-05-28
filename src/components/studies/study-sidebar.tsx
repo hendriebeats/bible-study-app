@@ -128,10 +128,20 @@ export function StudySidebar({
             // rename shows here as you type; fall back to the server title.
             const title =
               chrome?.sectionTitleOverrides[section.id] ?? section.title;
+            // Hover/focus triggers a full RSC prefetch (including the page's
+            // dynamic content), so by the time the user clicks the data is
+            // usually already in the router cache and the click feels instant.
+            // `<Link>`'s built-in prefetch only covers the static shell; under
+            // `cacheComponents` we need this explicit call to warm dynamics.
+            const prefetch = () => {
+              router.prefetch(href);
+            };
             return (
               <li key={section.id} className="group flex items-center gap-1">
                 <Link
                   href={href}
+                  onPointerEnter={prefetch}
+                  onFocus={prefetch}
                   className={cn(
                     "min-w-0 flex-1 truncate rounded-md px-3 py-2 text-sm",
                     active

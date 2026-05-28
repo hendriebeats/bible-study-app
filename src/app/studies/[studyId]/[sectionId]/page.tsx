@@ -9,8 +9,12 @@ import { SectionBridge } from "@/components/studies/section-bridge";
 import { SectionHistoryBridge } from "@/components/studies/section-history-bridge";
 import { specsFromBlocksDoc } from "@/lib/editor/blocks";
 import { getDocumentHistory } from "@/lib/db/history";
-import { getSection, getSectionDocuments } from "@/lib/db/studies";
-import { createClient } from "@/lib/supabase/server";
+import {
+  getSection,
+  getSectionDocuments,
+  getStudy,
+  isStudyOwner,
+} from "@/lib/db/studies";
 
 export default async function SectionPage({
   params,
@@ -21,35 +25,32 @@ export default async function SectionPage({
 }) {
   const { studyId, sectionId } = await params;
   const { focus } = await searchParams;
-  const section = await getSection(sectionId);
+
+  // Phase 1: only the truly-section-scoped fetches block — `getSection` and
+  // `getSectionDocuments`. `getStudy` and `isStudyOwner` are wrapped in
+  // React's `cache()` and already resolved by the studies layout in this
+  // request, so they're free cache hits here.
+  const [section, documents, study, isOwner] = await Promise.all([
+    getSection(sectionId),
+    getSectionDocuments(sectionId),
+    getStudy(studyId),
+    isStudyOwner(studyId),
+  ]);
   if (!section) {
     notFound();
   }
-  const documents = await getSectionDocuments(sectionId);
   if (!documents) {
     notFound();
   }
-
-  const supabase = await createClient();
-  const { data: ownerFlag } = await supabase.rpc("is_study_owner", {
-    _study_id: studyId,
-  });
-  const isOwner = ownerFlag ?? false;
-
   // A template study (app default or org-owned) — the blocks dialog's Template
   // tab then edits the default that seeds studies created from this template.
-  const { data: studyMeta } = await supabase
-    .from("studies")
-    .select("is_app_template, owner_org_id")
-    .eq("id", studyId)
-    .maybeSingle();
   const isTemplate =
-    Boolean(studyMeta?.is_app_template) || studyMeta?.owner_org_id != null;
+    Boolean(study?.is_app_template) || study?.owner_org_id != null;
 
-  // Pre-compute which sources the blocks empty-state can offer. Owners only;
-  // viewers never see the empty-state controls. "Previous" is the section
-  // immediately before THIS one by position (passes the threshold). The
-  // template precheck must use the SAME source of truth as the seed action
+  // Phase 2 (owners only): empty-state precheck — does this study have a
+  // template doc or an earlier section to copy blocks from? Depends on
+  // `section.position` so it can't join the batch above. The template
+  // precheck must use the SAME source of truth as the seed action
   // (`getStudyTemplateBlocksDoc`, which prioritizes the user-edited
   // `template_blocks_doc`) — checking only the spec source missed studies
   // where the user has customized the template via the blocks dialog.
