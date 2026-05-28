@@ -19,6 +19,7 @@ import {
   toggleBulletList,
   toggleItalic,
 } from "@/lib/editor/commands";
+import { DEFAULT_EDITOR_TOOLS } from "@/lib/editor/editor-tools";
 import { buildNodeViews } from "@/lib/editor/node-views";
 import { buildInputRules } from "@/lib/editor/plugins/input-rules";
 import { buildKeymaps } from "@/lib/editor/plugins/keymap";
@@ -54,6 +55,7 @@ export function NotePopover() {
   const findNoteEntry = ctx?.findNoteEntry;
   const getBlocksView = ctx?.getBlocksView;
   const activeState = ctx?.activeState ?? null;
+  const editorTools = ctx?.editorTools ?? DEFAULT_EDITOR_TOOLS;
 
   const [openId, setOpenId] = useState<string | null>(null);
   const [pos, setPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -115,8 +117,8 @@ export function NotePopover() {
       state: EditorState.create({
         doc: schema.topNodeType.create(null, hit.node.content),
         plugins: [
-          buildInputRules(),
-          ...buildKeymaps(),
+          buildInputRules(editorTools),
+          ...buildKeymaps(editorTools),
           gapCursor(),
           history({ newGroupDelay: UNDO_GROUP_DELAY_MS }),
         ],
@@ -150,7 +152,7 @@ export function NotePopover() {
       view.destroy();
       miniRef.current = null;
     };
-  }, [openId, findNoteEntry, getBlocksView]);
+  }, [openId, findNoteEntry, getBlocksView, editorTools]);
 
   // Inbound sync: when the blocks doc changes (index row edited, cross-tab),
   // refresh the mini editor — but only while it's unfocused, and only if the

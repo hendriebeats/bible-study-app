@@ -1,16 +1,13 @@
 "use client";
 
-import { Keyboard } from "lucide-react";
 import { useSyncExternalStore } from "react";
 
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 
 /** A keyboard shortcut (or markdown shortcut) and what it does. */
@@ -87,8 +84,19 @@ function ShortcutGroup({ title, items }: { title: string; items: Shortcut[] }) {
 // Platform never changes at runtime, so there's nothing to subscribe to.
 const noopSubscribe = () => () => undefined;
 
-/** Toolbar button opening a dialog listing the editor's keyboard + markdown shortcuts. */
-export function ShortcutCheatsheet() {
+/**
+ * Controlled keyboard-shortcuts dialog. The trigger lives in `UserMenu`
+ * (avatar dropdown), not the editor toolbar — clicking "Keyboard shortcuts"
+ * there opens this. Platform glyphs (⌘/Ctrl, ⌫/Backspace) are detected
+ * client-side on mount so the server-rendered snapshot doesn't mismatch.
+ */
+export function ShortcutCheatsheetDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (next: boolean) => void;
+}) {
   // Read the platform without a hydration mismatch: the server snapshot is
   // `false` (Ctrl labels), the client computes from the user agent on mount.
   const isMac = useSyncExternalStore(
@@ -102,17 +110,7 @@ export function ShortcutCheatsheet() {
     : { mod: "Ctrl", del: "Backspace" };
 
   return (
-    <Dialog>
-      <DialogTrigger asChild>
-        <Button
-          type="button"
-          size="icon"
-          variant="ghost"
-          aria-label="Keyboard shortcuts"
-        >
-          <Keyboard className="size-4" />
-        </Button>
-      </DialogTrigger>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Keyboard shortcuts</DialogTitle>

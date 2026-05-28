@@ -56,6 +56,7 @@ export function StudyChrome({
   >({});
   const [pendingSectionAction, setPendingSectionAction] =
     useState<StudyChromeValue["pendingSectionAction"]>(null);
+  const [editorZoom, setEditorZoom] = useState(1);
 
   const toggleSidebar = useCallback(() => {
     setSidebarOpen((open) => !open);
@@ -86,6 +87,8 @@ export function StudyChrome({
       pendingSectionAction,
       requestSectionAction,
       clearPendingSectionAction,
+      editorZoom,
+      setEditorZoom,
     }),
     [
       sidebarOpen,
@@ -96,6 +99,7 @@ export function StudyChrome({
       pendingSectionAction,
       requestSectionAction,
       clearPendingSectionAction,
+      editorZoom,
     ],
   );
 
@@ -134,9 +138,22 @@ export function StudyChrome({
           </div>
         </header>
 
+        {/*
+         * Toolbar slot. For owners we always reserve the toolbar row's height
+         * with `min-h-12`; the slot is initially empty and `<StudyToolbarPortal>`
+         * mounts the real toolbar into it once an editor view registers.
+         * `<StudiesLoadingOverlay>` (a sibling of the studies-layout Suspense)
+         * covers this row with a persistent `<ToolbarSkeleton />` until then,
+         * so the user sees skeleton → real toolbar fade-out (not skeleton →
+         * empty → toolbar). For non-owners the portal never mounts; the slot
+         * stays empty and `empty:hidden` collapses the row entirely.
+         */}
         <div
           ref={setToolbarSlot}
-          className="shrink-0 border-b border-border/60 bg-background empty:hidden"
+          className={cn(
+            "shrink-0 border-b border-border/60 bg-background",
+            isOwner ? "min-h-12" : "empty:hidden",
+          )}
         />
 
         {isTemplate ? (
@@ -174,8 +191,29 @@ export function StudyChrome({
           </div>
 
           {/* Definite-height flex parent (not overflow-auto) so the workspace
-              dock can size itself; per-panel scrolling lives on the panels. */}
-          <main className="flex min-h-0 min-w-0 flex-1">{children}</main>
+              dock can size itself; per-panel scrolling lives on the panels.
+              `bg-white` matches the persistent `<StudiesLoadingOverlay>`'s
+              body region so the fade-out reveals the same color underneath
+              (no warm-cream-to-white snap when the overlay clears).
+
+              The inner wrapper carries the editor zoom: CSS `zoom` is true
+              browser-style magnification (reflows layout, scales everything
+              including padding/borders/images/section title), unlike a
+              `transform` which would only visually rescale and break click
+              coords. The wrapper isolates the zoom to `<main>`'s content so
+              the top bar, toolbar, and section sidebar stay native size and
+              every panel in the dock — including read-along member panels —
+              scales together. ProseMirror's coordinate APIs are zoom-aware
+              (getBoundingClientRect), so the selection bubble + slash menu
+              still position correctly. */}
+          <main className="flex min-h-0 min-w-0 flex-1 bg-white">
+            <div
+              className="flex min-h-0 min-w-0 flex-1"
+              style={{ zoom: editorZoom }}
+            >
+              {children}
+            </div>
+          </main>
 
           {/* Sidebar collapsed: a floating re-open button at the body's top-left. */}
           {!sidebarOpen ? (

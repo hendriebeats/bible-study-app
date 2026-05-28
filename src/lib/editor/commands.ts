@@ -1,12 +1,14 @@
-import { lift, setBlockType, toggleMark, wrapIn } from "prosemirror-commands";
+import { lift, toggleMark } from "prosemirror-commands";
 import type { MarkType, Node, NodeType } from "prosemirror-model";
-import { liftListItem, wrapInList } from "prosemirror-schema-list";
+import { liftListItem, sinkListItem } from "prosemirror-schema-list";
 import {
   type Command,
   type EditorState,
   TextSelection,
+  type Transaction,
 } from "prosemirror-state";
 
+import { buildConvertTransaction } from "./convert-block";
 import { marks, MAX_INDENT, nodes } from "./schema";
 
 type Attrs = Record<string, unknown>;
@@ -80,41 +82,95 @@ export const toggleItalic: Command = toggleMark(marks.em);
 export const toggleStrike: Command = toggleMark(marks.strikethrough);
 export const toggleUnderline: Command = toggleMark(marks.underline);
 
-/** Toggle the current textblock between a heading of `level` and a paragraph. */
+/**
+ * Toggle the current textblock between a heading of `level` and a paragraph.
+ * Both directions route through {@link buildConvertTransaction} so the slash
+ * menu / Turn-into menu / toolbar all share the same context-aware behavior
+ * the markdown shortcuts use — including dissolving a collapsible header,
+ * splitting a list around the target item, and bridging cases where the
+ * source block isn't a paragraph (e.g. "Heading 1" on a code-block).
+ */
 export function toggleHeading(level: number): Command {
-  return (state, dispatch, view) => {
-    if (isBlockActive(state, nodes.heading, { level })) {
-      return setBlockType(nodes.paragraph)(state, dispatch, view);
-    }
-    return setBlockType(nodes.heading, { level })(state, dispatch, view);
+  return (state, dispatch) => {
+    const alreadyActive = isBlockActive(state, nodes.heading, { level });
+    const target = alreadyActive
+      ? ({ kind: "setblock", nodeType: nodes.paragraph } as const)
+      : ({
+          kind: "setblock",
+          nodeType: nodes.heading,
+          attrs: { level },
+        } as const);
+    const tr = buildConvertTransaction(state, target);
+    if (!tr) return false;
+    if (dispatch) dispatch(tr);
+    return true;
   };
 }
 
-function toggleList(listType: NodeType): Command {
+/**
+ * Toggle the cursor's block in/out of a list of `listType`. When the cursor
+ * is already inside that list type, we lift out (the standard Notion-style
+ * "toggle off"); otherwise we route through {@link buildConvertTransaction}
+ * so list-item-in-list (split parent list around the item), collapsible
+ * header (dissolve), and heading→list (wrap inline content in a fresh
+ * paragraph first) all behave identically across input rules and menus.
+ */
+function toggleList(
+  listType: NodeType,
+  itemType: NodeType,
+  itemAttrs?: Record<string, unknown>,
+): Command {
   return (state, dispatch, view) => {
     if (isAncestorActive(state, listType)) {
-      return liftListItem(nodes.listItem)(state, dispatch, view);
+      return liftListItem(itemType)(state, dispatch, view);
     }
-    return wrapInList(listType)(state, dispatch, view);
+    const tr = buildConvertTransaction(state, {
+      kind: "list",
+      listType,
+      itemType,
+      itemAttrs,
+    });
+    if (!tr) return false;
+    if (dispatch) dispatch(tr);
+    return true;
   };
 }
 
-export const toggleBulletList: Command = toggleList(nodes.bulletList);
-export const toggleOrderedList: Command = toggleList(nodes.orderedList);
+export const toggleBulletList: Command = toggleList(
+  nodes.bulletList,
+  nodes.listItem,
+);
+export const toggleOrderedList: Command = toggleList(
+  nodes.orderedList,
+  nodes.listItem,
+);
 
 /** Toggle a checklist (task list); lifts items out when already in one. */
-export const toggleTaskList: Command = (state, dispatch, view) => {
-  if (isAncestorActive(state, nodes.taskList)) {
-    return liftListItem(nodes.taskItem)(state, dispatch, view);
-  }
-  return wrapInList(nodes.taskList)(state, dispatch, view);
-};
+export const toggleTaskList: Command = toggleList(
+  nodes.taskList,
+  nodes.taskItem,
+  { checked: false },
+);
 
+/**
+ * Wrap (or unwrap) the cursor's textblock in a blockquote. When already
+ * inside a quote, `lift` peels the cursor's range out of the surrounding
+ * blockquote; otherwise {@link buildConvertTransaction} adds one. The
+ * pipeline silently refuses a second nested level of blockquote per the
+ * decided design — so the slash menu / Turn-into never produces stacked
+ * quotes either.
+ */
 export const toggleBlockquote: Command = (state, dispatch, view) => {
   if (isAncestorActive(state, nodes.blockquote)) {
     return lift(state, dispatch, view);
   }
-  return wrapIn(nodes.blockquote)(state, dispatch, view);
+  const tr = buildConvertTransaction(state, {
+    kind: "wrap",
+    nodeType: nodes.blockquote,
+  });
+  if (!tr) return false;
+  if (dispatch) dispatch(tr);
+  return true;
 };
 
 /** Coerce typed input into a usable href (default to https, allow mailto). */
@@ -213,18 +269,44 @@ export function applyLink(from: number, to: number, href: string): Command {
 }
 
 /**
- * Indent (`delta > 0`) or outdent every paragraph/heading the selection touches
- * by one level, clamped to [0, MAX_INDENT]. Works from any cursor position in a
- * block (it ranges over the whole selection, not the cursor offset) and spans
- * multi-block selections. Paragraphs inside list items are skipped — list
- * nesting is Tab's job there, handled by the list keymap before this runs.
+ * Walk up `$from` looking for the innermost `list_item` / `task_item` ancestor
+ * WHERE the cursor sits in that item's *first* child (its primary content
+ * row). Tab/Shift-Tab inside such an item should sink/lift the item itself;
+ * a cursor in a later child (a heading or paragraph dropped into a bullet's
+ * content) is conceptually a separate block, so we don't treat that as a
+ * list-item context — the outdent path will fall through to plain `lift`,
+ * which peels just that nested block out of the list item.
  */
-function adjustIndent(delta: number): Command {
+function nearestListItem(
+  state: EditorState,
+): { type: NodeType; pos: number; node: Node } | null {
+  const { $from } = state.selection;
+  for (let d = $from.depth; d > 0; d--) {
+    const node = $from.node(d);
+    if (node.type !== nodes.listItem && node.type !== nodes.taskItem) {
+      continue;
+    }
+    // Only claim the list-item context when the cursor's parent textblock
+    // is the FIRST child of the item AND is the direct child (not a deeper
+    // descendant inside, say, a nested toggle).
+    if ($from.depth !== d + 1) return null;
+    if ($from.index(d) !== 0) return null;
+    return { type: node.type, pos: $from.before(d), node };
+  }
+  return null;
+}
+
+/**
+ * Indent every paragraph/heading the selection touches by `delta`, clamped to
+ * [0, MAX_INDENT]. Skips blocks whose direct parent is a list item — those are
+ * handled by the list-item branch of `indentSelected`, never here.
+ */
+function adjustParagraphIndent(delta: number): Command {
   return (state, dispatch) => {
     const { from, to } = state.selection;
     const tr = state.tr;
     state.doc.nodesBetween(from, to, (node, pos, parent) => {
-      if (parent?.type === nodes.listItem) {
+      if (parent?.type === nodes.listItem || parent?.type === nodes.taskItem) {
         return false;
       }
       if (node.type === nodes.paragraph || node.type === nodes.heading) {
@@ -249,10 +331,86 @@ function adjustIndent(delta: number): Command {
   };
 }
 
-/** Indent the selected blocks one level (Tab, after list nesting). */
-export const indentBlocks: Command = adjustIndent(1);
-/** Outdent the selected blocks one level (Shift-Tab, after list nesting). */
-export const outdentBlocks: Command = adjustIndent(-1);
+/**
+ * Bump the `indent` attribute on a specific list/task item by `delta`, clamped
+ * to [0, MAX_INDENT]. Returns false when already at the bound so the caller can
+ * chain into a structural fallback (sinkListItem / liftListItem).
+ */
+function bumpItemIndent(pos: number, node: Node, delta: number): Command {
+  return (state, dispatch) => {
+    const current = (node.attrs.indent as number | undefined) ?? 0;
+    const next = Math.min(MAX_INDENT, Math.max(0, current + delta));
+    if (next === current) {
+      return false;
+    }
+    if (dispatch) {
+      const tr = state.tr.setNodeMarkup(pos, undefined, {
+        ...node.attrs,
+        indent: next,
+      });
+      dispatch(tr.scrollIntoView());
+    }
+    return true;
+  };
+}
+
+/**
+ * Hybrid indent. Three cases, picked in this order:
+ *
+ *   1. The cursor sits in the FIRST child of a `list_item` / `task_item`
+ *      (its primary content row). Tab tries `sinkListItem` and falls back to
+ *      bumping the item's `indent` attribute when sinking is structurally
+ *      impossible (first-item-of-list case). Shift-Tab inverts: consume the
+ *      attribute first, then `liftListItem`.
+ *
+ *   2. The cursor sits in a NON-FIRST child of a list_item — e.g. a heading
+ *      a user just `#`-converted that came to live as the second child of a
+ *      bullet. On Tab, increment that block's own indent attr; on Shift-Tab,
+ *      first decrement the attr, then if already 0 call `lift` which
+ *      automatically finds the highest valid lift depth (walking past the
+ *      list_item and its surrounding bullet_list when needed) so the heading
+ *      pops out as a sibling of the bullet, not by dragging the bullet along
+ *      with it.
+ *
+ *   3. Plain paragraphs/headings outside any list — adjust indent attr only.
+ */
+function indentSelectedDir(delta: 1 | -1): Command {
+  return (state, dispatch, view) => {
+    const item = nearestListItem(state);
+    if (item) {
+      if (delta > 0) {
+        if (sinkListItem(item.type)(state, dispatch, view)) return true;
+        return bumpItemIndent(item.pos, item.node, 1)(state, dispatch, view);
+      }
+      if (bumpItemIndent(item.pos, item.node, -1)(state, dispatch, view)) {
+        return true;
+      }
+      return liftListItem(item.type)(state, dispatch, view);
+    }
+    if (delta < 0) {
+      // Try the paragraph-indent decrement first; if it changes nothing
+      // (already at 0), fall through to `lift` which will pop the cursor's
+      // block out of its nearest non-list wrapper (e.g. a heading sitting
+      // as the second child of a list_item lifts to the outer level).
+      if (adjustParagraphIndent(-1)(state, dispatch, view)) return true;
+      return lift(state, dispatch);
+    }
+    return adjustParagraphIndent(delta)(state, dispatch, view);
+  };
+}
+
+/** Indent the selection one level (Tab). See {@link indentSelectedDir}. */
+export const indentSelected: Command = indentSelectedDir(1);
+/** Outdent the selection one level (Shift-Tab). See {@link indentSelectedDir}. */
+export const outdentSelected: Command = indentSelectedDir(-1);
+
+/**
+ * Back-compat aliases for the previous paragraph-only indent commands. New
+ * code should prefer {@link indentSelected} / {@link outdentSelected}; these
+ * stay exported so external imports keep working.
+ */
+export const indentBlocks: Command = indentSelected;
+export const outdentBlocks: Command = outdentSelected;
 
 /**
  * Move the top-level block containing the selection up (`-1`) or down (`+1`) by
@@ -295,62 +453,93 @@ function moveBlock(dir: -1 | 1): Command {
 }
 
 /**
- * Insert a callout of `variant` at the cursor: replaces the current block if
- * it's an empty paragraph (the slash-menu case), otherwise inserts after it.
- * Drops the caret inside the new callout.
+ * Find the deepest ancestor depth where inserting a fresh block child is
+ * structurally valid AND the cursor is conceptually "inside" that container.
+ * Used by the slash-menu inserters (`insertCallout` / `insertCollapsible` /
+ * `insertTable`) so dropping a callout from inside a bullet item three
+ * levels deep inserts the callout NEXT TO that bullet — not way up at the
+ * top of the doc, which the old `$from.before(1)` did.
+ *
+ * The search descends from `$from.depth - 1` (the cursor's direct block
+ * parent) upward, returning the deepest depth whose node accepts the target
+ * type as a block child. Stops at containment boundaries that don't accept
+ * arbitrary blocks (`bullet_list`/`ordered_list`/`task_list` reject anything
+ * but `list_item` siblings, so inserting a callout between bullets would
+ * fail; we walk past those to the enclosing list_item / container).
+ */
+function insertionDepthFor(state: EditorState, nodeType: NodeType): number {
+  const { $from } = state.selection;
+  for (let d = $from.depth - 1; d >= 1; d--) {
+    const ancestor = $from.node(d);
+    // Pure-list containers can only hold their list-item type; an
+    // arbitrary block (callout/collapsible/table) doesn't fit between
+    // items. Skip up to the list_item that wraps the list.
+    if (
+      ancestor.type === nodes.bulletList ||
+      ancestor.type === nodes.orderedList ||
+      ancestor.type === nodes.taskList
+    ) {
+      continue;
+    }
+    if (ancestor.canReplaceWith(0, 0, nodeType)) {
+      return d;
+    }
+  }
+  return 1;
+}
+
+/**
+ * Insert a callout of `variant` next to the cursor's current block, in
+ * whichever container actually holds it. If the cursor sits in an empty
+ * paragraph at that depth, the paragraph is replaced; otherwise the callout
+ * is inserted right after the cursor's block. Drops the caret inside.
  */
 export function insertCallout(variant: string): Command {
   return (state, dispatch) => {
     const callout = nodes.callout.createAndFill({ variant });
-    if (!callout) {
-      return false;
-    }
+    if (!callout) return false;
     if (dispatch) {
-      const { $from } = state.selection;
-      const blockStart = $from.before(1);
-      const blockEnd = $from.after(1);
-      const block = $from.node(1);
-      const tr = state.tr;
-      let insertPos: number;
-      if (block.type === nodes.paragraph && block.content.size === 0) {
-        tr.replaceRangeWith(blockStart, blockEnd, callout);
-        insertPos = blockStart;
-      } else {
-        tr.insert(blockEnd, callout);
-        insertPos = blockEnd;
-      }
-      tr.setSelection(TextSelection.near(tr.doc.resolve(insertPos + 2)));
-      dispatch(tr.scrollIntoView());
+      dispatch(insertNodeNextToCursor(state, callout).scrollIntoView());
     }
     return true;
   };
 }
 
-/** Insert a collapsible section at the cursor (same placement rules as callouts). */
+/** Insert a collapsible section next to the cursor's current block. */
 export const insertCollapsible: Command = (state, dispatch) => {
   const node = nodes.collapsible.createAndFill({ summary: "" });
-  if (!node) {
-    return false;
-  }
+  if (!node) return false;
   if (dispatch) {
-    const { $from } = state.selection;
-    const blockStart = $from.before(1);
-    const blockEnd = $from.after(1);
-    const block = $from.node(1);
-    const tr = state.tr;
-    let insertPos: number;
-    if (block.type === nodes.paragraph && block.content.size === 0) {
-      tr.replaceRangeWith(blockStart, blockEnd, node);
-      insertPos = blockStart;
-    } else {
-      tr.insert(blockEnd, node);
-      insertPos = blockEnd;
-    }
-    tr.setSelection(TextSelection.near(tr.doc.resolve(insertPos + 2)));
-    dispatch(tr.scrollIntoView());
+    dispatch(insertNodeNextToCursor(state, node).scrollIntoView());
   }
   return true;
 };
+
+/**
+ * Shared placement logic for the slash-menu inserters. The new node lands at
+ * the smallest enclosing depth that accepts it (so a callout summoned from
+ * inside a bullet sits as a sibling of that bullet's list, not at the doc
+ * top); the empty-paragraph-replacement convenience still applies at that
+ * depth.
+ */
+function insertNodeNextToCursor(state: EditorState, node: Node): Transaction {
+  const depth = insertionDepthFor(state, node.type);
+  const { $from } = state.selection;
+  const blockStart = $from.before(depth);
+  const blockEnd = $from.after(depth);
+  const block = $from.node(depth);
+  const tr = state.tr;
+  let insertPos: number;
+  if (block.type === nodes.paragraph && block.content.size === 0) {
+    tr.replaceRangeWith(blockStart, blockEnd, node);
+    insertPos = blockStart;
+  } else {
+    tr.insert(blockEnd, node);
+    insertPos = blockEnd;
+  }
+  tr.setSelection(TextSelection.near(tr.doc.resolve(insertPos + 2)));
+  return tr;
+}
 
 /**
  * Build a `rows` × `cols` table: a header row of `table_header` cells over
@@ -387,25 +576,9 @@ function buildTable(rows: number, cols: number): Node | null {
  */
 export const insertTable: Command = (state, dispatch) => {
   const table = buildTable(3, 3);
-  if (!table) {
-    return false;
-  }
+  if (!table) return false;
   if (dispatch) {
-    const { $from } = state.selection;
-    const blockStart = $from.before(1);
-    const blockEnd = $from.after(1);
-    const block = $from.node(1);
-    const tr = state.tr;
-    let insertPos: number;
-    if (block.type === nodes.paragraph && block.content.size === 0) {
-      tr.replaceRangeWith(blockStart, blockEnd, table);
-      insertPos = blockStart;
-    } else {
-      tr.insert(blockEnd, table);
-      insertPos = blockEnd;
-    }
-    tr.setSelection(TextSelection.near(tr.doc.resolve(insertPos + 1)));
-    dispatch(tr.scrollIntoView());
+    dispatch(insertNodeNextToCursor(state, table).scrollIntoView());
   }
   return true;
 };
@@ -440,6 +613,10 @@ export const moveBlockDown: Command = moveBlock(1);
  * spanning the whole document. (When focus is in a block's title `<input>`, this
  * never fires — the header is non-editable and `StudyBlockView.stopEvent` hides
  * its events from ProseMirror — so the title keeps its native select-all.)
+ *
+ * Kept exported for any external caller that wants the legacy "always select
+ * the depth-1 block" behaviour. Mod-A itself now uses the progressive
+ * {@link makeModASelect} command instead.
  */
 export const selectCurrentBlock: Command = (state, dispatch) => {
   const { $from } = state.selection;
@@ -457,6 +634,69 @@ export const selectCurrentBlock: Command = (state, dispatch) => {
   }
   return true;
 };
+
+/**
+ * Progressive Mod-A. First press selects the cursor's innermost textblock
+ * content (the paragraph / heading the caret is in). A subsequent press
+ * escalates the selection: in the body editor (`scope: "doc"`) it grows out
+ * to the entire document; in the blocks editor (`scope: "study_block"`) it
+ * grows to the surrounding `study_block`'s content, where it stops — the
+ * study-block boundary is the natural ceiling for Mod-A there.
+ *
+ * Escalation is detected by checking whether the current selection EXACTLY
+ * covers the cursor's parent textblock. That makes the progressive flow
+ * resilient to selection-tweaks the user might make between presses (drag,
+ * arrow, etc.): if the selection drifts, the next Mod-A starts over from the
+ * inner textblock instead of jumping to the outer scope.
+ */
+export function makeModASelect(scope: "doc" | "study_block"): Command {
+  return (state, dispatch) => {
+    const sel = state.selection;
+    const { $from } = sel;
+    if ($from.depth === 0) return false;
+
+    const innerStart = $from.start();
+    const innerEnd = $from.end();
+    const atInner = sel.from === innerStart && sel.to === innerEnd;
+
+    let targetStart: number;
+    let targetEnd: number;
+
+    if (!atInner) {
+      // First press (or selection drifted) — select the cursor's textblock.
+      targetStart = innerStart;
+      targetEnd = innerEnd;
+    } else if (scope === "doc") {
+      targetStart = 0;
+      targetEnd = state.doc.content.size;
+    } else {
+      // Find the enclosing study_block; if there isn't one (cursor in the
+      // notes index or a stray paragraph in the blocks doc) fall back to the
+      // top-level block at depth 1.
+      let blockDepth = -1;
+      for (let d = $from.depth; d > 0; d--) {
+        if ($from.node(d).type === nodes.studyBlock) {
+          blockDepth = d;
+          break;
+        }
+      }
+      if (blockDepth < 0) blockDepth = 1;
+      targetStart = $from.start(blockDepth);
+      targetEnd = $from.end(blockDepth);
+    }
+
+    if (targetStart === sel.from && targetEnd === sel.to) {
+      // No movement (already at maximal scope) — don't fire a no-op tr.
+      return false;
+    }
+
+    if (dispatch) {
+      const selection = TextSelection.create(state.doc, targetStart, targetEnd);
+      dispatch(state.tr.setSelection(selection).scrollIntoView());
+    }
+    return true;
+  };
+}
 
 /** Remove the link mark across an explicit range (captured at popover open). */
 export function clearLink(from: number, to: number): Command {

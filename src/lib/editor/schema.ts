@@ -251,10 +251,17 @@ const studyBlockSpec: NodeSpec = {
  * Block indentation. Top-level textblocks (paragraphs + headings) carry an
  * `indent` level (0…{@link MAX_INDENT}) rendered as a left margin, adjusted by
  * Tab / Shift-Tab. `default: 0` keeps every previously-saved document and step
- * valid (they simply deserialize at indent 0). List nesting is handled by the
- * list nodes, not this attribute.
+ * valid (they simply deserialize at indent 0).
+ *
+ * `list_item` and `task_item` also carry an `indent` attribute used as a
+ * fallback when ProseMirror's structural `sinkListItem` can't apply (most
+ * commonly: the first item of a list, which has no preceding sibling to nest
+ * under). The hybrid `indentSelected` command in `commands.ts` always tries
+ * structural sinking first and only writes the attribute when that fails, so
+ * naturally-nested lists keep producing real nested `list_item` children;
+ * the attribute only carries weight at the structural edges.
  */
-export const MAX_INDENT = 10;
+export const MAX_INDENT = 15;
 const INDENT_STEP_REM = 1.75;
 
 /** Clamp an untrusted indent value to a whole number in [0, MAX_INDENT]. */
@@ -317,6 +324,35 @@ const headingSpec: NodeSpec = {
 };
 
 /**
+ * `list_item` override. The base spec from `prosemirror-schema-list` doesn't
+ * carry an indent attribute; we add one so the hybrid Tab handler can offset
+ * the *first* item of a list (or any item where `sinkListItem` refuses to
+ * apply) without splitting the list. Content + `defining` mirror what
+ * `addListNodes(...)` produced.
+ */
+const listItemSpec: NodeSpec = {
+  content: "paragraph block*",
+  defining: true,
+  attrs: { indent: { default: 0 } },
+  parseDOM: [
+    {
+      tag: "li",
+      getAttrs(dom) {
+        if (typeof dom === "string") return null;
+        // Task items use their own `li[data-task-item]` rule above with a
+        // higher specificity; this generic `li` rule still matches them, so
+        // skip those to avoid double-parsing.
+        if (dom.hasAttribute("data-task-item")) return false;
+        return { indent: clampIndent(numAttr(dom, "data-indent") ?? 0) };
+      },
+    },
+  ],
+  toDOM(node) {
+    return ["li", indentDOMAttrs(node.attrs.indent as number), 0];
+  },
+};
+
+/**
  * Task list + task item (checklists). Mirrors the bullet/ordered list shape so
  * the list commands (wrap / split / sink / lift) work, plus a `checked` boolean
  * on each item toggled by its NodeView's checkbox.
@@ -333,23 +369,29 @@ const taskListSpec: NodeSpec = {
 const taskItemSpec: NodeSpec = {
   content: "paragraph block*",
   defining: true,
-  attrs: { checked: { default: false } },
+  attrs: { checked: { default: false }, indent: { default: 0 } },
   parseDOM: [
     {
       tag: "li[data-task-item]",
       getAttrs(dom) {
         if (typeof dom === "string") return null;
-        return { checked: dom.getAttribute("data-checked") === "true" };
+        return {
+          checked: dom.getAttribute("data-checked") === "true",
+          indent: clampIndent(numAttr(dom, "data-indent") ?? 0),
+        };
       },
     },
   ],
   toDOM(node) {
+    const indent = clampIndent(node.attrs.indent as number);
+    const extra = indentDOMAttrs(indent);
     return [
       "li",
       {
         "data-task-item": "true",
         "data-checked": String(node.attrs.checked === true),
         class: "task-item",
+        ...extra,
       },
       0,
     ];
@@ -387,8 +429,25 @@ const calloutSpec: NodeSpec = {
   },
 };
 
-/** Collapsible (foldable) section: a `summary` title + a hideable body. `open`
- * toggles via the node view; the body is hidden by CSS when closed. */
+/**
+ * Collapsible (toggleable) section. Notion-style: the FIRST child is the
+ * header (rendered next to a chevron marker, like a bullet point); the
+ * remaining children are the body, hidden by CSS when `open: false`. The
+ * header can be ANY block — a paragraph, a heading, a bullet item, a task —
+ * so the user can convert it freely with markdown shortcuts or the slash
+ * menu. The "first child is the header" invariant lives at the *display*
+ * layer (NodeView + CSS), not in the schema content rule.
+ *
+ * Content stays as `block+` (not `paragraph block*`) for that reason —
+ * tightening it to `paragraph block*` would silently break `findWrapping` /
+ * `setBlockType` for every markdown shortcut typed into the header.
+ *
+ * The `summary` attribute is DEPRECATED — it predates this shape, when the
+ * title lived on the node instead of as content. It's kept (default "") so
+ * pre-migration step logs still deserialize cleanly. New code never sets it;
+ * a one-time SQL migration moved every non-empty `summary` from production
+ * documents/checkpoints/templates into a leading paragraph.
+ */
 const collapsibleSpec: NodeSpec = {
   group: "block",
   content: "block+",
@@ -397,12 +456,17 @@ const collapsibleSpec: NodeSpec = {
   parseDOM: [
     {
       tag: "div[data-collapsible]",
-      contentElement: ".collapsible-body",
+      // The DOM rendering puts every child (header + body) into a single
+      // .collapsible-content wrapper; the NodeView mirrors that.
+      contentElement: ".collapsible-content",
       getAttrs(dom) {
         if (typeof dom === "string") return null;
         return {
           open: dom.getAttribute("data-open") !== "false",
-          summary: dom.getAttribute("data-summary") ?? "",
+          // Don't restore deprecated summary from the DOM; if the SQL migration
+          // somehow missed a row we still parse the doc — the body just won't
+          // show the legacy title (acceptable, and rare).
+          summary: "",
         };
       },
     },
@@ -413,10 +477,9 @@ const collapsibleSpec: NodeSpec = {
       {
         "data-collapsible": "true",
         "data-open": String(node.attrs.open !== false),
-        "data-summary": String(node.attrs.summary ?? ""),
         class: "collapsible",
       },
-      ["div", { class: "collapsible-body" }, 0],
+      ["div", { class: "collapsible-content" }, 0],
     ];
   },
 };
@@ -521,6 +584,7 @@ const tableNodeSpecs = tableNodes({
 const nodeSpecs = baseNodeSpecs
   .update("paragraph", paragraphSpec)
   .update("heading", headingSpec)
+  .update("list_item", listItemSpec)
   .addToEnd("verse_number", verseNumberSpec)
   .addToEnd("scripture", scriptureSpec)
   .addToEnd("study_block", studyBlockSpec)

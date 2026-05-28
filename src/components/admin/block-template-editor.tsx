@@ -1,6 +1,6 @@
 "use client";
 
-import { GripVertical, Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 
@@ -12,6 +12,7 @@ import {
 } from "@/app/admin/actions";
 import { DefaultContentEditor } from "@/components/admin/default-content-editor";
 import { Button } from "@/components/ui/button";
+import { DragHandle } from "@/components/ui/drag-handle";
 import { Input } from "@/components/ui/input";
 import { arrayMove } from "@/lib/dnd/pointer-reorder";
 import { useReorderHandle } from "@/lib/dnd/use-reorder-handle";
@@ -132,15 +133,10 @@ function BlockTemplateRow({
 
   return (
     <div data-reorder-item className="flex gap-2 rounded-lg border bg-card p-3">
-      <button
+      <DragHandle
         ref={setDragHandle}
-        type="button"
         aria-label="Reorder block (drag, or focus and press up/down)"
-        title="Drag to reorder (or focus and press ↑/↓)"
-        className="h-fit cursor-grab touch-none rounded-sm p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-      >
-        <GripVertical className="size-4" />
-      </button>
+      />
 
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         <Input

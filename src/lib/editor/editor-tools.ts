@@ -6,16 +6,31 @@
  * Framework-free (no "use client"/"use server") so the server normalizer, the
  * account UI, and the editor context can all import it.
  *
- * `available` marks whether a tool is actually wired into the editor yet. Tools
- * land across later Phase 2 sub-phases; until a tool is available its toggle in
- * the account UI is shown as "Coming soon" (the preference still persists, so
- * it's honored the moment the feature ships).
+ * Two flavours of tool coexist here:
+ *   1. **Formatting toggles** (`headings`, `strikethrough`, `links`) — gate
+ *      core rich-text affordances so users can pare the editor down to what
+ *      they actually use. When off: toolbar button hidden, keyboard shortcut
+ *      unbound, markdown input-rule disabled, slash menu entry hidden. The
+ *      schema still RENDERS the mark/node so pre-existing content and
+ *      templated content stay intact.
+ *   2. **Insertable blocks / advanced features** (`callouts`, `collapsibles`,
+ *      `tables`, `images`, `mediaEmbeds`, `crossRefAutoDetect`, `customColor`)
+ *      — same gating contract; the difference is purely categorical for the
+ *      account UI's grouping in the future.
+ *
+ * `available` marks whether a tool is actually wired into the editor yet.
+ * Tools land across later Phase 2 sub-phases; until a tool is available its
+ * toggle in the account UI is shown as "Coming soon" (the preference still
+ * persists, so it's honored the moment the feature ships).
  */
 
 /** The opt-in tool keys. Add a key here + a registry entry below to introduce one. */
 export interface EditorTools {
-  callouts: boolean;
+  headings: boolean;
+  strikethrough: boolean;
+  links: boolean;
   collapsibles: boolean;
+  callouts: boolean;
   tables: boolean;
   images: boolean;
   mediaEmbeds: boolean;
@@ -27,8 +42,11 @@ export type EditorToolKey = keyof EditorTools;
 
 /** Everything off — what a user who never visits the settings gets. */
 export const DEFAULT_EDITOR_TOOLS: EditorTools = {
-  callouts: false,
+  headings: false,
+  strikethrough: false,
+  links: false,
   collapsibles: false,
+  callouts: false,
   tables: false,
   images: false,
   mediaEmbeds: false,
@@ -47,15 +65,34 @@ export interface EditorToolMeta {
 /** UI metadata for each opt-in tool, in display order. */
 export const EDITOR_TOOL_REGISTRY: readonly EditorToolMeta[] = [
   {
-    key: "callouts",
-    label: "Callout boxes",
-    description: "Note, Key insight, Warning, Prayer, and Application boxes.",
+    key: "headings",
+    label: "Headings",
+    description:
+      "Heading styles 1, 2, and 3 (⌘ #/##/### in markdown). Pre-existing headings still render even when this is off.",
+    available: true,
+  },
+  {
+    key: "strikethrough",
+    label: "Strikethrough",
+    description: "Cross out text (⌘⇧S, ~~text~~).",
+    available: true,
+  },
+  {
+    key: "links",
+    label: "Links",
+    description: "Add, edit, and remove hyperlinks; auto-link pasted URLs.",
     available: true,
   },
   {
     key: "collapsibles",
     label: "Collapsible sections",
     description: "Foldable sections to tuck away longer notes.",
+    available: true,
+  },
+  {
+    key: "callouts",
+    label: "Callout boxes",
+    description: "Note, Key insight, Warning, Prayer, and Application boxes.",
     available: true,
   },
   {

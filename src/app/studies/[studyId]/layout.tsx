@@ -2,6 +2,7 @@ import { Suspense, type ReactNode } from "react";
 
 import { StudyLayoutInner } from "@/components/studies/study-layout-inner";
 import { StudyLayoutSkeleton } from "@/components/studies/study-layout-skeleton";
+import { StudiesLoadingOverlay } from "@/components/studies/studies-loading-overlay";
 
 /**
  * Studies layout — intentionally synchronous so the `[sectionId]/loading.tsx`
@@ -11,10 +12,15 @@ import { StudyLayoutSkeleton } from "@/components/studies/study-layout-skeleton"
  * workspace data, etc.) lives in `<StudyLayoutInner>` underneath the Suspense
  * boundary below.
  *
- * The `StudyLayoutSkeleton` matches `<StudyChrome>`'s shell exactly so the
- * swap to the real chrome is zero-CLS. While that's resolving the user sees
- * placeholders for the sidebar + top bar; once the layout finishes, the page
- * mounts with its own editor skeleton until the section data arrives.
+ * `<StudiesLoadingOverlay>` is a SIBLING of the Suspense — that's deliberate.
+ * It renders the cold-load body + toolbar skeletons as a single persistent
+ * element that doesn't unmount when the chrome takes over from
+ * `<StudyLayoutSkeleton>`, so the skeleton's `animate-pulse` doesn't restart
+ * at the handoff. `<WorkspaceInner>` toggles
+ * `body[data-studies-body-ready]` once the editor view registers, fading
+ * the overlay out via the CSS rule in `globals.css`. `<StudyLayoutSkeleton>`
+ * intentionally leaves its toolbar slot + main empty — the overlay sits on
+ * top of those regions.
  */
 export default function StudyLayout({
   children,
@@ -24,8 +30,11 @@ export default function StudyLayout({
   params: Promise<{ studyId: string }>;
 }) {
   return (
-    <Suspense fallback={<StudyLayoutSkeleton />}>
-      <StudyLayoutInner params={params}>{children}</StudyLayoutInner>
-    </Suspense>
+    <>
+      <Suspense fallback={<StudyLayoutSkeleton />}>
+        <StudyLayoutInner params={params}>{children}</StudyLayoutInner>
+      </Suspense>
+      <StudiesLoadingOverlay />
+    </>
   );
 }

@@ -30,11 +30,15 @@ export function blockHandle(): Plugin {
 
       const handle = document.createElement("button");
       handle.type = "button";
-      handle.className = "block-handle";
+      handle.className = "drag-handle block-handle";
       handle.setAttribute("aria-label", "Block options");
       handle.title = "Drag to reorder · click for options";
       handle.contentEditable = "false";
-      handle.textContent = "⋮⋮";
+      // 2×3 grid of filled dots, matched to the React handle in
+      // src/components/ui/drag-handle.tsx so all sites render the same glyph.
+      // Final size is set by `.drag-handle > svg` in globals.css.
+      handle.innerHTML =
+        '<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="6" cy="3" r="1.3"/><circle cx="10" cy="3" r="1.3"/><circle cx="6" cy="8" r="1.3"/><circle cx="10" cy="8" r="1.3"/><circle cx="6" cy="13" r="1.3"/><circle cx="10" cy="13" r="1.3"/></svg>';
       handle.style.display = "none";
 
       let currentPos: number | null = null;
@@ -77,10 +81,18 @@ export function blockHandle(): Plugin {
         if (document.body.classList.contains("reorder-active")) {
           return;
         }
+        if (!wrapper) {
+          return;
+        }
         // Pointer is back inside the editor — keep the handle alive.
         cancelHide();
+        const wrapRect = wrapper.getBoundingClientRect();
+        // Clamp x into the editor so events from the gutter sensor (which sits
+        // to the LEFT of the editor content) still resolve to the block at the
+        // pointer's y rather than returning null.
+        const lookupX = Math.max(event.clientX, wrapRect.left + 1);
         const found = view.posAtCoords({
-          left: event.clientX,
+          left: lookupX,
           top: event.clientY,
         });
         if (!found) {
@@ -92,16 +104,30 @@ export function blockHandle(): Plugin {
         }
         const before = $pos.before(1);
         const dom = view.nodeDOM(before);
-        if (!(dom instanceof HTMLElement) || !wrapper) {
+        if (!(dom instanceof HTMLElement)) {
           return;
         }
         currentPos = before;
         currentDom = dom;
         const blockRect = dom.getBoundingClientRect();
-        const wrapRect = wrapper.getBoundingClientRect();
         handle.style.display = "flex";
         handle.style.top = `${String(blockRect.top - wrapRect.top)}px`;
       };
+
+      // Invisible sensor strip in the negative-left gutter where the handle
+      // lives. Without it, hovering directly into the handle's slot from
+      // outside the editor never fires mousemove (the wrapper's hitbox stops
+      // at its left edge), so the handle stayed hidden until the pointer first
+      // crossed the editor's text. The sensor surfaces the handle on direct
+      // gutter hover; the existing handle hover/300ms-hide logic still owns
+      // the show/hide lifecycle once the handle is up.
+      const sensor = document.createElement("div");
+      sensor.setAttribute("aria-hidden", "true");
+      sensor.style.position = "absolute";
+      sensor.style.left = "-1.5rem";
+      sensor.style.top = "0";
+      sensor.style.bottom = "0";
+      sensor.style.width = "1.5rem";
 
       // Drag the handle to reorder the block among its top-level siblings (the
       // same set the menu's Move up/down walks, which stays as the keyboard path).
@@ -150,8 +176,11 @@ export function blockHandle(): Plugin {
       handle.addEventListener("click", onClick);
       handle.addEventListener("mouseenter", cancelHide);
       handle.addEventListener("mouseleave", scheduleHide);
+      sensor.addEventListener("mousemove", onMouseMove);
+      sensor.addEventListener("mouseleave", scheduleHide);
       wrapper?.addEventListener("mousemove", onMouseMove);
       wrapper?.addEventListener("mouseleave", scheduleHide);
+      wrapper?.appendChild(sensor);
       wrapper?.appendChild(handle);
 
       return {
@@ -161,8 +190,11 @@ export function blockHandle(): Plugin {
           handle.removeEventListener("click", onClick);
           handle.removeEventListener("mouseenter", cancelHide);
           handle.removeEventListener("mouseleave", scheduleHide);
+          sensor.removeEventListener("mousemove", onMouseMove);
+          sensor.removeEventListener("mouseleave", scheduleHide);
           wrapper?.removeEventListener("mousemove", onMouseMove);
           wrapper?.removeEventListener("mouseleave", scheduleHide);
+          sensor.remove();
           handle.remove();
         },
       };

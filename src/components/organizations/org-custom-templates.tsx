@@ -1,6 +1,6 @@
 "use client";
 
-import { GripVertical, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
@@ -13,6 +13,7 @@ import {
   updateOrgTemplateMeta,
 } from "@/app/organizations/actions";
 import { Button } from "@/components/ui/button";
+import { DragHandle } from "@/components/ui/drag-handle";
 import { Input } from "@/components/ui/input";
 import { arrayMove } from "@/lib/dnd/pointer-reorder";
 import { useReorderHandle } from "@/lib/dnd/use-reorder-handle";
@@ -128,15 +129,11 @@ function CustomRow({
       data-reorder-item
       className="flex items-center gap-2 rounded-md border p-3"
     >
-      <button
+      <DragHandle
         ref={setDragHandle}
-        type="button"
         aria-label="Reorder template (drag, or focus and press up/down)"
-        title="Drag to reorder (or focus and press ↑/↓)"
-        className="shrink-0 cursor-grab touch-none rounded-sm p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-      >
-        <GripVertical className="size-4" />
-      </button>
+        className="shrink-0"
+      />
       <div className="min-w-0 flex-1">
         <p className="truncate font-medium">{template.name}</p>
         {template.description ? (

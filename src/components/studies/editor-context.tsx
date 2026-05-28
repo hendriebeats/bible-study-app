@@ -236,8 +236,20 @@ export function EditorProvider({
       }
       if (activeViewRef.current === view) {
         const next = viewsRef.current.values().next().value ?? null;
-        const nextKind = next ? (viewKindRef.current.get(next) ?? null) : null;
-        adoptActive(next, next ? next.state : null, nextKind);
+        if (next) {
+          adoptActive(next, next.state, viewKindRef.current.get(next) ?? null);
+        } else {
+          // Intentionally KEEP the previous `activeState` (visual snapshot) so
+          // the toolbar's enabled/active states don't flash on every section
+          // navigation — the old editors unregister before the new ones
+          // register, and a transient null `activeState` made the toolbar
+          // briefly darken (disabled). We null the view + kind so `runCommand`
+          // safely no-ops if anyone tries to dispatch during the gap. The
+          // next `registerView` will overwrite `activeState` cleanly.
+          activeViewRef.current = null;
+          setActiveView(null);
+          setActiveKind(null);
+        }
       }
     },
     [adoptActive],

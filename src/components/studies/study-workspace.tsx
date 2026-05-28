@@ -1,9 +1,19 @@
 "use client";
 
-import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { BlockMenu } from "@/components/studies/block-menu";
-import { EditorProvider } from "@/components/studies/editor-context";
+import {
+  EditorProvider,
+  useEditorContext,
+} from "@/components/studies/editor-context";
 import { GroupMembersMenu } from "@/components/studies/group-members-menu";
 import { NotePopover } from "@/components/studies/note-popover";
 import { SelectionBubble } from "@/components/studies/selection-bubble";
@@ -27,6 +37,14 @@ interface StudyWorkspaceProps {
   studyId: string;
   /** Identity for presence + a labeled remote cursor (read-along). */
   me: { id: string; name: string } | null;
+  /**
+   * Whether the study has any sections (from the layout's `listSections`).
+   * Exposed via the workspace context so `MinePanel` can tell apart
+   * "loading first section" from "study truly has no sections" — the
+   * placeholder used to flash during the studyId-index redirect because
+   * the URL had no section id and `active` was still null.
+   */
+  hasSections: boolean;
   /** Other group members with a live study (the dock's openable panels). */
   compareTargets: CompareTarget[];
   /** The group(s) this study belongs to (drives the members menu + info popup). */
@@ -51,6 +69,7 @@ interface StudyWorkspaceProps {
 export function StudyWorkspace({
   studyId,
   me,
+  hasSections,
   compareTargets,
   groupContext,
   savedLayout,
@@ -61,6 +80,17 @@ export function StudyWorkspace({
 }: StudyWorkspaceProps) {
   const [active, setActive] = useState<ActiveSectionPayload | null>(null);
 
+  // Pre-load the `DocumentEditor` chunk as soon as the workspace mounts so the
+  // editor (the app's largest client module — see the comment in
+  // `study-dockview.tsx`) starts downloading in parallel with the section
+  // page's server fetch instead of waiting for `MinePanel` to render. Pure
+  // fire-and-forget: the dock's panels gate their reveal on
+  // `editorContext.activeView` (the actual "an editor view is mounted"
+  // signal), so we don't need to track chunk-load state ourselves.
+  useEffect(() => {
+    void import("@/components/studies/document-editor");
+  }, []);
+
   // The dock registers its panel-opener once ready; a focus request that
   // arrives before the (dynamically imported) dock has loaded is queued and
   // flushed on registration.
@@ -70,21 +100,6 @@ export function StudyWorkspace({
   const publish = useCallback((payload: ActiveSectionPayload) => {
     setActive(payload);
   }, []);
-
-  const publishHistory = useCallback(
-    (
-      sectionId: string,
-      notesHistory: ActiveSectionPayload["notesHistory"],
-      blocksHistory: ActiveSectionPayload["blocksHistory"],
-    ) => {
-      setActive((prev) =>
-        prev?.section.id === sectionId
-          ? { ...prev, notesHistory, blocksHistory }
-          : prev,
-      );
-    },
-    [],
-  );
 
   // Intentionally a no-op. The old `SectionBridge`'s `useLayoutEffect` cleanup
   // fires BEFORE the new section's mount effect, so naïvely clearing would
@@ -124,13 +139,13 @@ export function StudyWorkspace({
   const value = useMemo<StudyWorkspaceValue>(
     () => ({
       active,
+      hasSections,
       publish,
-      publishHistory,
       clear,
       openPerson,
       registerOpenPerson,
     }),
-    [active, publish, publishHistory, clear, openPerson, registerOpenPerson],
+    [active, hasSections, publish, clear, openPerson, registerOpenPerson],
   );
 
   return (
@@ -167,7 +182,9 @@ function WorkspaceInner({
   formatRecents,
   editorTools,
   children,
-}: Omit<StudyWorkspaceProps, "children"> & { children: ReactNode }) {
+}: Omit<StudyWorkspaceProps, "children" | "hasSections"> & {
+  children: ReactNode;
+}) {
   const { active } = useStudyWorkspace();
   const isOwner = active?.isOwner ?? false;
   const sectionId = active?.section.id ?? "";
@@ -181,6 +198,7 @@ function WorkspaceInner({
       initialFormatRecents={formatRecents}
       initialEditorTools={editorTools}
     >
+      <StudiesBodyReadyBridge isOwner={isOwner} hasActive={active != null} />
       {/* Owners get the shared toolbar (with the group menu) + floating menus;
           co-members read along with neither. */}
       {isOwner ? (
@@ -211,4 +229,39 @@ function WorkspaceInner({
       {children}
     </EditorProvider>
   );
+}
+
+/**
+ * Toggles `body[data-studies-body-ready="true"]` so the persistent
+ * `<StudiesLoadingOverlay>` can fade out (the CSS rule lives in
+ * `globals.css`). The signal is:
+ *   - **Owners**: ready once the editor context has an `activeView`
+ *     (= a `<DocumentEditor>` has registered its ProseMirror view).
+ *   - **Viewers**: ready as soon as `active` is published — they don't have
+ *     an editor at all (just `<DocumentViewer>`), so the editor signal would
+ *     never fire and the overlay would never lift.
+ *
+ * The bridge renders nothing. It lives inside `EditorProvider` so it can read
+ * `activeView` without exposing the editor context further up the tree.
+ */
+function StudiesBodyReadyBridge({
+  isOwner,
+  hasActive,
+}: {
+  isOwner: boolean;
+  hasActive: boolean;
+}) {
+  const editor = useEditorContext();
+  const editorMounted = editor?.activeView != null;
+  const ready = isOwner ? editorMounted : hasActive;
+  useEffect(() => {
+    if (!ready) {
+      return;
+    }
+    document.body.dataset.studiesBodyReady = "true";
+    return () => {
+      delete document.body.dataset.studiesBodyReady;
+    };
+  }, [ready]);
+  return null;
 }

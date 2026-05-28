@@ -157,9 +157,12 @@ export class NoteEntryView implements NodeView {
     if (editable) {
       handle = document.createElement("button");
       handle.type = "button";
-      handle.className = "note-entry-drag reorder-handle";
+      handle.className = "drag-handle note-entry-drag";
       handle.setAttribute("aria-label", "Reorder note");
       handle.title = "Drag to reorder (or focus and press ↑/↓)";
+      // 2×3 grid of filled dots, matched to the React handle in
+      // src/components/ui/drag-handle.tsx so all sites render the same glyph.
+      // Final size is set by `.drag-handle > svg` in globals.css.
       handle.innerHTML =
         '<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="6" cy="3" r="1.3"/><circle cx="10" cy="3" r="1.3"/><circle cx="6" cy="8" r="1.3"/><circle cx="10" cy="8" r="1.3"/><circle cx="6" cy="13" r="1.3"/><circle cx="10" cy="13" r="1.3"/></svg>';
       refEl.appendChild(handle);

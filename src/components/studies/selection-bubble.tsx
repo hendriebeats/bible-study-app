@@ -6,9 +6,8 @@ import {
   MessageSquarePlus,
   RemoveFormatting,
   Strikethrough,
-  Trash2,
 } from "lucide-react";
-import { type EditorState, TextSelection } from "prosemirror-state";
+import { TextSelection } from "prosemirror-state";
 import type { EditorView } from "prosemirror-view";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -20,8 +19,7 @@ import { Button } from "@/components/ui/button";
 import { clearFormatting, isMarkActive } from "@/lib/editor/commands";
 import type { FormatAction } from "@/lib/editor/format-actions";
 import { colorName } from "@/lib/editor/format-colors";
-import { deleteSelectionWithVerses } from "@/lib/editor/plugins/verse-guard";
-import { marks, nodes } from "@/lib/editor/schema";
+import { marks } from "@/lib/editor/schema";
 
 /** Gap (px) between the selection and the bubble. */
 const GAP = 8;
@@ -84,19 +82,6 @@ function actionLabel(action: FormatAction): string {
 
 function Divider() {
   return <span aria-hidden className="mx-0.5 h-5 w-px bg-border" />;
-}
-
-/** Whether the selection covers any protected verse marker. */
-function selectionCoversVerse(state: EditorState): boolean {
-  const { from, to } = state.selection;
-  let found = false;
-  state.doc.nodesBetween(from, to, (node) => {
-    if (node.type === nodes.verseNumber) {
-      found = true;
-    }
-    return !found;
-  });
-  return found;
 }
 
 /** A small visual for a recent action: a colour swatch, or the mark's glyph. */
@@ -254,7 +239,8 @@ export function SelectionBubble() {
     return null;
   }
 
-  const { runCommand, runFormatAction, createNote, activeKind } = ctx;
+  const { runCommand, runFormatAction, createNote, activeKind, editorTools } =
+    ctx;
   const recents = formatRecents ?? EMPTY_RECENTS;
   // Notes anchor on the active editor's selection AND insert an entry into the
   // blocks doc's notes_index — neither concept exists for a dialog body editor
@@ -272,11 +258,15 @@ export function SelectionBubble() {
   const italicActive = isMarkActive(activeState, marks.em);
   const strikeActive = isMarkActive(activeState, marks.strikethrough);
 
-  const shownRecents = recents.slice(0, RECENTS_SHOWN);
-
-  // When the selection covers a protected verse marker, offer the deliberate
-  // "Remove scripture" action (normal delete keeps the markers).
-  const hasVerse = selectionCoversVerse(activeState);
+  // Filter the "recent formatting" row to actions whose underlying tool is
+  // still enabled — e.g. if the user opts out of Strikethrough later, the
+  // remembered strike chip shouldn't reappear here. Other recents (highlight /
+  // textColor / bold / italic) are always available.
+  const shownRecents = recents
+    .filter((action) =>
+      action.type === "strike" ? editorTools.strikethrough : true,
+    )
+    .slice(0, RECENTS_SHOWN);
 
   return createPortal(
     <div
@@ -354,18 +344,20 @@ export function SelectionBubble() {
         >
           <Italic className="size-4" />
         </Button>
-        <Button
-          type="button"
-          size="icon-sm"
-          variant={strikeActive ? "secondary" : "ghost"}
-          aria-label="Strikethrough"
-          aria-pressed={strikeActive}
-          onClick={() => {
-            runFormatAction({ type: "strike" });
-          }}
-        >
-          <Strikethrough className="size-4" />
-        </Button>
+        {editorTools.strikethrough ? (
+          <Button
+            type="button"
+            size="icon-sm"
+            variant={strikeActive ? "secondary" : "ghost"}
+            aria-label="Strikethrough"
+            aria-pressed={strikeActive}
+            onClick={() => {
+              runFormatAction({ type: "strike" });
+            }}
+          >
+            <Strikethrough className="size-4" />
+          </Button>
+        ) : null}
 
         <Divider />
 
@@ -392,23 +384,6 @@ export function SelectionBubble() {
               onClick={handleAddNote}
             >
               <MessageSquarePlus className="size-4" />
-            </Button>
-          </>
-        ) : null}
-
-        {hasVerse ? (
-          <>
-            <Divider />
-            <Button
-              type="button"
-              size="icon-sm"
-              variant="ghost"
-              aria-label="Remove scripture"
-              onClick={() => {
-                runCommand(deleteSelectionWithVerses);
-              }}
-            >
-              <Trash2 className="size-4" />
             </Button>
           </>
         ) : null}

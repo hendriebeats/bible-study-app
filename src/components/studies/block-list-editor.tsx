@@ -1,11 +1,12 @@
 "use client";
 
-import { GripVertical, MoreVertical, Pencil, Plus, Trash2 } from "lucide-react";
+import { MoreVertical, Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import { DefaultContentEditor } from "@/components/admin/default-content-editor";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { DragHandle } from "@/components/ui/drag-handle";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -129,15 +130,11 @@ function BlockRow({
 
   return (
     <div data-reorder-item className="flex items-start gap-2">
-      <button
+      <DragHandle
         ref={setDragHandle}
-        type="button"
         aria-label="Reorder block (drag, or focus and press up/down)"
-        title="Drag to reorder (or focus and press ↑/↓)"
-        className="mt-3 h-fit cursor-grab touch-none rounded-sm p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-      >
-        <GripVertical className="size-4" />
-      </button>
+        className="mt-3"
+      />
 
       <section
         className={cn(

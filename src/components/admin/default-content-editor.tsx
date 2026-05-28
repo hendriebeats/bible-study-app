@@ -24,6 +24,10 @@ import {
   toggleOrderedList,
   toggleStrike,
 } from "@/lib/editor/commands";
+import {
+  DEFAULT_EDITOR_TOOLS,
+  type EditorTools,
+} from "@/lib/editor/editor-tools";
 import { buildInputRules } from "@/lib/editor/plugins/input-rules";
 import { buildKeymaps } from "@/lib/editor/plugins/keymap";
 import { placeholder as placeholderPlugin } from "@/lib/editor/plugins/placeholder";
@@ -53,10 +57,10 @@ function isEmptyDoc(content: PMNodeJSON[]): boolean {
 }
 
 /** Plugin set for the "host" mode (admin BlockTemplateEditor) — minimal. */
-function hostPlugins(placeholderText: string): Plugin[] {
+function hostPlugins(placeholderText: string, tools: EditorTools): Plugin[] {
   return [
-    buildInputRules(),
-    ...buildKeymaps(),
+    buildInputRules(tools),
+    ...buildKeymaps(tools),
     gapCursor(),
     history({ newGroupDelay: UNDO_GROUP_DELAY_MS }),
     tableEditing(),
@@ -70,10 +74,10 @@ function hostPlugins(placeholderText: string): Plugin[] {
  *  Omits document-shape guards that don't apply to a single-block body editor:
  *  notesIndexGuard, blocksStructureGuard, blocksSelectionGuard, blockHandle,
  *  noteAnchors — and the section-wide undo coordinator. */
-function dialogPlugins(placeholderText: string): Plugin[] {
+function dialogPlugins(placeholderText: string, tools: EditorTools): Plugin[] {
   return [
-    buildInputRules(),
-    ...buildKeymaps(),
+    buildInputRules(tools),
+    ...buildKeymaps(tools),
     gapCursor(),
     history({ newGroupDelay: UNDO_GROUP_DELAY_MS }),
     verseGuard(),
@@ -123,6 +127,9 @@ export function DefaultContentEditor({
   useEffect(() => {
     editorRef.current = editor;
   });
+  // Pinned once at view construction — same trade-off as the slash menu (user
+  // changes their tool toggles → next editor mount picks them up).
+  const editorTools = editor?.editorTools ?? DEFAULT_EDITOR_TOOLS;
 
   const mountRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -145,8 +152,8 @@ export function DefaultContentEditor({
       state: EditorState.create({
         doc: initialDoc(value),
         plugins: isDialog
-          ? dialogPlugins(placeholder)
-          : hostPlugins(placeholder),
+          ? dialogPlugins(placeholder, editorTools)
+          : hostPlugins(placeholder, editorTools),
       }),
       // Same NodeView set as the main editor so checkboxes, callouts, etc. all
       // render with their custom views (TaskItemView, etc.) — fixes the `[ ] `

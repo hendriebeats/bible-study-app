@@ -33,6 +33,16 @@ export interface StudyChromeValue {
   requestSectionAction: (sectionId: string, kind: "rename" | "history") => void;
   /** Mine panel: clear after consuming the pending action. */
   clearPendingSectionAction: () => void;
+  /**
+   * Editor zoom as a decimal multiplier (1 = 100%). Session-only — resets on
+   * reload. Drives `--editor-zoom` on the document root so every `.ProseMirror`
+   * scales (the main page editor, the blocks-dialog body editor via portal,
+   * and the selection-bubble's hosted content) without a layout-breaking
+   * `transform` / `zoom`.
+   */
+  editorZoom: number;
+  /** Set the zoom multiplier (e.g. 0.5, 0.75, 0.9, 1, 1.25, 1.5, 2). */
+  setEditorZoom: (zoom: number) => void;
 }
 
 export const StudyChromeContext = createContext<StudyChromeValue | null>(null);

@@ -34,23 +34,61 @@ export function placeholder(text: string): Plugin {
         }
 
         doc.descendants((node, pos) => {
-          if (node.type.name !== "study_block") {
-            return true;
+          if (node.type.name === "study_block") {
+            const ph: unknown = node.attrs.placeholder;
+            if (typeof ph === "string" && ph !== "" && node.childCount === 1) {
+              const body = node.child(0);
+              if (body.type.name === "paragraph" && body.content.size === 0) {
+                const bodyPos = pos + 1; // step inside the study_block
+                decorations.push(
+                  Decoration.node(bodyPos, bodyPos + body.nodeSize, {
+                    class: "is-editor-empty",
+                    "data-placeholder": ph,
+                  }),
+                );
+              }
+            }
+            return false; // a study_block never nests another
           }
-          const ph: unknown = node.attrs.placeholder;
-          if (typeof ph === "string" && ph !== "" && node.childCount === 1) {
-            const body = node.child(0);
-            if (body.type.name === "paragraph" && body.content.size === 0) {
-              const bodyPos = pos + 1; // step inside the study_block
+
+          // Toggle header placeholder (Notion-style "Toggle" ghost text). Only
+          // when the first child IS an empty paragraph — a header the user
+          // already converted to a heading or list silently opts out. Walk
+          // into the collapsible to find any nested ones too.
+          if (node.type.name === "collapsible") {
+            const first = node.firstChild;
+            if (first?.type.name === "paragraph" && first.content.size === 0) {
+              const firstPos = pos + 1; // step inside the collapsible
               decorations.push(
-                Decoration.node(bodyPos, bodyPos + body.nodeSize, {
+                Decoration.node(firstPos, firstPos + first.nodeSize, {
                   class: "is-editor-empty",
-                  "data-placeholder": ph,
+                  "data-placeholder": "Toggle",
                 }),
               );
             }
           }
-          return false; // a study_block never nests another
+          // Note-entry body placeholder. A freshly-anchored note starts with
+          // one empty paragraph as its body — show a Notion-style "Add note
+          // here…" hint so it doesn't read as a dead row in the index. The
+          // hint disappears the moment the user types or pastes in.
+          if (node.type.name === "note_entry") {
+            if (node.childCount === 1) {
+              const first = node.firstChild;
+              if (
+                first?.type.name === "paragraph" &&
+                first.content.size === 0
+              ) {
+                const firstPos = pos + 1;
+                decorations.push(
+                  Decoration.node(firstPos, firstPos + first.nodeSize, {
+                    class: "is-editor-empty",
+                    "data-placeholder": "Add note here…",
+                  }),
+                );
+              }
+            }
+          }
+          return true;
         });
 
         return decorations.length > 0

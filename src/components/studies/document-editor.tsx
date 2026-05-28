@@ -26,7 +26,11 @@ import { VersionHistoryPanel } from "@/components/studies/version-history-panel"
 import { Button } from "@/components/ui/button";
 import type { DocumentHistory, StudyDocument } from "@/lib/db/types";
 import { blocksDocFromSpecs, specsFromBlocksDoc } from "@/lib/editor/blocks";
-import { selectCurrentBlock } from "@/lib/editor/commands";
+import { makeModASelect } from "@/lib/editor/commands";
+import {
+  DEFAULT_EDITOR_TOOLS,
+  type EditorTools,
+} from "@/lib/editor/editor-tools";
 import { buildNodeViews } from "@/lib/editor/node-views";
 import { buildInputRules } from "@/lib/editor/plugins/input-rules";
 import { buildKeymaps } from "@/lib/editor/plugins/keymap";
@@ -70,13 +74,17 @@ type SaveStatus = "idle" | "saving" | "saved";
 
 type EditorRole = "notes" | "blocks";
 
-function createPlugins(placeholderText: string, role: EditorRole) {
+function createPlugins(
+  placeholderText: string,
+  role: EditorRole,
+  tools: EditorTools,
+) {
   const plugins = [
     // Highest priority: section-wide Cmd-Z/Cmd-Y across both editors, falling
     // through to the per-editor undo in buildKeymaps when nothing is tracked.
     sectionUndoKeymap(),
-    buildInputRules(),
-    ...buildKeymaps(),
+    buildInputRules(tools),
+    ...buildKeymaps(tools),
     gapCursor(),
     history({ newGroupDelay: UNDO_GROUP_DELAY_MS }),
     verseGuard(),
@@ -91,11 +99,20 @@ function createPlugins(placeholderText: string, role: EditorRole) {
     notesIndexGuard(),
     placeholderPlugin(placeholderText),
   ];
+  // Progressive Mod-A: first press selects the cursor's textblock, second
+  // press grows to the surrounding scope. In the freeform body editor the
+  // outer scope is the whole doc; in the locked blocks editor it's the
+  // enclosing study_block (so Mod-A stops at the block boundary instead of
+  // wandering into the notes index or other study blocks).
+  // Prepended so it beats baseKeymap's selectAll.
+  plugins.unshift(
+    keymap({
+      "Mod-a": makeModASelect(role === "blocks" ? "study_block" : "doc"),
+    }),
+  );
   // The blocks doc is locked to study blocks + the pinned notes index (no
   // freeform text, no bulk-deleting blocks); the Study Body stays freeform.
   if (role === "blocks") {
-    // Prepend so ⌘A selects the current block, beating baseKeymap's selectAll.
-    plugins.unshift(keymap({ "Mod-a": selectCurrentBlock }));
     plugins.push(blocksStructureGuard(), blocksSelectionGuard());
   }
   return plugins;
@@ -162,6 +179,7 @@ function buildInitialState(
   headContent: PMDocJSON,
   placeholderText: string,
   role: EditorRole,
+  tools: EditorTools,
 ) {
   const startDoc =
     role === "blocks"
@@ -170,7 +188,7 @@ function buildInitialState(
   try {
     let state = EditorState.create({
       doc: startDoc,
-      plugins: createPlugins(placeholderText, role),
+      plugins: createPlugins(placeholderText, role, tools),
     });
     let prevCreatedAt: string | null = null;
     for (const row of bundle.steps) {
@@ -192,7 +210,7 @@ function buildInitialState(
         role === "blocks"
           ? ensureNotesIndex(initialDoc(headContent))
           : initialDoc(headContent),
-      plugins: createPlugins(placeholderText, role),
+      plugins: createPlugins(placeholderText, role, tools),
     });
   }
 }
@@ -244,6 +262,13 @@ export function DocumentEditor({
   onDetach?: () => void;
 }) {
   const editor = useEditorContext();
+  // Captured once at editor-view construction; tools changes (account settings)
+  // take effect on the next mount, which matches how the slash menu reads them.
+  const editorTools = editor?.editorTools ?? DEFAULT_EDITOR_TOOLS;
+  const editorToolsRef = useRef(editorTools);
+  useEffect(() => {
+    editorToolsRef.current = editorTools;
+  });
   const [status, setStatus] = useState<SaveStatus>("idle");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyHead, setHistoryHead] = useState(0);
@@ -354,7 +379,7 @@ export function DocumentEditor({
                 role === "blocks"
                   ? ensureNotesIndex(initialDoc(head.content))
                   : initialDoc(head.content),
-              plugins: createPlugins(placeholder, role),
+              plugins: createPlugins(placeholder, role, editorToolsRef.current),
             });
             view.updateState(fresh);
             editorRef.current?.setActive(view, fresh);
@@ -447,7 +472,13 @@ export function DocumentEditor({
     }
 
     const view = new EditorView(mount, {
-      state: buildInitialState(docHistory, doc.content, placeholder, role),
+      state: buildInitialState(
+        docHistory,
+        doc.content,
+        placeholder,
+        role,
+        editorToolsRef.current,
+      ),
       nodeViews: buildNodeViews(true),
       // The blocks doc always carries the pinned notes index now, so the
       // blocks editor is always editable. Kept as a callback to match prior
@@ -632,8 +663,10 @@ export function DocumentEditor({
     view.focus();
   }
 
-  const statusLabel =
-    status === "saving" ? "Saving…" : status === "saved" ? "Saved" : "";
+  // `status` itself is still tracked via `setStatus` calls inside the autosave
+  // loop — see comment in the right-side cluster below for why the visible
+  // label was removed but the state stays.
+  void status;
 
   return (
     <div>
@@ -651,13 +684,15 @@ export function DocumentEditor({
           <PresenceAvatars
             members={members.filter((member) => member.userId !== me?.id)}
           />
-          <span
-            className="text-xs text-muted-foreground"
-            role="status"
-            aria-live="polite"
-          >
-            {statusLabel}
-          </span>
+          {/*
+            The "Saving…/Saved" status badge was intentionally removed to keep
+            the right-side cluster's width stable across section navigation
+            (its appear/disappear was a source of the right-side spacing
+            flicker the user reported). Save reliability is unchanged — the
+            persistence loop still runs; an error path still surfaces a toast.
+            `setStatus`/`statusLabel` are retained so a future status surface
+            (e.g. a chrome-level badge) can reuse the existing wiring.
+          */}
           {doc.kind === "blocks" && studyId ? (
             <StudyBlocksDialog studyId={studyId} isTemplate={isTemplate} />
           ) : null}

@@ -7,6 +7,9 @@ import type {
   Section,
   SectionDocuments,
 } from "@/lib/db/types";
+// `DocumentHistory` is intentionally imported for the `notesHistory` /
+// `blocksHistory` slots on `ActiveSectionPayload` even though no method on
+// the context references it directly anymore — see `ActiveSectionPayload`.
 
 /**
  * The currently-viewed section's data, published up from the section page into
@@ -33,23 +36,17 @@ export interface ActiveSectionPayload {
 export interface StudyWorkspaceValue {
   /** The section currently being edited/viewed in the pinned "mine" panel. */
   active: ActiveSectionPayload | null;
+  /**
+   * Whether the study has any sections at all — sourced from the layout's
+   * already-fetched `listSections` so the dock's `MinePanel` can tell apart
+   * "loading a section" (show spinner) from "study has no sections" (show
+   * empty-state placeholder). Without this, the brief window between opening
+   * `/studies/[id]` and the index page's redirect would flash the placeholder
+   * because the URL has no section id and `active` hasn't been published yet.
+   */
+  hasSections: boolean;
   /** Publish the section the page just rendered (called from `SectionBridge`). */
   publish: (payload: ActiveSectionPayload) => void;
-  /**
-   * Patch the active payload's history when the (separately-streamed) history
-   * fetch resolves — called from `SectionHistoryBridge` after its Suspense
-   * boundary settles. Guarded by `sectionId` so a late arrival from a
-   * previous section can't overwrite the current one's history.
-   *
-   * Until this fires, the editor renders against `notesHistory: null` (the
-   * read-only viewer fallback in `study-dockview.tsx`); once it fires the
-   * editor upgrades in place.
-   */
-  publishHistory: (
-    sectionId: string,
-    notesHistory: DocumentHistory | null,
-    blocksHistory: DocumentHistory | null,
-  ) => void;
   /**
    * Clear the active payload when a section page unmounts — guarded so a stale
    * unmount (the section we just navigated AWAY from) can't wipe the section we

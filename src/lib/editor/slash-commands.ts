@@ -70,6 +70,7 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
     icon: Heading1,
     command: toggleHeading(1),
     turnInto: true,
+    tool: "headings",
   },
   {
     id: "h2",
@@ -79,6 +80,7 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
     icon: Heading2,
     command: toggleHeading(2),
     turnInto: true,
+    tool: "headings",
   },
   {
     id: "h3",
@@ -88,6 +90,7 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
     icon: Heading3,
     command: toggleHeading(3),
     turnInto: true,
+    tool: "headings",
   },
   {
     id: "bullet",

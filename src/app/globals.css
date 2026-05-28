@@ -176,6 +176,23 @@
 }
 
 /*
+  Studies cold-load overlay. The overlay (`<StudiesLoadingOverlay>`) is rendered
+  as a sibling of the studies layout's Suspense boundary so it persists across
+  the StudyLayoutSkeleton → real-chrome handoff — its skeletons' `animate-pulse`
+  keyframes never restart. `<WorkspaceInner>` flips
+  `body[data-studies-body-ready]` when the first editor view registers, which
+  fades the overlay out and lets the real toolbar + editor show through.
+*/
+@layer base {
+  [data-studies-loading-overlay] {
+    transition: opacity 200ms ease-out;
+  }
+  body[data-studies-body-ready="true"] [data-studies-loading-overlay] {
+    opacity: 0;
+  }
+}
+
+/*
   Tiptap / ProseMirror editor content. Styled with semantic tokens so the
   word-processor reads consistently in light and dark.
 */
@@ -206,6 +223,33 @@
   }
   .ProseMirror li {
     @apply my-1;
+  }
+  /*
+    Mixed-type list seams. The markdown shortcuts (`- ` / `1. ` / `[ ] ` etc.)
+    convert ONE item in place by splitting the parent list into 2–3 sibling
+    lists. Without these rules the editor's `> * + *` top-margin and the li's
+    own `my-1` would put a visible gap at the seam — defeating the user-facing
+    illusion of one continuous list. Zeroing margins on the immediate edges
+    (and on the boundary li's themselves) keeps the rows visually flush.
+    Selector list explicitly covers .task-list because it is also a <ul>.
+  */
+  .ProseMirror ul + ul,
+  .ProseMirror ul + ol,
+  .ProseMirror ol + ul,
+  .ProseMirror ol + ol {
+    margin-top: 0;
+  }
+  .ProseMirror ul:has(+ ul) > li:last-child,
+  .ProseMirror ul:has(+ ol) > li:last-child,
+  .ProseMirror ol:has(+ ul) > li:last-child,
+  .ProseMirror ol:has(+ ol) > li:last-child {
+    margin-bottom: 0;
+  }
+  .ProseMirror ul + ul > li:first-child,
+  .ProseMirror ul + ol > li:first-child,
+  .ProseMirror ol + ul > li:first-child,
+  .ProseMirror ol + ol > li:first-child {
+    margin-top: 0;
   }
   /* Checklists: no marker/indent, a checkbox beside the content. */
   .ProseMirror .task-list {
@@ -273,28 +317,67 @@
   .ProseMirror .callout-application .callout-header {
     color: var(--callout-application-accent);
   }
-  /* Collapsible (foldable) sections. */
+  /*
+    Collapsible (toggleable) sections — Notion-style. A 2-column grid puts the
+    chevron in a narrow left gutter (taking the place of a bullet marker) and
+    every child of the toggle (the header paragraph + any body content) in
+    the right column. When closed, every child past the first is hidden so the
+    toggle reads as a single line with just the chevron + header.
+
+    The chevron-toggle button is `contentEditable=false` (set in the NodeView)
+    so the caret never lands on it, but it still gets a hover affordance.
+  */
   .ProseMirror .collapsible {
-    @apply my-3 rounded-lg border p-2;
-  }
-  .ProseMirror .collapsible-header {
-    @apply flex items-center gap-1;
+    display: grid;
+    grid-template-columns: 1.25rem 1fr;
+    align-items: start;
+    column-gap: 0.25rem;
   }
   .ProseMirror .collapsible-toggle {
-    @apply flex size-5 shrink-0 items-center justify-center rounded-sm text-xs text-muted-foreground hover:bg-muted;
+    @apply flex h-6 w-5 shrink-0 items-center justify-center rounded-sm text-xs leading-none text-muted-foreground select-none hover:bg-muted;
+    grid-column: 1;
     cursor: pointer;
   }
-  .ProseMirror .collapsible-title {
-    @apply min-w-0 flex-1 border-0 bg-transparent p-0 text-sm font-medium outline-none;
+  .ProseMirror .collapsible-toggle:disabled {
+    @apply cursor-default hover:bg-transparent;
   }
-  .ProseMirror .collapsible-body {
-    @apply mt-1 pl-6;
+  .ProseMirror .collapsible-content {
+    grid-column: 2;
+    min-width: 0;
   }
-  .ProseMirror .collapsible-body > * + * {
-    @apply mt-2;
+  /* Tight vertical rhythm inside the toggle — body paragraphs sit close to
+     the header, matching how list items stack. */
+  .ProseMirror .collapsible-content > * + * {
+    @apply mt-1;
   }
-  .ProseMirror .collapsible[data-open="false"] .collapsible-body {
+  /* Closed: hide everything except the header (the first child). */
+  .ProseMirror
+    .collapsible[data-open="false"]
+    > .collapsible-content
+    > *:not(:first-child) {
     display: none;
+  }
+  /*
+    Notion-style empty-body hint. The element is rendered by the
+    CollapsibleView next to the contentDOM, sits inside the same content
+    column (grid column 2), and is keyed visible by `data-empty-body=true`
+    AND `data-open=true`. Clicking it inserts a fresh body paragraph.
+    Hidden the moment the toggle is closed or has any body children.
+  */
+  .ProseMirror .collapsible-empty-hint {
+    display: none;
+    grid-column: 2;
+    margin-top: 0.125rem;
+    padding: 0.125rem 0;
+    color: var(--muted-foreground);
+    font-size: 0.875rem;
+    cursor: text;
+    user-select: none;
+  }
+  .ProseMirror
+    .collapsible[data-open="true"][data-empty-body="true"]
+    > .collapsible-empty-hint {
+    display: block;
   }
   /* Tables (opt-in). Fixed layout so columns share width and don't overflow. */
   .ProseMirror table {
@@ -385,15 +468,18 @@
     padding-left: 1.25rem;
     min-height: 1rem;
   }
-  /* Drag handle for reordering a note row — revealed on row hover / focus. */
+  /* Drag handle for reordering a note row — chrome from .drag-handle; this rule
+     owns the row-anchored position and the hover-only visibility override. */
   .ProseMirror .note-entry-drag {
-    @apply flex size-4 cursor-grab items-center justify-center rounded-sm text-muted-foreground opacity-0 hover:bg-muted hover:text-foreground;
     position: absolute;
     /* Anchored 4px in from the row's left so the handle sits a hair off the
        wrapper border, while letting the ref-column's mousedown hit area cover
        the gutter on either side of it. */
     left: 4px;
     top: 0.125rem;
+    /* Override the .drag-handle opacity-50 default: hidden until the row is
+       hovered or the handle is focused (see rule below). */
+    @apply opacity-0;
     /* When hidden, let clicks fall through to the ref column's caret handler
        (the handle's own caret-on-stationary-click only fires while visible). */
     pointer-events: none;
@@ -402,10 +488,6 @@
   .ProseMirror .note-entry-drag:focus-visible {
     @apply opacity-100;
     pointer-events: auto;
-  }
-  .ProseMirror .note-entry-drag svg {
-    width: 0.85em;
-    height: 0.85em;
   }
   .ProseMirror .note-entry-body > * + * {
     @apply mt-1;
@@ -443,13 +525,24 @@
   .ProseMirror u {
     @apply underline;
   }
-  /* Gutter "block options" handle (positioned imperatively by block-handle.ts). */
+  /* Shared visual baseline for every drag-to-reorder handle (ProseMirror gutter
+     handle, notes-index row handle, React reorder rows). Owners of each handle
+     layer position + visibility on top of this; never restyle the chrome. */
+  .drag-handle {
+    @apply flex h-6 w-5 items-center justify-center rounded-sm text-muted-foreground opacity-50 hover:bg-muted hover:opacity-100;
+    cursor: grab;
+  }
+  /* The inline lucide-GripVertical SVG (or matching imperative SVG in the
+     ProseMirror plugins) — sized to 16px and inherits color from the button. */
+  .drag-handle > svg {
+    width: 1rem;
+    height: 1rem;
+  }
+  /* Gutter "block options" handle (positioned imperatively by block-handle.ts).
+     Inherits chrome from .drag-handle; only its absolute placement is local. */
   .block-handle {
-    @apply flex h-6 w-5 items-center justify-center rounded-sm text-xs text-muted-foreground opacity-50 select-none hover:bg-muted hover:opacity-100;
     position: absolute;
     left: -1.5rem;
-    letter-spacing: -0.15em;
-    cursor: grab;
   }
   /* Drag-to-reorder (pointer-reorder.ts): a floating drop indicator + drag
      affordances shared by every reorderable list (notes, blocks, templates). */

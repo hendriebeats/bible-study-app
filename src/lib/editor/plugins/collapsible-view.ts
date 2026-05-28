@@ -1,16 +1,34 @@
-import type { Node } from "prosemirror-model";
+import { Fragment, type Node } from "prosemirror-model";
+import { TextSelection } from "prosemirror-state";
 import type {
   EditorView,
   NodeView,
   ViewMutationRecord,
 } from "prosemirror-view";
 
+import { nodes } from "../schema";
+
 /**
- * Renders a `collapsible` as a foldable section: a header (toggle triangle +
- * editable title) over the body (`contentDOM`). The toggle flips the `open`
- * attr and the title commits the `summary` attr — both as `setNodeMarkup` steps
- * (mirrors {@link StudyBlockView}). The body is hidden by CSS when closed.
- * Read-only viewers get a disabled toggle + read-only title.
+ * Renders a `collapsible` as a Notion-style toggle: a chevron marker in a
+ * narrow left gutter (▾ open / ▸ closed) sitting next to the first child
+ * paragraph (the header). The remaining children are the body, hidden by CSS
+ * when `data-open="false"`. Everything is one `contentDOM` so:
+ *   - ArrowLeft / ArrowRight nav out of the header / between header and body
+ *     works with the default ProseMirror behavior (no contentEditable=false
+ *     barrier in the way).
+ *   - Backspace at the start of the header dissolves the toggle via the
+ *     `collapsibleBackspace` keybinding (similar to how `liftListItem` lifts a
+ *     list_item).
+ *   - The header carries marks/indent/etc. exactly like a normal paragraph.
+ *
+ * The chevron lives OUTSIDE `contentDOM` so clicking it never moves the
+ * caret. Toggle transactions are tagged `addToHistory: false` — the open/close
+ * state is a UI control, not a content edit, and it would otherwise flood the
+ * undo stack with cosmetic flips.
+ *
+ * Read-only viewers still get a working chevron (toggle is local to the view;
+ * no transaction reaches the persist/broadcast path because the read-only
+ * view's dispatch is a no-op).
  */
 export class CollapsibleView implements NodeView {
   public readonly dom: HTMLElement;
@@ -19,9 +37,8 @@ export class CollapsibleView implements NodeView {
   private node: Node;
   private readonly view: EditorView;
   private readonly getPos: () => number | undefined;
-  private readonly header: HTMLElement;
   private readonly toggle: HTMLButtonElement;
-  private readonly titleInput: HTMLInputElement;
+  private readonly emptyHint: HTMLElement;
 
   constructor(
     node: Node,
@@ -34,84 +51,133 @@ export class CollapsibleView implements NodeView {
     this.getPos = getPos;
 
     const open = node.attrs.open !== false;
-    const summary =
-      typeof node.attrs.summary === "string" ? node.attrs.summary : "";
+    // "Empty body" = the collapsible has only a header child (no following
+    // blocks). The Notion-style "Empty toggle. Click or drop blocks inside."
+    // hint is rendered by CSS keyed on this attribute.
+    const emptyBody = node.childCount <= 1;
 
     const wrapper = document.createElement("div");
     wrapper.className = "collapsible";
     wrapper.setAttribute("data-collapsible", "true");
     wrapper.setAttribute("data-open", String(open));
-    wrapper.setAttribute("data-summary", summary);
-
-    const header = document.createElement("div");
-    header.className = "collapsible-header";
-    header.contentEditable = "false";
+    wrapper.setAttribute("data-empty-body", String(emptyBody));
 
     const toggle = document.createElement("button");
     toggle.type = "button";
     toggle.className = "collapsible-toggle";
     toggle.setAttribute("aria-label", "Toggle section");
+    toggle.setAttribute("aria-expanded", String(open));
+    toggle.contentEditable = "false";
     toggle.textContent = open ? "▾" : "▸";
     toggle.disabled = !editable;
+    // Don't let pressing the chevron steal the selection into the body — keep
+    // the caret where the user left it (which we may then move ourselves on
+    // collapse, see toggleOpen).
+    toggle.addEventListener("mousedown", (event) => {
+      event.preventDefault();
+    });
     toggle.addEventListener("click", () => {
-      this.toggleOpen();
+      this.toggleOpen(editable);
     });
 
-    const titleInput = document.createElement("input");
-    titleInput.className = "collapsible-title";
-    titleInput.value = summary;
-    titleInput.placeholder = "Section title";
-    titleInput.readOnly = !editable;
-    titleInput.addEventListener("blur", () => {
-      this.commitSummary();
+    const content = document.createElement("div");
+    content.className = "collapsible-content";
+
+    // Notion-style empty-body affordance: a clickable hint rendered AFTER the
+    // contentDOM. Click inserts a fresh paragraph at the end of the toggle's
+    // content, giving the user a body paragraph to type into. The hint is
+    // contentEditable=false so the caret never lands on the hint itself.
+    // Visibility is driven by `[data-empty-body]` + `[data-open]` on the
+    // wrapper (see globals.css), so the show/hide cost is zero JS.
+    const emptyHint = document.createElement("div");
+    emptyHint.className = "collapsible-empty-hint";
+    emptyHint.contentEditable = "false";
+    emptyHint.textContent = "Empty toggle. Click or drop blocks inside.";
+    emptyHint.addEventListener("mousedown", (event) => {
+      // Don't let the click move the caret into the contentDOM at the start
+      // of the header. We'll position the caret ourselves after dispatching.
+      event.preventDefault();
     });
-    titleInput.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        titleInput.blur();
-      }
+    emptyHint.addEventListener("click", () => {
+      if (!editable) return;
+      this.addBodyParagraph();
     });
 
-    header.appendChild(toggle);
-    header.appendChild(titleInput);
-
-    const body = document.createElement("div");
-    body.className = "collapsible-body";
-
-    wrapper.appendChild(header);
-    wrapper.appendChild(body);
+    wrapper.appendChild(toggle);
+    wrapper.appendChild(content);
+    wrapper.appendChild(emptyHint);
 
     this.dom = wrapper;
-    this.contentDOM = body;
-    this.header = header;
+    this.contentDOM = content;
     this.toggle = toggle;
-    this.titleInput = titleInput;
+    this.emptyHint = emptyHint;
   }
 
-  private toggleOpen(): void {
+  /**
+   * Insert an empty paragraph at the end of the collapsible's content and
+   * drop the caret inside it. Used by the empty-body hint's click handler.
+   */
+  private addBodyParagraph(): void {
+    const pos = this.getPos();
+    if (pos == null) return;
+    const paragraph = nodes.paragraph.createAndFill();
+    if (!paragraph) return;
+    // Insertion point: just before the collapsible's closing token (i.e.,
+    // after the last child). `pos + this.node.nodeSize - 1` lands inside the
+    // collapsible, past every existing child.
+    const insertAt = pos + this.node.nodeSize - 1;
+    const tr = this.view.state.tr.insert(insertAt, Fragment.from(paragraph));
+    // Caret goes one step inside the new paragraph (past its open tag).
+    tr.setSelection(TextSelection.create(tr.doc, insertAt + 1));
+    this.view.dispatch(tr.scrollIntoView());
+    this.view.focus();
+  }
+
+  private toggleOpen(editable: boolean): void {
     const pos = this.getPos();
     if (pos == null) {
       return;
     }
-    this.view.dispatch(
-      this.view.state.tr.setNodeMarkup(pos, undefined, {
-        ...this.node.attrs,
-        open: this.node.attrs.open === false,
-      }),
-    );
-  }
+    const nextOpen = this.node.attrs.open === false;
+    let tr = this.view.state.tr.setNodeMarkup(pos, undefined, {
+      ...this.node.attrs,
+      open: nextOpen,
+    });
 
-  private commitSummary(): void {
-    const pos = this.getPos();
-    if (pos == null || this.titleInput.value === this.node.attrs.summary) {
-      return;
+    // When collapsing, if the caret lives in body content that's about to
+    // disappear, move it to the end of the header first so the user doesn't
+    // end up typing into hidden territory.
+    if (!nextOpen && editable) {
+      const sel = this.view.state.selection;
+      const collapsibleEnd = pos + this.node.nodeSize;
+      const cursorInside = sel.from > pos && sel.to < collapsibleEnd;
+      const header = this.node.firstChild;
+      if (cursorInside && header) {
+        // Header starts one position inside the collapsible (skip the open
+        // tag); its inline content ends `header.content.size` later.
+        const headerEnd = pos + 1 + header.content.size + 1; // +1 past last inline pos
+        // Translate "inside header" into the doc by checking the cursor's
+        // ancestor: if the cursor's $from has the collapsible at depth d, the
+        // header sits at depth d+1; anything beyond is body.
+        const $from = sel.$from;
+        let inHeader = false;
+        for (let d = $from.depth; d > 0; d--) {
+          if ($from.node(d) === this.node) {
+            inHeader = $from.index(d) === 0;
+            break;
+          }
+        }
+        if (!inHeader) {
+          const target = Math.min(headerEnd - 1, tr.doc.content.size);
+          tr = tr.setSelection(TextSelection.create(tr.doc, target));
+        }
+      }
     }
-    this.view.dispatch(
-      this.view.state.tr.setNodeMarkup(pos, undefined, {
-        ...this.node.attrs,
-        summary: this.titleInput.value,
-      }),
-    );
+
+    // Open/close is a UI control — don't litter undo history with it. The
+    // history plugin (and our word-undo coordinator) both honor this meta.
+    tr.setMeta("addToHistory", false);
+    this.view.dispatch(tr);
   }
 
   update(node: Node): boolean {
@@ -121,19 +187,14 @@ export class CollapsibleView implements NodeView {
     this.node = node;
     const open = node.attrs.open !== false;
     this.dom.setAttribute("data-open", String(open));
+    this.dom.setAttribute("data-empty-body", String(node.childCount <= 1));
     this.toggle.textContent = open ? "▾" : "▸";
-    const summary =
-      typeof node.attrs.summary === "string" ? node.attrs.summary : "";
-    this.dom.setAttribute("data-summary", summary);
-    if (document.activeElement !== this.titleInput) {
-      this.titleInput.value = summary;
-    }
+    this.toggle.setAttribute("aria-expanded", String(open));
     return true;
   }
 
   stopEvent(event: Event): boolean {
-    const target = event.target;
-    return target instanceof HTMLElement && this.header.contains(target);
+    return event.target === this.toggle || event.target === this.emptyHint;
   }
 
   ignoreMutation(mutation: ViewMutationRecord): boolean {

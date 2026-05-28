@@ -120,6 +120,7 @@ export async function StudyLayoutInner({
       <StudyWorkspace
         studyId={studyId}
         me={me}
+        hasSections={sections.length > 0}
         compareTargets={compareTargets}
         groupContext={groupContext}
         savedLayout={savedLayout}

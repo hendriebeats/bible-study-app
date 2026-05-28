@@ -7,6 +7,11 @@ import { useEditorContext } from "@/components/studies/editor-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   activeLinkRange,
   applyLink,
   clearLink,
@@ -102,28 +107,33 @@ export function LinkControl({ size = "icon" }: { size?: "icon" | "icon-sm" }) {
 
   return (
     <div ref={rootRef} className="relative">
-      <Button
-        type="button"
-        size={size}
-        variant={active ? "secondary" : "ghost"}
-        aria-label={active ? "Edit link" : "Add link"}
-        aria-pressed={Boolean(active)}
-        aria-haspopup="true"
-        aria-expanded={open}
-        disabled={!activeState}
-        onMouseDown={(event) => {
-          event.preventDefault();
-        }}
-        onClick={() => {
-          if (open) {
-            setOpen(false);
-          } else {
-            openPanel();
-          }
-        }}
-      >
-        <Link2 className="size-4" />
-      </Button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            type="button"
+            size={size}
+            variant={active ? "secondary" : "ghost"}
+            aria-label={active ? "Edit link" : "Add link"}
+            aria-pressed={Boolean(active)}
+            aria-haspopup="true"
+            aria-expanded={open}
+            disabled={!activeState}
+            onMouseDown={(event) => {
+              event.preventDefault();
+            }}
+            onClick={() => {
+              if (open) {
+                setOpen(false);
+              } else {
+                openPanel();
+              }
+            }}
+          >
+            <Link2 className="size-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>{active ? "Edit link" : "Add link"}</TooltipContent>
+      </Tooltip>
       {open ? (
         <div
           role="group"

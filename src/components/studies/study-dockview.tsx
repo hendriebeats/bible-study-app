@@ -22,7 +22,10 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+import { usePathname } from "next/navigation";
+
 import { renameSection } from "@/app/studies/actions";
+import { BodySkeleton } from "@/components/studies/body-skeleton";
 import {
   type AlignCandidate,
   alignSections,
@@ -33,10 +36,7 @@ import {
 import dynamic from "next/dynamic";
 
 import { DocumentViewer } from "@/components/studies/document-viewer";
-import {
-  EditorChromeSkeleton,
-  HistoryPanelSkeleton,
-} from "@/components/studies/editor-skeletons";
+import { HistoryPanelSkeleton } from "@/components/studies/editor-skeletons";
 
 // The editor and history panel are by far the largest client modules in the
 // app (ProseMirror schema + plugins, history virtualization). Splitting them
@@ -44,12 +44,17 @@ import {
 // the dock chrome paint a frame earlier; the real editor swaps in once its
 // chunk downloads. `ssr: false` matches the dockview's own boundary — both
 // require the DOM. See lint-rules/heavy-modules.mjs.
+//
+// The `loading` fallback is `null`: the persistent `<StudiesLoadingOverlay>`
+// covers the body region while the chunk downloads (and while ProseMirror
+// initializes). The workspace pre-loads this module on mount so the chunk is
+// usually already cached by the time `DocumentEditor` first renders.
 const DocumentEditor = dynamic(
   () =>
     import("@/components/studies/document-editor").then(
       (m) => m.DocumentEditor,
     ),
-  { ssr: false, loading: () => <EditorChromeSkeleton /> },
+  { ssr: false, loading: () => null },
 );
 const SectionHistoryPanel = dynamic(
   () =>
@@ -110,10 +115,21 @@ function useDock(): {
 
 /** The pinned left panel: my own section's editable Notes + Study blocks. */
 function MinePanel(): React.ReactElement {
-  const { active } = useStudyWorkspace();
-  if (!active) {
-    // Only persists for a study with no sections — section routes publish their
-    // payload before paint, so this never flashes on navigation.
+  const { active, hasSections } = useStudyWorkspace();
+  // URL pattern: /studies/[studyId]/[sectionId]. We compare the URL's section
+  // id against the workspace's published `active` so the panel doesn't mount
+  // the editor against the previous section's data while a section nav is
+  // in flight.
+  const pathname = usePathname();
+  const urlSectionId = pathname.split("/")[3] ?? null;
+
+  // The "study has no sections yet" placeholder is shown only when the
+  // layout's `listSections` has confirmed the study is empty — NOT just
+  // because the URL is at `/studies/[id]` without a section id. Opening a
+  // study from the dashboard briefly lands on `/studies/[id]` before the
+  // index page's redirect fires; without this gate the placeholder flashed
+  // during that window.
+  if (!hasSections) {
     return (
       <div className="flex h-full items-center justify-center p-8 text-center text-sm text-muted-foreground">
         <div>
@@ -122,6 +138,20 @@ function MinePanel(): React.ReactElement {
         </div>
       </div>
     );
+  }
+  // The persistent `<StudiesLoadingOverlay>` (rendered as a sibling of the
+  // layout's Suspense) covers this panel until `WorkspaceInner` flips
+  // `body[data-studies-body-ready]`. So `MinePanel` just renders content
+  // unconditionally — no local skeleton or overlay logic. During the
+  // URL-ahead window (a section nav in flight) the overlay is still up
+  // because `editor.activeView` is briefly null between unmount/remount of
+  // the section's editors, so the panel can render `MineSectionBody`
+  // immediately without flashing the previous section.
+  if (active?.section.id !== urlSectionId) {
+    // We keep returning a placeholder rather than `MineSectionBody` so the
+    // editors don't briefly mount against the previous section's data while
+    // we're between published payloads.
+    return <div className="h-full" />;
   }
   // Re-key on the section so the title field + editors remount cleanly when
   // switching sections (the panel itself, and the dock, stay mounted).
@@ -198,16 +228,23 @@ function InlineBlocksEditor({
  * "Bring back here". Renders the *active* section's blocks editor, re-keyed
  * on `section.id` so navigating sections remounts the editor cleanly the
  * same way {@link MinePanel} does.
+ *
+ * Shares MinePanel's URL-ahead-of-active check so a section navigation swaps
+ * this panel to the body skeleton too — without it, the panel would briefly
+ * keep showing the previous section's blocks until the new payload publishes.
+ * `showTitle={false}` because this panel renders blocks only (no editable
+ * section title above the body).
  */
 function BlocksDockPanel(): React.ReactElement {
   const { active } = useStudyWorkspace();
   const { me } = useDock();
-  if (!active) {
-    return (
-      <div className="flex h-full items-center justify-center p-8 text-center text-sm text-muted-foreground">
-        No active section.
-      </div>
-    );
+  const pathname = usePathname();
+  const urlSectionId = pathname.split("/")[3] ?? null;
+  // The persistent `<StudiesLoadingOverlay>` covers the body during cold
+  // load; the URL-ahead gate just keeps the panel from rendering against the
+  // previous section's data while a navigation is in flight.
+  if (active?.section.id !== urlSectionId) {
+    return <div className="h-full" />;
   }
   // Read-only viewers can't detach (no button), but a layout restore could
   // bring back a stale "blocks" panel — render the viewer for safety.
@@ -549,7 +586,12 @@ function PersonPanel({
         </div>
       )}
       {pane.status === "loading" ? (
-        <p className="text-sm text-muted-foreground">Aligning…</p>
+        // Both first-load (no candidates yet → dropdown row hidden, skeleton
+        // fills the panel) and a mid-session changeSelection (dropdown row
+        // visible above, skeleton below) flow through this branch.
+        // `showTitle={false}` — a co-member's section title lives in the
+        // dropdown row above, not inside the body.
+        <BodySkeleton showTitle={false} />
       ) : pane.status === "unmatched" || !pane.notes || !pane.blocks ? (
         <p className="text-sm text-muted-foreground">
           No matching section found in this study.

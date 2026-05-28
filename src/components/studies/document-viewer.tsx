@@ -19,10 +19,7 @@ import { schema } from "@/lib/editor/schema";
 import { jsonToDoc, jsonToStep } from "@/lib/editor/serialize";
 import type { PMDocJSON } from "@/lib/editor/types";
 import { openDocumentChannel } from "@/lib/realtime/document-channel";
-import type {
-  ConnectionStatus,
-  PresenceMember,
-} from "@/lib/realtime/document-channel";
+import type { PresenceMember } from "@/lib/realtime/document-channel";
 
 function viewerDoc(content: PMDocJSON) {
   const doc = jsonToDoc(content);
@@ -36,17 +33,13 @@ function viewerState(content: PMDocJSON): EditorState {
   });
 }
 
-const STATUS_LABEL: Record<ConnectionStatus, string> = {
-  connecting: "Connecting…",
-  live: "live",
-  reconnecting: "Reconnecting…",
-  closed: "Disconnected",
-};
-
 /**
  * Read-only live view of one document a co-member doesn't own. Mirrors the
  * writer's edits and labeled cursor via Supabase Realtime; the editor isn't
- * editable. Shows who else is reading along and the connection's health.
+ * editable. Shows who else is reading along.
+ *
+ * The connection-health badge ("Read-only · Connecting…/live") was removed
+ * intentionally — see the comment in the JSX below for why.
  */
 export function DocumentViewer({
   document: doc,
@@ -64,7 +57,6 @@ export function DocumentViewer({
   const viewRef = useRef<EditorView | null>(null);
   const versionRef = useRef(doc.current_version);
   const [members, setMembers] = useState<PresenceMember[]>([]);
-  const [status, setStatus] = useState<ConnectionStatus>("connecting");
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -142,11 +134,6 @@ export function DocumentViewer({
             setMembers(next);
           }
         },
-        onStatus(next) {
-          if (!disposed) {
-            setStatus(next);
-          }
-        },
       },
       me ? { userId: me.id, name: me.name, isOwner: false } : undefined,
     ).then((ch) => {
@@ -188,22 +175,17 @@ export function DocumentViewer({
           <PresenceAvatars
             members={members.filter((member) => member.userId !== me?.id)}
           />
-          <span
-            className="flex items-center gap-1.5 text-xs text-muted-foreground"
-            role="status"
-            aria-live="polite"
-          >
-            <span
-              className={
-                status === "live"
-                  ? "size-2 rounded-full bg-primary"
-                  : status === "reconnecting"
-                    ? "size-2 rounded-full bg-muted-foreground motion-safe:animate-pulse"
-                    : "size-2 rounded-full bg-muted-foreground"
-              }
-            />
-            Read-only · {STATUS_LABEL[status]}
-          </span>
+          {/*
+            The "Read-only · Connecting…/live" status badge was intentionally
+            removed: it briefly flashed onto the owner's own editor every time
+            they switched sections (the dock renders this DocumentViewer as a
+            placeholder while history streams in via SectionHistoryBridge,
+            then upgrades to the editable DocumentEditor — the badge had no
+            time to be useful and read as a flicker). For group-study viewers
+            it was also undesired noise. `STATUS_LABEL` + `setStatus` stay so
+            the realtime channel keeps reporting its health (used for
+            potential future reconnection UI), they just don't render.
+          */}
         </div>
       </div>
       <div ref={mountRef} className="mt-3 min-h-32" />

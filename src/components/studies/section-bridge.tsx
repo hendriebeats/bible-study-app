@@ -15,16 +15,18 @@ const useIsomorphicLayoutEffect =
 
 /**
  * The `[sectionId]` page renders this (and nothing visible): it publishes the
- * server-fetched section payload up into the persistent {@link StudyWorkspace}
- * (which hosts the editable "mine" panel + the dock), and clears it on unmount.
- * The dock, editor provider, and any open co-member panels live at the layout
- * level, so switching sections only swaps this payload — they never remount.
+ * server-fetched section payload (including the per-document undo history,
+ * resolved in the same single-phase batch on the server) up into the
+ * persistent {@link StudyWorkspace}, which hosts the editable "mine" panel +
+ * the dock. The dock, editor provider, and any open co-member panels live at
+ * the layout level, so switching sections only swaps this payload — they
+ * never remount.
  *
- * Phase 1 of the two-phase publish: the page hands this the section + documents
- * + flags with `notesHistory: null` / `blocksHistory: null`. The editor sees
- * a viewer-shaped payload and renders content immediately. {@link SectionHistoryBridge}
- * follows up under its own Suspense boundary to patch in the per-document undo
- * history once it resolves, at which point the editor upgrades in place.
+ * Publishing is single-phase by design (see the section page's comment): a
+ * previous two-phase split caused a visible viewer→editor swap and right-side
+ * row width change as history streamed in separately. The dock now shows the
+ * `BodySkeleton` for the brief window while the new section's data resolves,
+ * then mounts the editor once with full undo replay.
  *
  * A `?focus=<studyId>` deep link (e.g. a roster name) opens that member's panel
  * once, then strips the param so a refresh doesn't reopen it.

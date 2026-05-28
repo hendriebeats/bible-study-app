@@ -5,6 +5,11 @@ import { useEffect, useRef, useState } from "react";
 
 import { useEditorContext } from "@/components/studies/editor-context";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { markColorActive } from "@/lib/editor/commands";
 import {
   colorName,
@@ -104,33 +109,38 @@ export function ColorControl({
 
   return (
     <div ref={rootRef} className="relative">
-      <Button
-        type="button"
-        size={size}
-        variant={activeColor ? "secondary" : "ghost"}
-        aria-label={
-          activeColor ? `${label} (${colorName(activeColor)})` : label
-        }
-        aria-pressed={Boolean(activeColor)}
-        aria-haspopup="true"
-        aria-expanded={open}
-        disabled={!activeState}
-        onMouseDown={(event) => {
-          event.preventDefault();
-        }}
-        onClick={() => {
-          setOpen((o) => !o);
-        }}
-      >
-        <span className="relative flex items-center justify-center">
-          <Icon className="size-4" />
-          <span
-            aria-hidden
-            className="absolute -bottom-1 h-1 w-3.5 rounded-full"
-            style={{ backgroundColor: indicator }}
-          />
-        </span>
-      </Button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            type="button"
+            size={size}
+            variant={activeColor ? "secondary" : "ghost"}
+            aria-label={
+              activeColor ? `${label} (${colorName(activeColor)})` : label
+            }
+            aria-pressed={Boolean(activeColor)}
+            aria-haspopup="true"
+            aria-expanded={open}
+            disabled={!activeState}
+            onMouseDown={(event) => {
+              event.preventDefault();
+            }}
+            onClick={() => {
+              setOpen((o) => !o);
+            }}
+          >
+            <span className="relative flex items-center justify-center">
+              <Icon className="size-4" />
+              <span
+                aria-hidden
+                className="absolute -bottom-1 h-1 w-3.5 rounded-full"
+                style={{ backgroundColor: indicator }}
+              />
+            </span>
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>{label}</TooltipContent>
+      </Tooltip>
       {open ? (
         <div
           role="group"

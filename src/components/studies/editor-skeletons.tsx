@@ -3,22 +3,37 @@
 import { Skeleton } from "@/components/ui/skeleton";
 
 /**
- * Fallback shown inside a dock panel while the lazy-loaded ProseMirror editor
- * chunk is downloading. Matches the editor's wrapper paddings + the first few
- * lines of typical document content so the swap into the real editor doesn't
- * shift the layout.
+ * Placeholder rendered inside the chrome's toolbar slot until the client-side
+ * `<StudyToolbarPortal>` mounts the real `<EditorToolbar>`. Reserves the
+ * toolbar row's height (and roughly matches its grouped icon-button layout) so
+ * the body content beneath doesn't jump downward when the real toolbar swaps in
+ * — addressing the "page glitches down" reflow on fresh study loads.
  *
- * Used by both the notes and blocks editors via the `dynamic(...)` boundary in
- * `study-dockview.tsx`.
+ * Marked `data-toolbar-skeleton` so the slot's contents are inspectable in
+ * DevTools and easy to target from tests.
  */
-export function EditorChromeSkeleton() {
+export function ToolbarSkeleton() {
   return (
-    <div className="grid gap-3">
-      <Skeleton className="h-6 w-3/4" />
-      <Skeleton className="h-4 w-full" />
-      <Skeleton className="h-4 w-11/12" />
-      <Skeleton className="h-4 w-10/12" />
-      <Skeleton className="h-4 w-9/12" />
+    <div
+      data-toolbar-skeleton
+      // Mirrors `<EditorToolbar variant="bar">`'s outer paddings + flex layout
+      // so the swap in is zero-CLS.
+      className="flex flex-wrap items-center gap-1 px-2 py-1.5"
+      aria-hidden
+    >
+      {/* Four icon-button groups separated by thin dividers, matching the real
+          toolbar's bold/italic/underline/strike · H1/H2/H3 · list/list/quote ·
+          undo/redo grouping. */}
+      {[4, 3, 3, 2].map((count, groupIndex) => (
+        <div key={groupIndex} className="flex items-center gap-1">
+          {groupIndex > 0 ? (
+            <span className="mx-1 inline-block h-6 w-px bg-border" />
+          ) : null}
+          {Array.from({ length: count }).map((_, i) => (
+            <Skeleton key={i} className="size-8 rounded-md" />
+          ))}
+        </div>
+      ))}
     </div>
   );
 }
