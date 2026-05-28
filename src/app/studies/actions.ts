@@ -98,6 +98,44 @@ export async function getStudyTemplateBlockSpecs(
 }
 
 /**
+ * Block specs (structure only — body is intentionally dropped by
+ * `specsFromBlocksDoc`) from the section immediately before `beforePosition` in
+ * the same study. Empty when there's no earlier section.
+ *
+ * For the "Add section" pre-check, pass `nextPosition` (last + 1) → returns the
+ * last existing section's specs. For the empty-state on an existing section,
+ * pass `currentSection.position` → returns the section directly above by order.
+ */
+export async function getPreviousSectionBlockSpecs(
+  studyId: string,
+  beforePosition: number,
+): Promise<BlockSpec[]> {
+  const { supabase } = await requireUser();
+  const { data: prevSections } = await supabase
+    .from("sections")
+    .select("id")
+    .eq("study_id", studyId)
+    .is("deleted_at", null)
+    .lt("position", beforePosition)
+    .order("position", { ascending: false })
+    .limit(1);
+  const prev = prevSections?.[0];
+  if (!prev) {
+    return [];
+  }
+  const { data: prevBlocks } = await supabase
+    .from("documents")
+    .select("content")
+    .eq("section_id", prev.id)
+    .eq("kind", "blocks")
+    .maybeSingle();
+  if (!prevBlocks) {
+    return [];
+  }
+  return specsFromBlocksDoc(prevBlocks.content as unknown as PMDocJSON);
+}
+
+/**
  * The study's editable template blocks doc (the "Template" tab). Returns the
  * stored `template_blocks_doc` when set (authoritative — even an emptied one),
  * else lazily derives it from the source template / genre defaults so the tab is
@@ -199,7 +237,13 @@ export async function createStudyFromSelection(
   return { ok: true, path: `/studies/${data}` };
 }
 
-export async function createSection(studyId: string): Promise<void> {
+/** Where to seed a new section's blocks from. Defaults to the study template. */
+export type NewSectionSource = "template" | "previous";
+
+export async function createSection(
+  studyId: string,
+  source: NewSectionSource = "template",
+): Promise<void> {
   const { supabase } = await requireUser();
 
   const { data: last } = await supabase
@@ -221,10 +265,23 @@ export async function createSection(studyId: string): Promise<void> {
   }
 
   const sectionId = data.id;
-  // Seed the new section's blocks from the study's template (best-effort: a no-op
-  // when the study has no template with blocks, and a failure just leaves the
-  // section empty — the owner can still populate it via the blocks dialog).
-  await supabase.rpc("seed_section_blocks", { _section_id: sectionId });
+  // Seed the new section's blocks. Best-effort: a failure just leaves it empty
+  // (the owner can populate via the dialog or the empty-state buttons).
+  if (source === "previous") {
+    // Copy the previous section's STRUCTURE (specsFromBlocksDoc drops body) —
+    // we never inherit the prior writer's body content into a new section.
+    const specs = await getPreviousSectionBlockSpecs(studyId, nextPosition);
+    if (specs.length > 0) {
+      const doc = blocksDocFromSpecs(specs);
+      await supabase
+        .from("documents")
+        .update({ content: doc as unknown as Json, current_version: 0 })
+        .eq("section_id", sectionId)
+        .eq("kind", "blocks");
+    }
+  } else {
+    await supabase.rpc("seed_section_blocks", { _section_id: sectionId });
+  }
   revalidatePath(`/studies/${studyId}`);
   redirect(`/studies/${studyId}/${sectionId}`);
 }

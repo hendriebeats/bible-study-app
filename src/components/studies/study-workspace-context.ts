@@ -24,6 +24,10 @@ export interface ActiveSectionPayload {
   isOwner: boolean;
   /** App/org template study — the blocks dialog's Template tab edits the default. */
   isTemplate: boolean;
+  /** Whether the blocks empty-state can offer "Use this study's template". */
+  emptyStateHasTemplate: boolean;
+  /** Whether it can offer "Copy from previous section". */
+  emptyStateHasPrevious: boolean;
 }
 
 export interface StudyWorkspaceValue {

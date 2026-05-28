@@ -21,9 +21,11 @@ import {
 } from "@/lib/editor/commands";
 import { buildInputRules } from "@/lib/editor/plugins/input-rules";
 import { buildKeymaps } from "@/lib/editor/plugins/keymap";
+import { placeholder as placeholderPlugin } from "@/lib/editor/plugins/placeholder";
 import { marks, nodes } from "@/lib/editor/schema";
 import { docToJSON, jsonToDoc } from "@/lib/editor/serialize";
 import type { PMNodeJSON } from "@/lib/editor/types";
+import { cn } from "@/lib/utils";
 import { UNDO_GROUP_DELAY_MS, withUndoBoundary } from "@/lib/editor/word-undo";
 
 function initialDoc(content: PMNodeJSON[] | null) {
@@ -46,13 +48,22 @@ function isEmptyDoc(content: PMNodeJSON[]): boolean {
  * A compact rich-text editor for authoring a block template's default body
  * content. Reuses the shared schema + formatting commands; serializes to the
  * block-body shape (ProseMirror block nodes), reporting `null` when left empty.
+ *
+ * `placeholder` text renders as ghost text inside the empty body (matching the
+ * main blocks editor's per-block placeholder). The text is captured at mount —
+ * remount (re-key) to update it. `bare` drops the outer card chrome so the
+ * editor visually integrates into a host container (the blocks dialog).
  */
 export function DefaultContentEditor({
   value,
   onChange,
+  placeholder = "",
+  bare = false,
 }: {
   value: PMNodeJSON[] | null;
   onChange: (content: PMNodeJSON[] | null) => void;
+  placeholder?: string;
+  bare?: boolean;
 }) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -76,6 +87,7 @@ export function DefaultContentEditor({
           gapCursor(),
           history({ newGroupDelay: UNDO_GROUP_DELAY_MS }),
           tableEditing(),
+          placeholderPlugin(placeholder),
         ],
       }),
       dispatchTransaction(incoming) {
@@ -148,8 +160,13 @@ export function DefaultContentEditor({
         ];
 
   return (
-    <div className="rounded-md border bg-background">
-      <div className="flex flex-wrap items-center gap-1 border-b p-1">
+    <div className={cn(bare ? "" : "rounded-md border bg-background")}>
+      <div
+        className={cn(
+          "flex flex-wrap items-center gap-1 p-1",
+          bare ? "" : "border-b",
+        )}
+      >
         {items.map((item) => (
           <Button
             key={item.label}

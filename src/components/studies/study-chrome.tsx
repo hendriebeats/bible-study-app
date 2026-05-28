@@ -4,7 +4,10 @@ import { ChevronLeft, Layers, PanelLeft } from "lucide-react";
 import Link from "next/link";
 import { type ReactNode, useCallback, useMemo, useState } from "react";
 
-import { StudySidebar } from "@/components/studies/study-sidebar";
+import {
+  type AddSectionSources,
+  StudySidebar,
+} from "@/components/studies/study-sidebar";
 import { StudyChromeContext } from "@/components/studies/study-chrome-context";
 import type { StudyChromeValue } from "@/components/studies/study-chrome-context";
 import { StudyTitleControl } from "@/components/studies/study-title-control";
@@ -34,6 +37,7 @@ export function StudyChrome({
   genres,
   isTemplate,
   templateBackHref,
+  addSectionSources,
   actions,
   children,
 }: {
@@ -44,6 +48,8 @@ export function StudyChrome({
   genres: Genre[];
   isTemplate: boolean;
   templateBackHref: string;
+  /** Drives the "Add section" trigger (plain button vs. dropdown chooser). */
+  addSectionSources: AddSectionSources;
   /** Server-rendered top-bar right cluster (theme, notifications, account). */
   actions: ReactNode;
   children: ReactNode;
@@ -53,6 +59,8 @@ export function StudyChrome({
   const [sectionTitleOverrides, setSectionTitleOverrides] = useState<
     Record<string, string>
   >({});
+  const [pendingSectionAction, setPendingSectionAction] =
+    useState<StudyChromeValue["pendingSectionAction"]>(null);
 
   const toggleSidebar = useCallback(() => {
     setSidebarOpen((open) => !open);
@@ -62,6 +70,17 @@ export function StudyChrome({
     setSectionTitleOverrides((prev) => ({ ...prev, [sectionId]: title }));
   }, []);
 
+  const requestSectionAction = useCallback(
+    (sectionId: string, kind: "rename" | "history") => {
+      setPendingSectionAction({ sectionId, kind });
+    },
+    [],
+  );
+
+  const clearPendingSectionAction = useCallback(() => {
+    setPendingSectionAction(null);
+  }, []);
+
   const value = useMemo<StudyChromeValue>(
     () => ({
       sidebarOpen,
@@ -69,6 +88,9 @@ export function StudyChrome({
       toolbarSlot,
       sectionTitleOverrides,
       setSectionTitle,
+      pendingSectionAction,
+      requestSectionAction,
+      clearPendingSectionAction,
     }),
     [
       sidebarOpen,
@@ -76,6 +98,9 @@ export function StudyChrome({
       toolbarSlot,
       sectionTitleOverrides,
       setSectionTitle,
+      pendingSectionAction,
+      requestSectionAction,
+      clearPendingSectionAction,
     ],
   );
 
@@ -143,6 +168,7 @@ export function StudyChrome({
               isOwner={isOwner}
               trashedSections={trashedSections}
               genres={genres}
+              addSectionSources={addSectionSources}
               onCollapse={toggleSidebar}
             />
           </div>

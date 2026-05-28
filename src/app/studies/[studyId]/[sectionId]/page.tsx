@@ -1,5 +1,9 @@
 import { notFound } from "next/navigation";
 
+import {
+  getPreviousSectionBlockSpecs,
+  getStudyTemplateBlockSpecs,
+} from "@/app/studies/actions";
 import { SectionBridge } from "@/components/studies/section-bridge";
 import { getDocumentHistory } from "@/lib/db/history";
 import { getSection, getSectionDocuments } from "@/lib/db/studies";
@@ -39,6 +43,20 @@ export default async function SectionPage({
   const isTemplate =
     Boolean(studyMeta?.is_app_template) || studyMeta?.owner_org_id != null;
 
+  // Pre-compute which sources the blocks empty-state can offer. Owners only;
+  // viewers never see the empty-state controls. "Previous" is the section
+  // immediately before THIS one by position (passes the threshold).
+  let emptyStateHasTemplate = false;
+  let emptyStateHasPrevious = false;
+  if (isOwner) {
+    const [templateSpecs, previousSpecs] = await Promise.all([
+      getStudyTemplateBlockSpecs(studyId),
+      getPreviousSectionBlockSpecs(studyId, section.position),
+    ]);
+    emptyStateHasTemplate = templateSpecs.length > 0;
+    emptyStateHasPrevious = previousSpecs.length > 0;
+  }
+
   // The owner edits (and needs each document's history for refresh-surviving
   // undo); co-members get the read-only live viewer.
   const notesHistory = isOwner
@@ -68,6 +86,8 @@ export default async function SectionPage({
         blocksHistory,
         isOwner,
         isTemplate,
+        emptyStateHasTemplate,
+        emptyStateHasPrevious,
       }}
     />
   );

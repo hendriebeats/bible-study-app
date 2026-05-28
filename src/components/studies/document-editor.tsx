@@ -16,6 +16,8 @@ import {
   appendDocumentSteps,
   createDocumentCheckpoint,
   fetchDocumentHead,
+  getPreviousSectionBlockSpecs,
+  getStudyTemplateBlocksDoc,
 } from "@/app/studies/actions";
 import { useEditorContext } from "@/components/studies/editor-context";
 import { PresenceAvatars } from "@/components/studies/presence-avatars";
@@ -23,6 +25,7 @@ import { StudyBlocksDialog } from "@/components/studies/study-blocks-dialog";
 import { VersionHistoryPanel } from "@/components/studies/version-history-panel";
 import { Button } from "@/components/ui/button";
 import type { DocumentHistory, StudyDocument } from "@/lib/db/types";
+import { blocksDocFromSpecs, specsFromBlocksDoc } from "@/lib/editor/blocks";
 import { selectCurrentBlock } from "@/lib/editor/commands";
 import { buildNodeViews } from "@/lib/editor/node-views";
 import { buildInputRules } from "@/lib/editor/plugins/input-rules";
@@ -177,6 +180,9 @@ export function DocumentEditor({
   placeholder,
   studyId,
   isTemplate = false,
+  sectionPosition,
+  emptyStateHasTemplate = false,
+  emptyStateHasPrevious = false,
 }: {
   document: StudyDocument;
   history: DocumentHistory;
@@ -191,11 +197,17 @@ export function DocumentEditor({
   studyId?: string;
   /** Template study — the blocks dialog's Template tab edits the default. */
   isTemplate?: boolean;
+  /** This section's position — used by the empty-state "from previous" lookup. */
+  sectionPosition?: number;
+  /** Empty-state action availability (pre-computed in the section page). */
+  emptyStateHasTemplate?: boolean;
+  emptyStateHasPrevious?: boolean;
 }) {
   const editor = useEditorContext();
   const [status, setStatus] = useState<SaveStatus>("idle");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyHead, setHistoryHead] = useState(0);
+  const [seeding, setSeeding] = useState(false);
   // The blocks editor shows a non-editable prompt (instead of an editable
   // surface) until it holds a study block or the notes index — so a fresh
   // section never has freeform text. Always false for the Study Body.
@@ -469,6 +481,67 @@ export function DocumentEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Dispatch a study-block fragment (built from server-fetched specs) into the
+  // live blocks editor as one transaction — same pattern as the blocks dialog's
+  // apply-on-save. Used by the empty-state action buttons. Flows through the
+  // standard step pipeline (persisted, broadcast, undoable).
+  async function dispatchBlockSpecs(
+    fetcher: () => Promise<PMDocJSON | null>,
+  ): Promise<void> {
+    const view = viewRef.current;
+    if (!view) {
+      return;
+    }
+    setSeeding(true);
+    try {
+      const sourceDoc = await fetcher();
+      if (!sourceDoc) {
+        return;
+      }
+      const fragment = jsonToDoc(sourceDoc).content;
+      // In the empty state the doc is the lone placeholder paragraph — no
+      // notes_index at top (it would have made hasBlocksStructure true).
+      const tr = view.state.tr.replaceWith(
+        0,
+        view.state.doc.content.size,
+        fragment,
+      );
+      tr.setMeta("allowVerseEdit", true);
+      if (tr.docChanged) {
+        view.dispatch(tr);
+        view.focus();
+      }
+    } catch {
+      toast.error("Couldn't add the blocks.");
+    } finally {
+      setSeeding(false);
+    }
+  }
+
+  async function seedFromTemplate(): Promise<void> {
+    if (!studyId) {
+      return;
+    }
+    await dispatchBlockSpecs(async () => {
+      const doc = await getStudyTemplateBlocksDoc(studyId);
+      const specs = specsFromBlocksDoc(doc);
+      return specs.length > 0 ? blocksDocFromSpecs(specs) : null;
+    });
+  }
+
+  async function seedFromPrevious(): Promise<void> {
+    if (!studyId || sectionPosition == null) {
+      return;
+    }
+    await dispatchBlockSpecs(async () => {
+      const specs = await getPreviousSectionBlockSpecs(
+        studyId,
+        sectionPosition,
+      );
+      return specs.length > 0 ? blocksDocFromSpecs(specs) : null;
+    });
+  }
+
   // Restore by replacing the whole doc with a past version — flows through the
   // normal step pipeline, so it's persisted, broadcast, and itself undoable.
   function applyRestore(targetDoc: PMDocJSON) {
@@ -551,7 +624,40 @@ export function DocumentEditor({
       <div ref={mountRef} className={blocksEmpty ? "hidden" : "min-h-32"} />
       {doc.kind === "blocks" && blocksEmpty ? (
         <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-          No study blocks yet. Use “Edit blocks” above to add them.
+          <p>No study blocks yet.</p>
+          {emptyStateHasTemplate || emptyStateHasPrevious ? (
+            <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+              {emptyStateHasTemplate ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={seeding}
+                  onClick={() => {
+                    void seedFromTemplate();
+                  }}
+                >
+                  Use this study&rsquo;s template
+                </Button>
+              ) : null}
+              {emptyStateHasPrevious ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={seeding}
+                  onClick={() => {
+                    void seedFromPrevious();
+                  }}
+                >
+                  Copy from previous section
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+          <p className="mt-2 text-xs">
+            Or use &ldquo;Edit blocks&rdquo; above to add them manually.
+          </p>
         </div>
       ) : null}
       {historyOpen ? (

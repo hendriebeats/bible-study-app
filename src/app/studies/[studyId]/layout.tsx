@@ -1,13 +1,19 @@
 import { notFound, redirect } from "next/navigation";
 import type { ReactNode } from "react";
 
+import {
+  getPreviousSectionBlockSpecs,
+  getStudyTemplateBlocksDoc,
+} from "@/app/studies/actions";
 import { HeaderActions } from "@/components/header-actions";
 import { StudyChrome } from "@/components/studies/study-chrome";
+import type { AddSectionSources } from "@/components/studies/study-sidebar";
 import { StudyWorkspace } from "@/components/studies/study-workspace";
 import { listCompareTargets } from "@/lib/db/compare";
 import { listGenres } from "@/lib/db/genres";
 import { getStudyGroupContext } from "@/lib/db/groups";
 import { getStudy, listSections, listTrashedSections } from "@/lib/db/studies";
+import { specsFromBlocksDoc } from "@/lib/editor/blocks";
 import {
   getEditorTools,
   getFormatRecents,
@@ -51,6 +57,30 @@ export default async function StudyLayout({
     ? "/admin/templates"
     : "/organizations/templates";
 
+  // What the "Add section" sidebar control will offer. Specs-JSON compare (no
+  // body) lets "structurally same" sources skip the chooser — copies are
+  // functionally identical when chrome matches. Only owners see Add Section.
+  let addSectionSources: AddSectionSources = {
+    hasTemplate: false,
+    hasPrevious: false,
+    sourcesDiffer: false,
+  };
+  if (isOwner) {
+    const lastPosition =
+      sections.length > 0 ? Math.max(...sections.map((s) => s.position)) : -1;
+    const [templateDoc, previousSpecs] = await Promise.all([
+      getStudyTemplateBlocksDoc(studyId),
+      getPreviousSectionBlockSpecs(studyId, lastPosition + 1),
+    ]);
+    const templateSpecs = specsFromBlocksDoc(templateDoc);
+    addSectionSources = {
+      hasTemplate: templateSpecs.length > 0,
+      hasPrevious: previousSpecs.length > 0,
+      sourcesDiffer:
+        JSON.stringify(templateSpecs) !== JSON.stringify(previousSpecs),
+    };
+  }
+
   // Identity for live presence + a labeled remote cursor (read-along).
   const { data: profile } = await supabase
     .from("profiles")
@@ -91,6 +121,7 @@ export default async function StudyLayout({
       genres={genres}
       isTemplate={isTemplate}
       templateBackHref={templateBackHref}
+      addSectionSources={addSectionSources}
       actions={<HeaderActions />}
     >
       <StudyWorkspace

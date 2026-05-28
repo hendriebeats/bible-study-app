@@ -1,14 +1,23 @@
 "use client";
 
-import { MoreVertical, PanelLeft, Plus, Trash2 } from "lucide-react";
+import {
+  ChevronDown,
+  History,
+  MoreVertical,
+  PanelLeft,
+  Pencil,
+  Plus,
+  Trash2,
+} from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useTransition } from "react";
 import { toast } from "sonner";
 
 import {
   createSection,
   deleteSection,
+  type NewSectionSource,
   restoreSection,
   setStudyGenre,
 } from "@/app/studies/actions";
@@ -24,12 +33,25 @@ import {
 import type { Genre, SectionSummary, Study, TrashItem } from "@/lib/db/types";
 import { cn } from "@/lib/utils";
 
+/**
+ * What the "Add section" sidebar control can seed a new section from. Computed
+ * server-side in the study layout (template doc vs. the last existing section's
+ * blocks). When both sources exist AND structurally differ, the trigger becomes
+ * a chooser dropdown; otherwise it stays a plain button (defaults to template).
+ */
+export interface AddSectionSources {
+  hasTemplate: boolean;
+  hasPrevious: boolean;
+  sourcesDiffer: boolean;
+}
+
 export function StudySidebar({
   study,
   sections,
   isOwner,
   trashedSections,
   genres,
+  addSectionSources,
   onCollapse,
 }: {
   study: Study;
@@ -37,10 +59,12 @@ export function StudySidebar({
   isOwner: boolean;
   trashedSections: TrashItem[];
   genres: Genre[];
+  addSectionSources: AddSectionSources;
   /** Collapse the sidebar (the re-open control then floats over the body). */
   onCollapse: () => void;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
   const chrome = useStudyChrome();
   const [pending, startTransition] = useTransition();
 
@@ -124,10 +148,43 @@ export function StudySidebar({
                         <MoreVertical className="size-4" />
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
+                    {/* w-auto + min-w-fit so labels like "Version History"
+                        never wrap — the popover sizes to its longest item. */}
+                    <DropdownMenuContent
+                      align="end"
+                      className="w-auto min-w-fit"
+                    >
+                      <DropdownMenuItem
+                        className="whitespace-nowrap"
+                        onClick={() => {
+                          // Set the pending action FIRST so the mine panel
+                          // sees it on mount (or on the next render if we're
+                          // already on this section and no nav happens).
+                          chrome?.requestSectionAction(section.id, "history");
+                          if (!active) {
+                            router.push(href);
+                          }
+                        }}
+                      >
+                        <History className="size-4" />
+                        Version History
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="whitespace-nowrap"
+                        onClick={() => {
+                          chrome?.requestSectionAction(section.id, "rename");
+                          if (!active) {
+                            router.push(href);
+                          }
+                        }}
+                      >
+                        <Pencil className="size-4" />
+                        Rename
+                      </DropdownMenuItem>
                       <DropdownMenuItem
                         variant="destructive"
                         disabled={pending}
+                        className="whitespace-nowrap"
                         onClick={() => {
                           startTransition(() => {
                             void deleteSection(section.id, study.id);
@@ -147,7 +204,7 @@ export function StudySidebar({
                         }}
                       >
                         <Trash2 className="size-4" />
-                        Move to trash
+                        Delete section
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -160,19 +217,16 @@ export function StudySidebar({
 
       {isOwner ? (
         <div className="grid gap-1 border-t p-2">
-          <Button
-            variant="ghost"
-            className="w-full justify-start"
-            disabled={pending}
-            onClick={() => {
+          <AddSectionTrigger
+            studyId={study.id}
+            sources={addSectionSources}
+            pending={pending}
+            onCreate={(source) => {
               startTransition(() => {
-                void createSection(study.id);
+                void createSection(study.id, source);
               });
             }}
-          >
-            <Plus className="size-4" />
-            Add section
-          </Button>
+          />
           <TrashButton
             kind="section"
             items={trashedSections}
@@ -181,5 +235,80 @@ export function StudySidebar({
         </div>
       ) : null}
     </aside>
+  );
+}
+
+/**
+ * The "Add section" sidebar control. Renders a plain button when there's only
+ * one source (or both sources are structurally the same, or neither exists);
+ * renders a small dropdown ("Add section ▾") only when the study template and
+ * the previous section's blocks actually differ — so the user is only asked
+ * to choose when the choice is meaningful.
+ */
+function AddSectionTrigger({
+  studyId: _studyId,
+  sources,
+  pending,
+  onCreate,
+}: {
+  studyId: string;
+  sources: AddSectionSources;
+  pending: boolean;
+  onCreate: (source: NewSectionSource) => void;
+}) {
+  const showChooser =
+    sources.hasTemplate && sources.hasPrevious && sources.sourcesDiffer;
+  // Defaults when no chooser: template wins when available (today's behavior);
+  // otherwise fall back to "previous" (which also no-ops if neither has blocks).
+  const defaultSource: NewSectionSource = sources.hasTemplate
+    ? "template"
+    : "previous";
+
+  if (!showChooser) {
+    return (
+      <Button
+        variant="ghost"
+        className="w-full justify-start"
+        disabled={pending}
+        onClick={() => {
+          onCreate(defaultSource);
+        }}
+      >
+        <Plus className="size-4" />
+        Add section
+      </Button>
+    );
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          className="w-full justify-start"
+          disabled={pending}
+        >
+          <Plus className="size-4" />
+          Add section
+          <ChevronDown className="ml-auto size-4 text-muted-foreground" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-56">
+        <DropdownMenuItem
+          onClick={() => {
+            onCreate("template");
+          }}
+        >
+          From study template
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={() => {
+            onCreate("previous");
+          }}
+        >
+          Copy from previous section
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

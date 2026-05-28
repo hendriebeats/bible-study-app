@@ -18,6 +18,21 @@ export interface StudyChromeValue {
   sectionTitleOverrides: Record<string, string>;
   /** Publish the current text of a section's title field (session-only). */
   setSectionTitle: (sectionId: string, title: string) => void;
+  /**
+   * Cross-component request for a section-scoped action triggered from the
+   * sidebar's ⋯ menu (Version History, Rename). The sidebar sets this and
+   * navigates to the section; the mine panel reads it on mount/when it
+   * matches the active section and runs the action, then clears it. Survives
+   * the route transition so the action fires once the section is loaded.
+   */
+  pendingSectionAction: {
+    sectionId: string;
+    kind: "rename" | "history";
+  } | null;
+  /** Sidebar: request a section action; will fire when the mine panel mounts. */
+  requestSectionAction: (sectionId: string, kind: "rename" | "history") => void;
+  /** Mine panel: clear after consuming the pending action. */
+  clearPendingSectionAction: () => void;
 }
 
 export const StudyChromeContext = createContext<StudyChromeValue | null>(null);

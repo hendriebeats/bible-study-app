@@ -11,7 +11,7 @@ import {
   type IDockviewPanelProps,
   themeLight,
 } from "dockview";
-import { Check, History, Plus, RotateCcw } from "lucide-react";
+import { Check, Plus, RotateCcw } from "lucide-react";
 import {
   createContext,
   type FunctionComponent,
@@ -38,7 +38,6 @@ import {
   type ActiveSectionPayload,
   useStudyWorkspace,
 } from "@/components/studies/study-workspace-context";
-import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -103,9 +102,12 @@ function MineSectionBody({
     blocksHistory,
     isOwner,
     isTemplate,
+    emptyStateHasTemplate,
+    emptyStateHasPrevious,
   } = payload;
   const [title, setTitle] = useState(section.title);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const titleRef = useRef<HTMLInputElement>(null);
 
   function handleTitleBlur() {
     const next = title.trim() || "Untitled section";
@@ -113,6 +115,37 @@ function MineSectionBody({
       void renameSection(section.id, section.study_id, next);
     }
   }
+
+  // Consume a sidebar-requested action (Version History / Rename) targeting
+  // this section. The sidebar sets the pending request and navigates; this
+  // runs once the section is mounted, then clears it. Also handles the "same
+  // section, no nav" case (the pending state change re-fires this effect).
+  const pendingAction = chrome?.pendingSectionAction;
+  const clearPendingSectionAction = chrome?.clearPendingSectionAction;
+  useEffect(() => {
+    if (pendingAction?.sectionId !== section.id) {
+      return;
+    }
+    const kind = pendingAction.kind;
+    // Defer the state changes out of the effect body — both to satisfy the
+    // "no setState inside effect" rule and (for rename) to fire past the
+    // dropdown's focus-restore on close, so the input keeps focus.
+    const handle = requestAnimationFrame(() => {
+      if (kind === "history") {
+        setHistoryOpen(true);
+      } else {
+        const input = titleRef.current;
+        if (input) {
+          input.focus();
+          input.select();
+        }
+      }
+      clearPendingSectionAction?.();
+    });
+    return () => {
+      cancelAnimationFrame(handle);
+    };
+  }, [pendingAction, section.id, clearPendingSectionAction]);
 
   // When the sidebar is collapsed, the chrome floats a re-open button over the
   // body's top-left — pad this (leftmost) panel so the title clears it.
@@ -128,6 +161,7 @@ function MineSectionBody({
       >
         {isOwner ? (
           <Input
+            ref={titleRef}
             value={title}
             onChange={(event) => {
               setTitle(event.target.value);
@@ -144,22 +178,6 @@ function MineSectionBody({
             {section.title}
           </span>
         )}
-
-        {isOwner ? (
-          <div className="flex justify-end">
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                setHistoryOpen(true);
-              }}
-            >
-              <History className="size-4" />
-              History
-            </Button>
-          </div>
-        ) : null}
 
         {isOwner && notesHistory ? (
           <DocumentEditor
@@ -193,6 +211,9 @@ function MineSectionBody({
             placeholder="Work through your study here…"
             studyId={section.study_id}
             isTemplate={isTemplate}
+            sectionPosition={section.position}
+            emptyStateHasTemplate={emptyStateHasTemplate}
+            emptyStateHasPrevious={emptyStateHasPrevious}
           />
         ) : (
           <DocumentViewer

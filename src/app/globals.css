@@ -153,6 +153,26 @@
   html {
     @apply font-sans;
   }
+  /*
+    Default the cursor for everything clickable. Lives in @layer base so any
+    Tailwind cursor utility (cursor-grab on drag handles, cursor-not-allowed
+    on disabled inputs, cursor-text on contenteditable) wins automatically —
+    Tailwind's utilities layer beats base. The :not() guards are wrapped in
+    :where() to zero their specificity contribution, so a same-layer class
+    rule like `.block-handle { cursor: grab }` still wins. Anchors aren't
+    listed: browsers default `<a href>` to pointer already.
+  */
+  button:where(:not(:disabled)),
+  summary,
+  [role="button"]:where(:not([aria-disabled="true"])),
+  [role="menuitem"]:where(:not([aria-disabled="true"])),
+  [role="menuitemcheckbox"]:where(:not([aria-disabled="true"])),
+  [role="menuitemradio"]:where(:not([aria-disabled="true"])),
+  [role="option"]:where(:not([aria-disabled="true"])),
+  [role="tab"]:where(:not([aria-disabled="true"])),
+  [role="switch"]:where(:not([aria-disabled="true"])) {
+    cursor: pointer;
+  }
 }
 
 /*
