@@ -6,8 +6,9 @@ import {
   type TagParseRule,
 } from "prosemirror-model";
 import { schema as basicSchema } from "prosemirror-schema-basic";
-import { addListNodes } from "prosemirror-schema-list";
 import { tableNodes } from "prosemirror-tables";
+
+import { normalizeTone } from "./block-tones";
 
 /**
  * The single ProseMirror schema for every study document.
@@ -37,13 +38,12 @@ import { tableNodes } from "prosemirror-tables";
  */
 
 // `schema-basic` covers paragraphs, headings, blockquote, code/code_block,
-// horizontal_rule, hard_break, image, and the strong/em/code/link marks.
-// Add the list nodes and a strikethrough mark to match the old feature set.
-const baseNodeSpecs = addListNodes(
-  basicSchema.spec.nodes,
-  "paragraph block*",
-  "block",
-);
+// horizontal_rule, hard_break, image, and the strong/em/code/link marks. The
+// flat-schema rewrite (Phase 5) replaced the old `bullet_list` / `ordered_list`
+// / `task_list` wrapper nodes with a single attr-discriminated `list_row`
+// (see below), so we no longer pull in `prosemirror-schema-list`'s list nodes
+// at all — basic's spec is the starting point as-is.
+const baseNodeSpecs = basicSchema.spec.nodes;
 
 /**
  * Attributes carried by a {@link verseNumberSpec} node. `n` is the printed
@@ -179,6 +179,19 @@ const scriptureSpec: NodeSpec = {
  * `lineageId` is the cross-study slot; `templateId` records the genre template
  * it came from. Legacy blocks stored `label`/`prompt`; parseDOM falls back to
  * those so older documents still resolve a title/placeholder.
+ *
+ * `variant` discriminates the visual shape:
+ *   * `"standard"` (default) — the full titled card with an editable body.
+ *   * `"action"` — a reminder bar with header + subheader centered, no
+ *     visible body. Used for "do this, don't write anything" steps like
+ *     opening prayer. The body still exists structurally (`block+` content
+ *     is unchanged, so existing docs and the structure guard keep working)
+ *     but the NodeView + CSS hide it.
+ *
+ * `tone` picks the background tone of an action-variant bar (a small
+ * theme-aware palette defined in `block-tones.ts` + globals.css). Ignored
+ * for standard blocks today; the attr lives on every study_block so a future
+ * pass can tint standard cards too without a schema migration.
  */
 const studyBlockSpec: NodeSpec = {
   group: "block",
@@ -191,6 +204,8 @@ const studyBlockSpec: NodeSpec = {
     placeholder: { default: "" },
     lineageId: { default: null },
     templateId: { default: null },
+    variant: { default: "standard" },
+    tone: { default: "default" },
   },
   parseDOM: [
     {
@@ -198,6 +213,7 @@ const studyBlockSpec: NodeSpec = {
       contentElement: ".study-block-body",
       getAttrs(dom) {
         if (typeof dom === "string") return null;
+        const variant = dom.getAttribute("data-variant");
         return {
           title:
             dom.getAttribute("data-title") ??
@@ -210,6 +226,8 @@ const studyBlockSpec: NodeSpec = {
             "",
           lineageId: dom.getAttribute("data-lineage-id"),
           templateId: dom.getAttribute("data-template-id"),
+          variant: variant === "action" ? "action" : "standard",
+          tone: normalizeTone(dom.getAttribute("data-tone")),
         };
       },
     },
@@ -221,7 +239,11 @@ const studyBlockSpec: NodeSpec = {
       placeholder: string;
       lineageId: string | null;
       templateId: string | null;
+      variant: string;
+      tone: string;
     };
+    const variant = attrs.variant === "action" ? "action" : "standard";
+    const tone = normalizeTone(attrs.tone);
     return [
       "section",
       {
@@ -229,13 +251,17 @@ const studyBlockSpec: NodeSpec = {
         "data-title": attrs.title,
         "data-subtitle": attrs.subtitle,
         "data-placeholder": attrs.placeholder,
+        "data-variant": variant,
+        "data-tone": tone,
         ...(attrs.lineageId === null
           ? {}
           : { "data-lineage-id": attrs.lineageId }),
         ...(attrs.templateId === null
           ? {}
           : { "data-template-id": attrs.templateId }),
-        class: "study-block study-stack-item",
+        class:
+          `study-block study-block--${variant}` +
+          ` study-block--tone-${tone} study-stack-item`,
       },
       [
         "div",
@@ -248,18 +274,16 @@ const studyBlockSpec: NodeSpec = {
 };
 
 /**
- * Block indentation. Top-level textblocks (paragraphs + headings) carry an
- * `indent` level (0…{@link MAX_INDENT}) rendered as a left margin, adjusted by
- * Tab / Shift-Tab. `default: 0` keeps every previously-saved document and step
- * valid (they simply deserialize at indent 0).
+ * Block indentation. Every indentable textblock (paragraph, heading,
+ * `list_row`, code_block) and every indentable wrapper (blockquote, callout,
+ * collapsible) carries an `indent` level (0…{@link MAX_INDENT}) rendered as a
+ * left margin and adjusted by Tab / Shift-Tab. `default: 0` keeps every
+ * previously-saved document and step valid (they simply deserialize at
+ * indent 0).
  *
- * `list_item` and `task_item` also carry an `indent` attribute used as a
- * fallback when ProseMirror's structural `sinkListItem` can't apply (most
- * commonly: the first item of a list, which has no preceding sibling to nest
- * under). The hybrid `indentSelected` command in `commands.ts` always tries
- * structural sinking first and only writes the attribute when that fails, so
- * naturally-nested lists keep producing real nested `list_item` children;
- * the attribute only carries weight at the structural edges.
+ * The flat-schema rewrite (Phase 2) made indent a pure attribute edit; the
+ * old "sink/lift list_item then attr-fallback" hybrid is gone — there are no
+ * structural list nodes left to sink/lift.
  */
 export const MAX_INDENT = 15;
 const INDENT_STEP_REM = 1.75;
@@ -372,88 +396,6 @@ const codeBlockSpec: NodeSpec = {
   ],
   toDOM(node) {
     return ["pre", indentDOMAttrs(node.attrs.indent as number), ["code", 0]];
-  },
-};
-
-/**
- * `list_item` override. The base spec from `prosemirror-schema-list` doesn't
- * carry an indent attribute; we add one so the hybrid Tab handler can offset
- * the *first* item of a list (or any item where `sinkListItem` refuses to
- * apply) without splitting the list. Content + `defining` mirror what
- * `addListNodes(...)` produced.
- *
- * **Phase 1b status:** `list_item`/`task_item`/`bullet_list`/`ordered_list`/
- * `task_list` are kept registered and live so the existing plugin set keeps
- * working until Phase 2 swaps in `list_row`-aware commands. They are also
- * what `addListNodes(...)` named in the doc content rule
- * (`paragraph block*`); leaving them in place keeps that valid for any
- * residual cached step JSON that escapes the step-log truncate.
- */
-const listItemSpec: NodeSpec = {
-  content: "paragraph block*",
-  defining: true,
-  attrs: { indent: { default: 0 } },
-  parseDOM: [
-    {
-      tag: "li",
-      getAttrs(dom) {
-        if (typeof dom === "string") return null;
-        // Task items use their own `li[data-task-item]` rule above with a
-        // higher specificity; this generic `li` rule still matches them, so
-        // skip those to avoid double-parsing.
-        if (dom.hasAttribute("data-task-item")) return false;
-        return { indent: clampIndent(numAttr(dom, "data-indent") ?? 0) };
-      },
-    },
-  ],
-  toDOM(node) {
-    return ["li", indentDOMAttrs(node.attrs.indent as number), 0];
-  },
-};
-
-/**
- * Task list + task item (checklists). Mirrors the bullet/ordered list shape so
- * the list commands (wrap / split / sink / lift) work, plus a `checked` boolean
- * on each item toggled by its NodeView's checkbox.
- */
-const taskListSpec: NodeSpec = {
-  group: "block",
-  content: "task_item+",
-  parseDOM: [{ tag: "ul[data-task-list]" }],
-  toDOM() {
-    return ["ul", { "data-task-list": "true", class: "task-list" }, 0];
-  },
-};
-
-const taskItemSpec: NodeSpec = {
-  content: "paragraph block*",
-  defining: true,
-  attrs: { checked: { default: false }, indent: { default: 0 } },
-  parseDOM: [
-    {
-      tag: "li[data-task-item]",
-      getAttrs(dom) {
-        if (typeof dom === "string") return null;
-        return {
-          checked: dom.getAttribute("data-checked") === "true",
-          indent: clampIndent(numAttr(dom, "data-indent") ?? 0),
-        };
-      },
-    },
-  ],
-  toDOM(node) {
-    const indent = clampIndent(node.attrs.indent as number);
-    const extra = indentDOMAttrs(indent);
-    return [
-      "li",
-      {
-        "data-task-item": "true",
-        "data-checked": String(node.attrs.checked === true),
-        class: "task-item",
-        ...extra,
-      },
-      0,
-    ];
   },
 };
 
@@ -719,12 +661,9 @@ const nodeSpecs = baseNodeSpecs
   .update("heading", headingSpec)
   .update("blockquote", blockquoteSpec)
   .update("code_block", codeBlockSpec)
-  .update("list_item", listItemSpec)
   .addToEnd("verse_number", verseNumberSpec)
   .addToEnd("scripture", scriptureSpec)
   .addToEnd("study_block", studyBlockSpec)
-  .addToEnd("task_list", taskListSpec)
-  .addToEnd("task_item", taskItemSpec)
   .addToEnd("list_row", listRowSpec)
   .addToEnd("callout", calloutSpec)
   .addToEnd("collapsible", collapsibleSpec)
@@ -873,14 +812,9 @@ export const nodes = {
   codeBlock: requireNode("code_block"),
   horizontalRule: requireNode("horizontal_rule"),
   hardBreak: requireNode("hard_break"),
-  bulletList: requireNode("bullet_list"),
-  orderedList: requireNode("ordered_list"),
-  listItem: requireNode("list_item"),
   verseNumber: requireNode("verse_number"),
   scripture: requireNode("scripture"),
   studyBlock: requireNode("study_block"),
-  taskList: requireNode("task_list"),
-  taskItem: requireNode("task_item"),
   listRow: requireNode("list_row"),
   callout: requireNode("callout"),
   collapsible: requireNode("collapsible"),

@@ -30,7 +30,8 @@ export function buildNodeViews(
       new StudyBlockView(node, view, getPos, editable),
     list_row: (node, view, getPos) =>
       new ListRowView(node, view, getPos, editable),
-    callout: (node) => new CalloutView(node),
+    callout: (node, view, getPos) =>
+      new CalloutView(node, view, getPos, editable),
     collapsible: (node, view, getPos) =>
       new CollapsibleView(node, view, getPos, editable),
     notes_index: () => new NotesIndexView(),

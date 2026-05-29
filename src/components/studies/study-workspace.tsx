@@ -10,6 +10,7 @@ import {
 } from "react";
 
 import { BlockMenu } from "@/components/studies/block-menu";
+import { CalloutColorPopover } from "@/components/studies/callout-color-popover";
 import {
   EditorProvider,
   useEditorContext,
@@ -268,6 +269,7 @@ function WorkspaceInner({
       {isOwner ? <SelectionBubble /> : null}
       {isOwner ? <SlashMenu /> : null}
       {isOwner ? <BlockMenu /> : null}
+      {isOwner ? <CalloutColorPopover /> : null}
       {isOwner ? <NotePopover /> : null}
 
       <StudyDock

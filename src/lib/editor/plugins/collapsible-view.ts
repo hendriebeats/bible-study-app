@@ -6,7 +6,28 @@ import type {
   ViewMutationRecord,
 } from "prosemirror-view";
 
-import { nodes } from "../schema";
+import { MAX_INDENT, nodes } from "../schema";
+
+/** Indent step in rem — kept in lockstep with `INDENT_STEP_REM` in schema.ts. */
+const INDENT_STEP_REM = 1.75;
+
+/** Clamp an arbitrary indent attr to a sane integer in `[0, MAX_INDENT]`. */
+function readIndent(node: Node): number {
+  const raw: unknown = node.attrs.indent;
+  if (typeof raw !== "number" || !Number.isFinite(raw)) return 0;
+  return Math.min(MAX_INDENT, Math.max(0, Math.trunc(raw)));
+}
+
+/** Apply / clear the indent's left-margin on the collapsible wrapper. */
+function applyIndent(dom: HTMLElement, indent: number): void {
+  if (indent > 0) {
+    dom.style.marginInlineStart = `${String(indent * INDENT_STEP_REM)}rem`;
+    dom.setAttribute("data-indent", String(indent));
+  } else {
+    dom.style.marginInlineStart = "";
+    dom.removeAttribute("data-indent");
+  }
+}
 
 /**
  * Renders a `collapsible` as a Notion-style toggle: a chevron marker in a
@@ -61,6 +82,9 @@ export class CollapsibleView implements NodeView {
     wrapper.setAttribute("data-collapsible", "true");
     wrapper.setAttribute("data-open", String(open));
     wrapper.setAttribute("data-empty-body", String(emptyBody));
+    // Honor the `indent` attr so Tab / drag-to-child shifts the toggle's
+    // whole box, consistent with how paragraphs and list_rows handle indent.
+    applyIndent(wrapper, readIndent(node));
 
     const toggle = document.createElement("button");
     toggle.type = "button";
@@ -81,7 +105,12 @@ export class CollapsibleView implements NodeView {
     });
 
     const content = document.createElement("div");
-    content.className = "collapsible-content";
+    // `pm-block-host` marks this as a draggable-block container so
+    // `block-drag.ts`'s `hostRect` sizes the drop indicator to the collapsible
+    // body. The visual gutter is supplied by the grid's chevron column (1.25rem)
+    // + column-gap (0.25rem); see the `.collapsible-content.pm-block-host`
+    // override in globals.css that zeros the generic --block-gutter padding.
+    content.className = "collapsible-content pm-block-host";
 
     // Notion-style empty-body affordance: a clickable hint rendered AFTER the
     // contentDOM. Click inserts a fresh paragraph at the end of the toggle's
@@ -190,6 +219,7 @@ export class CollapsibleView implements NodeView {
     this.dom.setAttribute("data-empty-body", String(node.childCount <= 1));
     this.toggle.textContent = open ? "▾" : "▸";
     this.toggle.setAttribute("aria-expanded", String(open));
+    applyIndent(this.dom, readIndent(node));
     return true;
   }
 

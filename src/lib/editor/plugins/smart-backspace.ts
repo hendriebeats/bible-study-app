@@ -2,6 +2,7 @@ import { lift } from "prosemirror-commands";
 import { type Command, TextSelection } from "prosemirror-state";
 
 import { nodes } from "../schema";
+import { FIRST_CHILD_IS_CHROME } from "../wrapper-chrome";
 
 /**
  * Progressive Backspace for empty textblocks: each keystroke peels off one
@@ -98,11 +99,18 @@ export const smartBackspace: Command = (state, dispatch) => {
 
     if ($from.index(d) !== 0) break;
 
-    if (
-      ancestor.type === nodes.blockquote ||
-      ancestor.type === nodes.callout ||
-      ancestor.type === nodes.collapsible
-    ) {
+    // Chrome wrappers (collapsible, callout) — handoff to
+    // `collapsibleBackspace` next in the chain, which dissolves the WHOLE
+    // wrapper in one step (replaces it with its content). A lift here
+    // would only split the wrapper's chrome out, leaving the body behind
+    // as a now-detached sibling toggle below the cursor — which the user
+    // perceives as "a new toggle appeared beneath".
+    if (FIRST_CHILD_IS_CHROME.has(ancestor.type)) break;
+
+    // Blockquote is the only remaining "dissolve via lift" wrapper —
+    // collapsible/callout were handed off above to `collapsibleBackspace`
+    // for full dissolve. Lift splits the blockquote (header up, rest stays).
+    if (ancestor.type === nodes.blockquote) {
       return lift(state, dispatch);
     }
   }

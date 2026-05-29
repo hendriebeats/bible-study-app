@@ -10,6 +10,13 @@ export const NOTE_OPEN_EVENT = "pm-open-note";
 
 export interface NoteOpenEventDetail {
   id: string;
+  /**
+   * Screen rect of whatever surfaced the open request — the caret after
+   * `createNote()` (so the popover can park itself near the new note) or the
+   * clicked inline icon. Optional: when absent, the popover falls back to its
+   * top-right anchor.
+   */
+  anchorRect?: { left: number; top: number; right: number; bottom: number };
 }
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -53,8 +60,21 @@ function buildIcon(id: string): HTMLElement {
   button.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
+    // Anchor the popover to the icon the user just clicked so it opens near
+    // their pointer (rather than always at the top-right of the screen).
+    const r = button.getBoundingClientRect();
     window.dispatchEvent(
-      new CustomEvent<NoteOpenEventDetail>(NOTE_OPEN_EVENT, { detail: { id } }),
+      new CustomEvent<NoteOpenEventDetail>(NOTE_OPEN_EVENT, {
+        detail: {
+          id,
+          anchorRect: {
+            left: r.left,
+            top: r.top,
+            right: r.right,
+            bottom: r.bottom,
+          },
+        },
+      }),
     );
   });
   return button;

@@ -1,20 +1,16 @@
 import { setBlockType } from "prosemirror-commands";
 import {
   ChevronRight,
-  CircleCheck,
   Heading1,
   Heading2,
   Heading3,
-  Heart,
-  Info,
-  Lightbulb,
   List,
   ListChecks,
   ListOrdered,
   type LucideIcon,
+  Megaphone,
   Quote,
   Table,
-  TriangleAlert,
   Type,
 } from "lucide-react";
 import type { Command } from "prosemirror-state";
@@ -128,50 +124,17 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
     command: toggleBlockquote,
     turnInto: true,
   },
-  // Callouts — opt-in (gate "callouts"); insert-only (not turn-into).
+  // Callout — single entry that inserts a default-color callout. The user
+  // re-colors after the fact via the inline tone chip on the wrapper (no
+  // more variant naming — variants are just colors). Matches the toolbar
+  // button which also became a single click in round 6.
   {
-    id: "callout-note",
-    label: "Callout: Note",
-    keywords: ["callout", "note", "info", "aside"],
-    group: "Callouts",
-    icon: Info,
+    id: "callout",
+    label: "Callout",
+    keywords: ["callout", "note", "info", "aside", "highlight"],
+    group: "Blocks",
+    icon: Megaphone,
     command: insertCallout("note"),
-    tool: "callouts",
-  },
-  {
-    id: "callout-insight",
-    label: "Callout: Key insight",
-    keywords: ["callout", "insight", "key", "idea"],
-    group: "Callouts",
-    icon: Lightbulb,
-    command: insertCallout("insight"),
-    tool: "callouts",
-  },
-  {
-    id: "callout-warning",
-    label: "Callout: Warning",
-    keywords: ["callout", "warning", "caution", "danger"],
-    group: "Callouts",
-    icon: TriangleAlert,
-    command: insertCallout("warning"),
-    tool: "callouts",
-  },
-  {
-    id: "callout-prayer",
-    label: "Callout: Prayer",
-    keywords: ["callout", "prayer", "pray"],
-    group: "Callouts",
-    icon: Heart,
-    command: insertCallout("prayer"),
-    tool: "callouts",
-  },
-  {
-    id: "callout-application",
-    label: "Callout: Application",
-    keywords: ["callout", "application", "apply", "action"],
-    group: "Callouts",
-    icon: CircleCheck,
-    command: insertCallout("application"),
     tool: "callouts",
   },
   {

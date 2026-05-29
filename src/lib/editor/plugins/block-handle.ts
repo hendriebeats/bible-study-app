@@ -2,8 +2,13 @@ import type { Node, NodeType, ResolvedPos } from "prosemirror-model";
 import { type EditorState, Plugin, TextSelection } from "prosemirror-state";
 import type { EditorView } from "prosemirror-view";
 
-import { applyIndentRunDrop, indentRunBounds } from "../indent-run";
+import {
+  applyIndentRunDrop,
+  type DropInstruction,
+  indentRunBounds,
+} from "../indent-run";
 import { MAX_INDENT, nodes } from "../schema";
+import { isChromeChild } from "../wrapper-chrome";
 import {
   endBlockDrag,
   startBlockDrag,
@@ -22,27 +27,52 @@ export interface BlockMenuEventDetail {
  * Node types whose CHILDREN are independently draggable — the handle appears
  * next to each child, and pointer-reorder shuffles them within the container.
  *
- * Wrappers like `blockquote` / `callout` / `collapsible` are intentionally
- * NOT in this list: those are atomic drag units (the wrapper itself moves as
- * a whole; its children don't get their own handles), matching the Phase 4
- * sign-off ("wrapper moves as one atomic block").
+ * `collapsible` and `callout` are both included so each block inside the
+ * wrapper has its own handle and drops land naturally inside the body. The
+ * wrapper itself stays drag-targetable: the column-ownership rule in
+ * {@link rowUnderCursor} gives the OUTER column (left of the contentDOM,
+ * around the chevron / variant header) to the wrapper, and the INNER column
+ * (inside the body's gutter) to the inner block. Matches the Notion / Craft
+ * pattern for nested gutters.
  *
- * `note_entry` is also intentionally absent so the handle next to a paragraph
+ * For collapsibles only, {@link draggableCandidatesAt} skips the FIRST child
+ * — it's the toggle's header (its "name"), part of the chrome, not a body
+ * block. Callouts have no equivalent first-child chrome: their variant
+ * header is rendered by the NodeView OUTSIDE `contentDOM`, so every
+ * `callout` child is body.
+ *
+ * `blockquote` stays atomic — no inner handles.
+ *
+ * `note_entry` is intentionally absent so the handle next to a paragraph
  * *inside* a note attaches to the WHOLE note (reordering notes within the
- * notes_index) rather than to that paragraph — which matches what users
- * actually grab a notes handle for. Editing within a single note's body is a
- * rare case that the keyboard's Mod-Shift-↑/↓ still covers.
+ * notes_index) rather than to that paragraph.
  */
 const DRAG_CONTAINER_TYPES: ReadonlySet<NodeType> = new Set<NodeType>([
   nodes.doc,
   nodes.studyBlock,
   nodes.notesIndex,
+  nodes.collapsible,
+  nodes.callout,
 ]);
 
 /** Pixels the pointer must travel before a press becomes a drag (vs. a click). */
 const DRAG_THRESHOLD = 4;
 /** Indent step in pixels — matches schema.ts `INDENT_STEP_REM = 1.75` at 16px root font. */
 const INDENT_STEP_PX = 28;
+/**
+ * Pixel width of a draggable block's "left gutter column" — the band
+ * immediately to the LEFT of the row's content where the drag handle sits.
+ * When the cursor is in this column, the handle attaches to this row; when
+ * the cursor is right of `rect.right`, no column claim applies and the
+ * outermost candidate wins (cursor is past the block's content area).
+ */
+const GUTTER_WIDTH = INDENT_STEP_PX;
+
+/** Read the indent attr off a node, defaulting to 0 if absent or invalid. */
+function readBlockIndent(node: Node): number {
+  const raw: unknown = node.attrs.indent;
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : 0;
+}
 
 /**
  * Walk `$pos` outward looking for the deepest block whose PARENT is one of the
@@ -60,14 +90,66 @@ const INDENT_STEP_PX = 28;
  * cursor inside a `table_cell` (table is the atomic unit; cells don't get
  * individual handles).
  */
-function draggableAt(
+/**
+ * Collect EVERY draggable ancestor at `$pos` — from deepest to shallowest.
+ * Used by the column-ownership rule when nested draggable containers (e.g.
+ * a collapsible inside the doc) put multiple candidates under the same
+ * cursor Y. Returns an empty array when no ancestor up to the doc is a
+ * drag container.
+ *
+ * Special-case: the FIRST child of a `collapsible` is the toggle's header
+ * (its "name") — visually it sits next to the chevron and is conceptually
+ * part of the collapsible's chrome, not a draggable body block. Skipping it
+ * means the hover handle attaches to the collapsible itself when the cursor
+ * is over the header row, leaving the chevron clickable. Body children
+ * (index ≥ 1) keep their individual handles.
+ */
+function draggableCandidatesAt(
   $pos: ResolvedPos,
-): { node: Node; pos: number; depth: number } | null {
+): { node: Node; pos: number; depth: number }[] {
+  const out: { node: Node; pos: number; depth: number }[] = [];
   for (let d = $pos.depth; d > 0; d--) {
     const parent = $pos.node(d - 1);
     if (DRAG_CONTAINER_TYPES.has(parent.type)) {
-      return { node: $pos.node(d), pos: $pos.before(d), depth: d };
+      // Skip the wrapper's chrome child (collapsible header, callout title).
+      // The cursor over the chrome falls through to the wrapper itself, so
+      // hovering it surfaces the OUTER wrapper handle, not a separate inner
+      // handle that would render over the chevron / chip and block clicks.
+      if (isChromeChild(parent, $pos.index(d - 1))) continue;
+      out.push({ node: $pos.node(d), pos: $pos.before(d), depth: d });
     }
+  }
+  return out;
+}
+
+/**
+ * For a block at position `blockPos`, find the immediate NEXT sibling that
+ * isn't inside the captured source range. Walks `parent.children` forward
+ * from `blockPos`'s index + 1, skipping anything in `[sourceStart, sourceEnd)`.
+ *
+ * Used by the "single snap per gap" rule in {@link computeDropInstruction}:
+ * when the cursor's lower half over row R has a next non-source sibling N,
+ * we emit `reorder-above N` instead of `reorder-below R`. Structurally
+ * identical insertion, but the indicator anchors to N.top throughout the
+ * gap rather than jumping from R.bottom mid-seam.
+ */
+function nextNonSourceSibling(
+  state: EditorState,
+  blockPos: number,
+  sourceStart: number,
+  sourceEnd: number,
+): { node: Node; pos: number } | null {
+  const $pos = state.doc.resolve(blockPos);
+  const parent = $pos.parent;
+  const startIndex = $pos.index();
+  let walk = blockPos + parent.child(startIndex).nodeSize;
+  for (let i = startIndex + 1; i < parent.childCount; i++) {
+    const child = parent.child(i);
+    const childStart = walk;
+    const childEnd = walk + child.nodeSize;
+    walk = childEnd;
+    if (childStart >= sourceStart && childEnd <= sourceEnd) continue;
+    return { node: child, pos: childStart };
   }
   return null;
 }
@@ -92,21 +174,6 @@ function aboveNeighborIndent(
   const $pos = state.doc.resolve(dropPos);
   const parent = $pos.parent;
   const indexInParent = $pos.index();
-  let scanStart = $pos.start();
-  for (let i = 0; i < indexInParent; i++) {
-    const child = parent.child(i);
-    const childStart = scanStart;
-    const childEnd = scanStart + child.nodeSize;
-    scanStart = childEnd;
-    // Skip neighbors that fall inside the source range — they're going to
-    // disappear from this position when the drop applies.
-    if (childStart >= sourceStart && childEnd <= sourceEnd) continue;
-    // The most-recent valid above neighbor wins; keep scanning so we report
-    // the IMMEDIATE non-source neighbor (loop assignment overwrites until
-    // we exhaust pre-drop siblings).
-  }
-  // Re-scan to find the LAST non-source sibling before dropPos (the loop
-  // above just verifies the column exists; we now grab its indent).
   let lastValidIndent = -1;
   let walk = $pos.start();
   for (let i = 0; i < indexInParent; i++) {
@@ -115,62 +182,383 @@ function aboveNeighborIndent(
     const childEnd = walk + child.nodeSize;
     walk = childEnd;
     if (childStart >= sourceStart && childEnd <= sourceEnd) continue;
-    const indent =
-      typeof child.attrs.indent === "number" ? child.attrs.indent : 0;
-    lastValidIndent = indent;
+    // Skip the wrapper's chrome child (collapsible header, callout title)
+    // so a drop at the first body position (e.g. index 1 of a collapsible)
+    // doesn't inherit the chrome's indent as its above-neighbor — keeping
+    // first-body drops hard-clamped to indent 0.
+    if (isChromeChild(parent, i)) continue;
+    lastValidIndent = readBlockIndent(child);
   }
   return lastValidIndent;
 }
 
+interface RowHit {
+  node: Node;
+  pos: number;
+  depth: number;
+  rect: DOMRect;
+  /** Y at which this row's vertical ownership begins (midpoint of gap above). */
+  claimTop: number;
+  /** Y at which this row's vertical ownership ends (midpoint of gap below). */
+  claimBottom: number;
+}
+
 /**
- * Compute the drop target (pos + indent) for a pointermove during a block
- * drag. Returns null when the pointer isn't over a valid gap (off-editor, or
- * over the dragged run itself).
- *
- *   * Vertical: find the deepest draggable block under the pointer Y, then
- *     decide above/below based on the cursor's position relative to that
- *     block's vertical midpoint.
- *   * Horizontal: snap `cursorX - editorContentLeft` to the nearest indent
- *     step (28px = 1.75rem at the default root font), clamped to
- *     `[0, aboveNeighborIndent + 1]`.
+ * For a draggable block at `blockPos` in a known container, look up the
+ * bounding-rect bottom of its immediate previous sibling and the top of its
+ * immediate next sibling (same container). Returns null for missing siblings
+ * (document boundary, or sibling DOM not laid out yet).
  */
-function computeDropTarget(
+function siblingEdges(
+  view: EditorView,
+  blockPos: number,
+): { prevBottom: number | null; nextTop: number | null } {
+  const $pos = view.state.doc.resolve(blockPos);
+  const parent = $pos.parent;
+  const index = $pos.index();
+  let prevBottom: number | null = null;
+  let nextTop: number | null = null;
+  if (index > 0) {
+    const prev = parent.child(index - 1);
+    const prevPos = blockPos - prev.nodeSize;
+    const prevDom = view.nodeDOM(prevPos);
+    if (prevDom instanceof HTMLElement) {
+      prevBottom = prevDom.getBoundingClientRect().bottom;
+    }
+  }
+  if (index < parent.childCount - 1) {
+    const here = parent.child(index);
+    const nextPos = blockPos + here.nodeSize;
+    const nextDom = view.nodeDOM(nextPos);
+    if (nextDom instanceof HTMLElement) {
+      nextTop = nextDom.getBoundingClientRect().top;
+    }
+  }
+  return { prevBottom, nextTop };
+}
+
+/**
+ * Locate the draggable block whose vertical claim zone contains the pointer Y.
+ *
+ * The naive `posAtCoords({left: event.clientX, top: event.clientY})` call
+ * loses the correct row whenever the cursor sits left of an indented row's
+ * content box, or in the margin-block gap between two rows. We dodge both
+ * with two compounding techniques:
+ *
+ *   1. **Multi-X probe.** Try several X values (right-side first, since
+ *      rows extend to the editor's right edge regardless of indent), so
+ *      indented rows resolve even when the cursor is far left.
+ *   2. **Asymmetric claim-zone Y acceptance.**
+ *      * Non-source rows: claim extends through the gaps with their
+ *        neighbors (from midpoint of gap-above to midpoint of gap-below).
+ *      * Source rows (the run being dragged): claim is the rect only.
+ *      The asymmetry exists so the gap between the source row and a
+ *      non-source neighbor belongs unambiguously to the non-source row.
+ *      If we widened the source's claim too, both adjacent rows would
+ *      compete for the seam Y and a probe that resolved to the source
+ *      would return reparent-at-rootIndent → no-op → indicator vanishes
+ *      for the 1-px seam → "dead pixel between nodes" UX bug.
+ *
+ * If no candidate's claim contains Y, we fall back to picking the row
+ * whose edge is *closest* to the cursor Y. This catches the rare case
+ * where the cursor is genuinely outside any block's claim (well above
+ * the first row, well below the last) but still inside the editor.
+ */
+/**
+ * Build a {@link RowHit} for a single draggable block, computing its Y
+ * claim-zone (asymmetric — source rows claim only their rect; non-source
+ * widen through gaps with neighbors).
+ */
+function buildRowHit(
+  view: EditorView,
+  draggable: { node: Node; pos: number; depth: number },
+  sourceStart: number,
+  sourceEnd: number,
+): RowHit | null {
+  const dom = view.nodeDOM(draggable.pos);
+  if (!(dom instanceof HTMLElement)) return null;
+  const rect = dom.getBoundingClientRect();
+  const blockEnd = draggable.pos + draggable.node.nodeSize;
+  const isSource = draggable.pos >= sourceStart && blockEnd <= sourceEnd;
+  let claimTop: number;
+  let claimBottom: number;
+  if (isSource) {
+    claimTop = rect.top;
+    claimBottom = rect.bottom;
+  } else {
+    const { prevBottom, nextTop } = siblingEdges(view, draggable.pos);
+    claimTop = prevBottom !== null ? (prevBottom + rect.top) / 2 : -Infinity;
+    claimBottom = nextTop !== null ? (rect.bottom + nextTop) / 2 : Infinity;
+  }
+  return { ...draggable, rect, claimTop, claimBottom };
+}
+
+function rowUnderCursor(
+  view: EditorView,
+  event: { clientX: number; clientY: number },
+  sourceStart: number,
+  sourceEnd: number,
+): RowHit | null {
+  const editorRect = view.dom.getBoundingClientRect();
+  const probes = [
+    editorRect.right - 4,
+    editorRect.right - 24,
+    editorRect.left + editorRect.width * 0.66,
+    editorRect.left + editorRect.width * 0.33,
+    Math.min(
+      Math.max(event.clientX, editorRect.left + 5),
+      editorRect.right - 5,
+    ),
+  ];
+  const candidates: RowHit[] = [];
+  const seen = new Set<number>();
+  for (const lookupX of probes) {
+    if (lookupX < editorRect.left || lookupX > editorRect.right) continue;
+    let found = view.posAtCoords({ left: lookupX, top: event.clientY });
+    // posAtCoords returns null when Y lands in the whitespace between two
+    // block elements (the browser can't seat a caret there). Sweep Y in
+    // small steps until we land on one side of the gap; we still evaluate
+    // the resulting row's claim zone against the ORIGINAL Y so claim
+    // semantics stay honest.
+    if (!found) {
+      for (let dy = 1; dy <= 16 && !found; dy++) {
+        found =
+          view.posAtCoords({ left: lookupX, top: event.clientY - dy }) ??
+          view.posAtCoords({ left: lookupX, top: event.clientY + dy });
+      }
+    }
+    if (!found) continue;
+    let $pos = view.state.doc.resolve(found.pos);
+    let chain = draggableCandidatesAt($pos);
+    // posAtCoords can return a position right BETWEEN two doc children when
+    // the cursor sits in the vertical gap separating them. That position
+    // resolves at depth 0 (doc level) and the chain is empty. Step forward
+    // one position so we land inside the block AFTER the gap; if that
+    // fails, step backward into the block before.
+    if (chain.length === 0 && found.pos < view.state.doc.content.size) {
+      $pos = view.state.doc.resolve(found.pos + 1);
+      chain = draggableCandidatesAt($pos);
+    }
+    if (chain.length === 0 && found.pos > 0) {
+      $pos = view.state.doc.resolve(found.pos - 1);
+      chain = draggableCandidatesAt($pos);
+    }
+    for (const cand of chain) {
+      if (seen.has(cand.pos)) continue;
+      seen.add(cand.pos);
+      const hit = buildRowHit(view, cand, sourceStart, sourceEnd);
+      if (hit) candidates.push(hit);
+    }
+  }
+  if (candidates.length === 0) return null;
+
+  // Among candidates whose Y claim contains the cursor, apply column
+  // ownership: each draggable owns the horizontal column
+  // `[rect.left - GUTTER_WIDTH, rect.right]`. Prefer the DEEPEST candidate
+  // (innermost nesting) whose column contains cursor X. Non-source rows
+  // always beat source rows at the same depth so a drag-source seam still
+  // hands the indicator off to the non-source neighbor.
+  const inClaimY = candidates.filter(
+    (c) => event.clientY >= c.claimTop && event.clientY <= c.claimBottom,
+  );
+  if (inClaimY.length > 0) {
+    const pickFromY = pickByColumn(
+      inClaimY,
+      event.clientX,
+      sourceStart,
+      sourceEnd,
+    );
+    if (pickFromY) return pickFromY;
+  }
+
+  // No candidate's Y claim contained the cursor — fall back to closest by
+  // vertical-edge distance (cursor above first row, below last, or in a
+  // gap none widened into). Still prefer non-source on ties.
+  return pickByYDistance(candidates, event.clientY, sourceStart, sourceEnd);
+}
+
+function isSourceHit(
+  hit: RowHit,
+  sourceStart: number,
+  sourceEnd: number,
+): boolean {
+  return hit.pos >= sourceStart && hit.pos + hit.node.nodeSize <= sourceEnd;
+}
+
+/**
+ * Among a set of Y-matching candidates, pick the one whose horizontal
+ * column claims cursor X. Walk DEEPEST-first so a nested inner block beats
+ * its outer container (Notion-style: cursor in inner gutter selects inner).
+ * Non-source candidates beat source ones at any depth.
+ */
+function pickByColumn(
+  candidates: RowHit[],
+  clientX: number,
+  sourceStart: number,
+  sourceEnd: number,
+): RowHit | null {
+  const byDepthDesc = [...candidates].sort((a, b) => b.depth - a.depth);
+  const claimsX = (c: RowHit): boolean =>
+    clientX >= c.rect.left - GUTTER_WIDTH && clientX <= c.rect.right;
+  // First pass: deepest non-source whose column claims X.
+  for (const c of byDepthDesc) {
+    if (isSourceHit(c, sourceStart, sourceEnd)) continue;
+    if (claimsX(c)) return c;
+  }
+  // Second pass: deepest source whose column claims X.
+  for (const c of byDepthDesc) {
+    if (!isSourceHit(c, sourceStart, sourceEnd)) continue;
+    if (claimsX(c)) return c;
+  }
+  // No column match — fall back to the SHALLOWEST non-source candidate
+  // (outermost container), or shallowest source if none.
+  const byDepthAsc = [...candidates].sort((a, b) => a.depth - b.depth);
+  for (const c of byDepthAsc) {
+    if (!isSourceHit(c, sourceStart, sourceEnd)) return c;
+  }
+  return byDepthAsc[0] ?? null;
+}
+
+function pickByYDistance(
+  candidates: RowHit[],
+  clientY: number,
+  sourceStart: number,
+  sourceEnd: number,
+): RowHit | null {
+  let best: RowHit | null = null;
+  let bestDist = Infinity;
+  let bestIsSource = true;
+  for (const c of candidates) {
+    const d = Math.min(
+      Math.abs(clientY - c.rect.top),
+      Math.abs(clientY - c.rect.bottom),
+    );
+    const cIsSource = isSourceHit(c, sourceStart, sourceEnd);
+    const better =
+      d < bestDist || (d === bestDist && bestIsSource && !cIsSource);
+    if (better) {
+      bestDist = d;
+      best = c;
+      bestIsSource = cIsSource;
+    }
+  }
+  return best;
+}
+
+/**
+ * Translate cursor geometry into a {@link DropInstruction} describing the
+ * gesture the user is making. Returns null when the pointer isn't over a
+ * valid target (off-editor, over an empty area not covered by any block).
+ *
+ * Gestures (matching plans/i-want-paragraph-buzzing-quilt.md):
+ *
+ *   * Over a row that's NOT part of the captured run:
+ *     - Upper half of the row → `reorder-above` at the cursor's indent column.
+ *     - Lower half AND cursor X is at the row's indent or shallower →
+ *       `reorder-below` at the cursor's indent column.
+ *     - Lower half AND cursor X is one indent step (or more) past the row's
+ *       own indent → `make-child` (the row becomes the run's new parent).
+ *   * Over a row that IS in the captured run → `reparent` at the cursor's
+ *     indent column. This is the "drag C onto its own slot, but at B's
+ *     indent" gesture that the old `(pos, indent)` model couldn't express.
+ *
+ * Cursor X → indent column math: `round((cursorX - contentLeft) / step)`,
+ * then clamped to `[0, aboveNeighbor.indent + 1]` so the resulting indent
+ * is always a structurally legal sibling depth.
+ */
+export function computeDropInstruction(
   view: EditorView,
   event: PointerEvent,
   sourceStart: number,
   sourceEnd: number,
-): { pos: number; indent: number } | null {
-  const editorRect = view.dom.getBoundingClientRect();
-  // Clamp x into the editor so cursor positions left of the content still
-  // resolve to a block at the pointer's y.
-  const lookupX = Math.max(event.clientX, editorRect.left + 5);
-  const found = view.posAtCoords({ left: lookupX, top: event.clientY });
-  if (!found) return null;
-  const $pos = view.state.doc.resolve(found.pos);
-  const draggable = draggableAt($pos);
-  if (!draggable) return null;
-  const blockDom = view.nodeDOM(draggable.pos);
-  if (!(blockDom instanceof HTMLElement)) return null;
-  const rect = blockDom.getBoundingClientRect();
-  const dropAbove = event.clientY < rect.top + rect.height / 2;
-  const dropPos = dropAbove
-    ? draggable.pos
-    : draggable.pos + draggable.node.nodeSize;
-  // Refuse to drop inside the source range (would be a no-op or self-insert).
-  if (dropPos > sourceStart && dropPos < sourceEnd) return null;
-  const above = aboveNeighborIndent(
+  rootIndent: number,
+): DropInstruction | null {
+  const row = rowUnderCursor(view, event, sourceStart, sourceEnd);
+  if (!row) return null;
+
+  const blockStart = row.pos;
+  const blockEnd = row.pos + row.node.nodeSize;
+  const blockIndent = readBlockIndent(row.node);
+
+  // Container-relative indent: the row's rect.left already reflects its own
+  // indent within its container (`container.contentLeft + row.indent * step`).
+  // Subtract `blockIndent * step` to recover the container's content-left, so
+  // cursor X is measured RELATIVE TO the immediate container the drop will
+  // land in. For top-level rows this collapses to `editorRect.left`; for
+  // rows inside a collapsible / study_block it correctly anchors indent 0 to
+  // the container's own content edge (rather than the editor's outer edge).
+  // Without this, a drop inside a toggle inherits an extra indent step from
+  // the wrapper's chevron offset.
+  const containerLeft = row.rect.left - blockIndent * INDENT_STEP_PX;
+  const rawIndent = Math.round(
+    (event.clientX - containerLeft) / INDENT_STEP_PX,
+  );
+
+  const isSourceRow = blockStart >= sourceStart && blockEnd <= sourceEnd;
+
+  if (isSourceRow) {
+    // The cursor is over the run itself — the only legal gesture is to
+    // change the run's indent in place. We clamp against the above-neighbor
+    // of the source so the resulting indent is still a valid sibling depth.
+    const above = aboveNeighborIndent(
+      view.state,
+      sourceStart,
+      sourceStart,
+      sourceEnd,
+    );
+    const maxIndent = Math.min(MAX_INDENT, above + 1);
+    const indent = Math.min(maxIndent, Math.max(0, rawIndent));
+    if (indent === rootIndent) return null;
+    return { kind: "reparent", indent };
+  }
+
+  // Use the claim-zone midpoint (which collapses into the rect midpoint when
+  // there are no gaps) so Y values in a margin gap above the row read as
+  // "upper half" — i.e. dropAbove — rather than flipping at the rect's top.
+  const claimTop = Number.isFinite(row.claimTop) ? row.claimTop : row.rect.top;
+  const claimBottom = Number.isFinite(row.claimBottom)
+    ? row.claimBottom
+    : row.rect.bottom;
+  const dropAbove = event.clientY < (claimTop + claimBottom) / 2;
+
+  if (dropAbove) {
+    const above = aboveNeighborIndent(
+      view.state,
+      blockStart,
+      sourceStart,
+      sourceEnd,
+    );
+    const maxIndent = Math.min(MAX_INDENT, above + 1);
+    const indent = Math.min(maxIndent, Math.max(0, rawIndent));
+    return { kind: "reorder-above", siblingPos: blockStart, indent };
+  }
+
+  // Lower half — `row` is the above-neighbor of the insertion point.
+  const maxIndent = Math.min(MAX_INDENT, blockIndent + 1);
+  const indent = Math.min(maxIndent, Math.max(0, rawIndent));
+  if (indent > blockIndent) {
+    // The user pushed past the row's own indent column — that's the
+    // "make me your child" gesture. Different instruction so the indicator
+    // can render it distinctly even though the structural outcome equals
+    // reorder-below at blockIndent+1.
+    return { kind: "make-child", parentPos: blockStart };
+  }
+  // Single snap per gap: when a next non-source sibling exists, redirect to
+  // `reorder-above N` instead of `reorder-below R`. Structurally equivalent
+  // insertion, but the indicator anchors to N.top across the entire gap
+  // (R.midpoint .. N.midpoint) — collapses the "two snap zones in one gap"
+  // jank into one continuous snap. `reorder-below R` is now reserved for
+  // the case where R has no non-source row after it (end of container).
+  const next = nextNonSourceSibling(
     view.state,
-    dropPos,
+    blockStart,
     sourceStart,
     sourceEnd,
   );
-  const maxIndent = Math.min(MAX_INDENT, above + 1);
-  // Use the editor's content-left edge as indent 0. The handle gutter sits to
-  // the LEFT of that; cursor in the gutter clamps to 0.
-  const contentLeft = editorRect.left + 8; // small padding allowance
-  const rawIndent = Math.round((event.clientX - contentLeft) / INDENT_STEP_PX);
-  const indent = Math.min(maxIndent, Math.max(0, rawIndent));
-  return { pos: dropPos, indent };
+  if (next) {
+    return { kind: "reorder-above", siblingPos: next.pos, indent };
+  }
+  return { kind: "reorder-below", siblingPos: blockStart, indent };
 }
 
 /**
@@ -232,26 +620,38 @@ function attachIndentRunDrag(
       startBlockDrag(view, runStart, runEnd, rootIndent);
     }
     event.preventDefault();
-    const target = computeDropTarget(view, event, runStart, runEnd);
-    updateBlockDragTarget(view, target);
+    const instruction = computeDropInstruction(
+      view,
+      event,
+      runStart,
+      runEnd,
+      rootIndent,
+    );
+    updateBlockDragTarget(view, instruction);
   }
 
   function onPointerUp(event: PointerEvent): void {
     const wasDragging = dragging;
     const sourceStart = runStart;
     const sourceEnd = runEnd;
+    const sourceRootIndent = rootIndent;
     teardown();
     if (wasDragging) {
       suppressNextClick();
-      const target = computeDropTarget(view, event, sourceStart, sourceEnd);
+      const instruction = computeDropInstruction(
+        view,
+        event,
+        sourceStart,
+        sourceEnd,
+        sourceRootIndent,
+      );
       endBlockDrag(view);
-      if (target) {
+      if (instruction) {
         const tr = applyIndentRunDrop(
           view.state,
           sourceStart,
           sourceEnd,
-          target.pos,
-          target.indent,
+          instruction,
         );
         if (tr) view.dispatch(tr.scrollIntoView());
       }
@@ -309,22 +709,26 @@ function attachIndentRunDrag(
     if (target < 0 || target >= parent.childCount) return;
     event.preventDefault();
     event.stopPropagation();
-    // Resolve the position of the target sibling so we can call the same
-    // applyIndentRunDrop helper.
+    // Resolve the position of the target sibling and emit a reorder
+    // instruction against it. Indent stays at run.rootIndent.
     let walk = $pos.start();
     for (let i = 0; i < parent.childCount; i++) {
       if (i === target) break;
       walk += parent.child(i).nodeSize;
     }
-    const dropPos =
-      target < index ? walk : walk + parent.child(target).nodeSize;
-    const tr = applyIndentRunDrop(
-      view.state,
-      run.start,
-      run.end,
-      dropPos,
-      run.rootIndent,
-    );
+    const instruction: DropInstruction =
+      target < index
+        ? {
+            kind: "reorder-above",
+            siblingPos: walk,
+            indent: run.rootIndent,
+          }
+        : {
+            kind: "reorder-below",
+            siblingPos: walk,
+            indent: run.rootIndent,
+          };
+    const tr = applyIndentRunDrop(view.state, run.start, run.end, instruction);
     if (tr) view.dispatch(tr.scrollIntoView());
   }
 
@@ -374,7 +778,6 @@ export function blockHandle(): Plugin {
       handle.style.display = "none";
 
       let currentPos: number | null = null;
-      let currentDom: HTMLElement | null = null;
 
       // Hide on a short delay, not instantly: the handle sits in the negative-
       // left gutter OUTSIDE the wrapper, so moving the pointer off the text and
@@ -395,7 +798,6 @@ export function blockHandle(): Plugin {
         }
         handle.style.display = "none";
         currentPos = null;
-        currentDom = null;
       };
       const scheduleHide = () => {
         if (document.body.classList.contains("reorder-active")) {
@@ -403,6 +805,32 @@ export function blockHandle(): Plugin {
         }
         cancelHide();
         hideTimer = setTimeout(hideNow, 300);
+      };
+
+      // Place the handle next to a known row. Shared by `onMouseMove` (every
+      // pointer movement) and the plugin's `update` hook (every transaction)
+      // so the handle scoots horizontally the instant a Tab updates the row's
+      // indent — without waiting for the next mousemove.
+      //
+      // X math is rect-based, not indent-based: handle sits 24 px (the
+      // existing `-1.5rem` CSS offset) to the LEFT of the row's actual left
+      // edge. This unifies three cases that the old indent-based formula
+      // got wrong for nested content:
+      //   - Top-level un-indented rows: `rect.left == wrapper.left` → handle
+      //     at -24 (matches the previous CSS default).
+      //   - Top-level indented rows: `rect.left == wrapper.left + indent *
+      //     step` → handle at `indent * step - 24` (matches the previous
+      //     indent-based scoot).
+      //   - Rows inside a `study_block`: `rect.left == study_block.left +
+      //     padding + indent * step` → handle sits in the STUDY-BLOCK's own
+      //     gutter, not at the editor's outer edge.
+      const positionHandle = (dom: HTMLElement): void => {
+        if (!wrapper) return;
+        const wrapRect = wrapper.getBoundingClientRect();
+        const blockRect = dom.getBoundingClientRect();
+        handle.style.display = "flex";
+        handle.style.top = `${String(blockRect.top - wrapRect.top)}px`;
+        handle.style.left = `${String(blockRect.left - wrapRect.left - 24)}px`;
       };
 
       const onMouseMove = (event: MouseEvent) => {
@@ -418,32 +846,20 @@ export function blockHandle(): Plugin {
         }
         // Pointer is back inside the editor — keep the handle alive.
         cancelHide();
-        const wrapRect = wrapper.getBoundingClientRect();
-        // Clamp x into the editor so events from the gutter sensor (which sits
-        // to the LEFT of the editor content) still resolve to the block at the
-        // pointer's y rather than returning null.
-        const lookupX = Math.max(event.clientX, wrapRect.left + 1);
-        const found = view.posAtCoords({
-          left: lookupX,
-          top: event.clientY,
-        });
-        if (!found) {
+        // Reuse the drag-side row resolver so hover gets the same multi-X
+        // probe, claim-zone Y acceptance, pos±1 step at container boundaries,
+        // and Y-sweep through whitespace. Pass an empty source range so every
+        // candidate is treated as non-source (no asymmetric claim shrinking).
+        const row = rowUnderCursor(view, event, -1, -1);
+        if (!row) {
           return;
         }
-        const $pos = view.state.doc.resolve(found.pos);
-        const draggable = draggableAt($pos);
-        if (!draggable) {
-          return;
-        }
-        const dom = view.nodeDOM(draggable.pos);
+        const dom = view.nodeDOM(row.pos);
         if (!(dom instanceof HTMLElement)) {
           return;
         }
-        currentPos = draggable.pos;
-        currentDom = dom;
-        const blockRect = dom.getBoundingClientRect();
-        handle.style.display = "flex";
-        handle.style.top = `${String(blockRect.top - wrapRect.top)}px`;
+        currentPos = row.pos;
+        positionHandle(dom);
       };
 
       // Invisible sensor strip in the negative-left gutter where the handle
@@ -464,16 +880,14 @@ export function blockHandle(): Plugin {
       // Hierarchical drag — Phase 4c. Press-and-hold on the handle captures
       // the indent run rooted at the hovered block (the block plus every
       // immediately-following sibling at strictly greater indent), tracks a
-      // drop indicator whose vertical position lands at the nearest block gap
-      // and whose horizontal indent snaps to the cursor's distance from the
-      // editor's content-left, and on release calls `applyIndentRunDrop` so
-      // the whole run lands at the chosen indent with relative depths
-      // preserved.
+      // drop indicator whose position+orientation encode the chosen gesture
+      // (reorder-above/below, make-child, reparent), and on release calls
+      // `applyIndentRunDrop` with that instruction.
       const detachReorder = attachIndentRunDrag(handle, view, () => {
         if (currentPos === null) return null;
-        // Refuse to drag the pinned notes_index (it must always be the doc's
-        // first child of a body editor). Same rule the old reorder enforced.
-        if (currentDom?.matches("[data-notes-index]")) return null;
+        // notes_index used to be drag-locked (it was pinned to position 0);
+        // now it's a normal top-level block, draggable like any study_block.
+        // Deletion stays blocked by `notesIndexGuard`.
         return currentPos;
       });
 
@@ -506,6 +920,23 @@ export function blockHandle(): Plugin {
       wrapper?.appendChild(handle);
 
       return {
+        update(view, prevState) {
+          // Re-position the handle whenever the doc changes so a Tab on the
+          // hovered row updates the handle's X immediately, instead of
+          // waiting for the next mousemove. We trust currentPos to still
+          // resolve to a draggable block — Tab is `setNodeMarkup` which
+          // preserves positions; other edits that shift positions will be
+          // self-corrected on the next mousemove.
+          if (currentPos === null) return;
+          if (view.state.doc === prevState.doc) return;
+          if (document.body.classList.contains("reorder-active")) return;
+          const $pos = view.state.doc.resolve(currentPos);
+          const node = $pos.parent.maybeChild($pos.index());
+          if (!node) return;
+          const dom = view.nodeDOM(currentPos);
+          if (!(dom instanceof HTMLElement)) return;
+          positionHandle(dom);
+        },
         destroy() {
           cancelHide();
           detachReorder();

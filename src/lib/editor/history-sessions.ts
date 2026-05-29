@@ -6,8 +6,11 @@
  * moment list; no schema or query changes.
  */
 
-/** A gap longer than this between consecutive moments starts a new session. */
-export const SESSION_GAP_MS = 4 * 60 * 1000;
+/** A gap longer than this between consecutive moments starts a new session.
+ * 20 minutes — long enough that a coffee break or scripture-lookup pause
+ * stays inside one session, short enough that distinct sittings (lunch
+ * break, end-of-day return) cleanly separate into their own rows. */
+export const SESSION_GAP_MS = 20 * 60 * 1000;
 
 export interface HistoryMoment {
   /** ISO timestamp of this save-batch. */

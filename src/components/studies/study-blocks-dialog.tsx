@@ -27,16 +27,46 @@ import {
   blockDraftsFromDoc,
   blockSpecFromDraft,
   blocksDocFromSpecs,
+  type DialogItem,
+  dialogItemsFromDoc,
+  dialogItemsToDocContent,
 } from "@/lib/editor/blocks";
-import { nodes } from "@/lib/editor/schema";
 import { docToJSON, jsonToDoc } from "@/lib/editor/serialize";
 import { cn } from "@/lib/utils";
 
 type Tab = "section" | "template";
 
+/** Adapter: present a BlockDraft[] (template tab — no notes) as DialogItem[]
+ * for the unified BlockListEditor signature. */
+function draftsToItems(drafts: BlockDraft[]): DialogItem[] {
+  return drafts.map((draft) => ({ kind: "study", key: draft.key, draft }));
+}
+
+/** Reverse adapter: collapse a DialogItem[] back to drafts (template tab —
+ * silently drops any notes item, which the template tab never produces). */
+function itemsToDrafts(items: DialogItem[]): BlockDraft[] {
+  const out: BlockDraft[] = [];
+  for (const item of items) {
+    if (item.kind === "study") out.push(item.draft);
+  }
+  return out;
+}
+
 /** A draft list's persisted shape, for change detection (ignores the row keys). */
-function specsJson(drafts: BlockDraft[]): string {
+function draftsJson(drafts: BlockDraft[]): string {
   return JSON.stringify(drafts.map(blockSpecFromDraft));
+}
+
+/** Items list serialized for dirty-check (keys excluded; kind + per-kind
+ * payload included). Stable shape — equality is the only consumer. */
+function itemsJson(items: DialogItem[]): string {
+  return JSON.stringify(
+    items.map((item) =>
+      item.kind === "study"
+        ? { kind: "study", spec: blockSpecFromDraft(item.draft) }
+        : { kind: "notes", content: item.content ?? [] },
+    ),
+  );
 }
 
 /**
@@ -65,7 +95,7 @@ export function StudyBlocksDialog({
 
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<Tab>("section");
-  const [sectionDrafts, setSectionDraftsState] = useState<BlockDraft[]>([]);
+  const [sectionItems, setSectionItemsState] = useState<DialogItem[]>([]);
   const [templateDrafts, setTemplateDraftsState] = useState<BlockDraft[]>([]);
   const [templateLoading, setTemplateLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -73,8 +103,10 @@ export function StudyBlocksDialog({
 
   // Refs mirror the draft state so Save (and the dirty check) can read the
   // latest synchronously after flushing a focused body editor (whose change
-  // commits on blur).
-  const sectionRef = useRef<BlockDraft[]>([]);
+  // commits on blur). Section state is the discriminated DialogItem[] so the
+  // notes_index round-trips as a reorderable card; template state stays plain
+  // BlockDraft[] since templates never carry a notes_index.
+  const sectionRef = useRef<DialogItem[]>([]);
   const templateRef = useRef<BlockDraft[]>([]);
   const sectionBaseline = useRef("");
   const templateBaseline = useRef("");
@@ -82,25 +114,26 @@ export function StudyBlocksDialog({
   // this for one close cycle — the user has already chosen to discard.
   const bypassDirtyCheck = useRef(false);
 
-  function setSectionDrafts(next: BlockDraft[]) {
+  function setSectionItems(next: DialogItem[]) {
     sectionRef.current = next;
-    setSectionDraftsState(next);
+    setSectionItemsState(next);
   }
   function setTemplateDrafts(next: BlockDraft[]) {
     templateRef.current = next;
     setTemplateDraftsState(next);
   }
 
-  // On open: snapshot the section's blocks from the live editor, and fetch the
-  // study's template. Re-runs only on open (editor read via the ref).
+  // On open: snapshot the section's blocks from the live editor (as items, so
+  // the notes_index becomes a draggable card — synthesized at the end when the
+  // section has no notes yet), and fetch the study's template (no notes there).
   useEffect(() => {
     if (!open) {
       return;
     }
     const view = editorRef.current?.getBlocksView() ?? null;
-    const drafts = view ? blockDraftsFromDoc(docToJSON(view.state.doc)) : [];
-    setSectionDrafts(drafts);
-    sectionBaseline.current = specsJson(drafts);
+    const items = view ? dialogItemsFromDoc(docToJSON(view.state.doc)) : [];
+    setSectionItems(items);
+    sectionBaseline.current = itemsJson(items);
     setTab("section");
 
     setTemplateLoading(true);
@@ -112,7 +145,7 @@ export function StudyBlocksDialog({
         }
         const td = blockDraftsFromDoc(doc);
         setTemplateDrafts(td);
-        templateBaseline.current = specsJson(td);
+        templateBaseline.current = draftsJson(td);
       })
       .catch(() => {
         if (!cancelled) {
@@ -134,35 +167,30 @@ export function StudyBlocksDialog({
   function isDirty() {
     (document.activeElement as HTMLElement | null)?.blur();
     return (
-      specsJson(sectionRef.current) !== sectionBaseline.current ||
-      specsJson(templateRef.current) !== templateBaseline.current
+      itemsJson(sectionRef.current) !== sectionBaseline.current ||
+      draftsJson(templateRef.current) !== templateBaseline.current
     );
   }
 
-  /** Apply the section drafts to the live blocks editor as one transaction. */
-  function applySectionDrafts(drafts: BlockDraft[]) {
+  /** Apply the section items to the live blocks editor as one transaction.
+   * Rebuilds the entire top-level content from the items list so a reordered
+   * notes card lands where the user dropped it; the notes_index's note_entry
+   * children are preserved verbatim via the item's `content` payload. */
+  function applySectionItems(items: DialogItem[]) {
     const view = editorRef.current?.getBlocksView();
     if (!view) {
       return;
     }
-    const { doc } = view.state;
-    const firstChild = doc.firstChild;
-    const hasNotesIndex = firstChild?.type === nodes.notesIndex;
-    // Keep the pinned notes index (the first child when present) untouched.
-    const from =
-      firstChild?.type === nodes.notesIndex ? firstChild.nodeSize : 0;
-    const to = doc.content.size;
-    const specs = drafts.map(blockSpecFromDraft);
     const tr = view.state.tr;
-    if (specs.length > 0) {
-      // The study_block nodes (blocksDocFromSpecs wraps them in a doc).
-      tr.replaceWith(from, to, jsonToDoc(blocksDocFromSpecs(specs)).content);
-    } else if (hasNotesIndex) {
-      // No blocks left, but keep the pinned notes index (a valid lone block).
-      tr.delete(from, to);
-    } else {
-      // Empty: fall back to the lone placeholder paragraph (shows empty state).
-      tr.replaceWith(0, doc.content.size, nodes.paragraph.create());
+    const content =
+      items.length > 0
+        ? jsonToDoc({
+            type: "doc",
+            content: dialogItemsToDocContent(items),
+          }).content
+        : null;
+    if (content) {
+      tr.replaceWith(0, view.state.doc.content.size, content);
     }
     tr.setMeta("allowVerseEdit", true);
     if (tr.docChanged) {
@@ -178,9 +206,9 @@ export function StudyBlocksDialog({
     await Promise.resolve();
 
     const sectionChanged =
-      specsJson(sectionRef.current) !== sectionBaseline.current;
+      itemsJson(sectionRef.current) !== sectionBaseline.current;
     const templateChanged =
-      specsJson(templateRef.current) !== templateBaseline.current;
+      draftsJson(templateRef.current) !== templateBaseline.current;
     if (!sectionChanged && !templateChanged) {
       bypassDirtyCheck.current = true;
       setOpen(false);
@@ -190,7 +218,7 @@ export function StudyBlocksDialog({
     setSaving(true);
     try {
       if (sectionChanged) {
-        applySectionDrafts(sectionRef.current);
+        applySectionItems(sectionRef.current);
       }
       if (templateChanged) {
         const doc = blocksDocFromSpecs(
@@ -291,18 +319,20 @@ export function StudyBlocksDialog({
 
         <div className="min-h-0 flex-1 overflow-y-auto">
           {tab === "section" ? (
-            <BlockListEditor
-              blocks={sectionDrafts}
-              onChange={setSectionDrafts}
-            />
+            <BlockListEditor items={sectionItems} onChange={setSectionItems} />
           ) : templateLoading ? (
             <p className="px-4 py-6 text-center text-sm text-muted-foreground">
               Loading template…
             </p>
           ) : (
+            // Template tab has no notes_index — adapt the BlockDraft[] state
+            // to the unified items API and strip any unexpected notes item on
+            // change (the picker can only add study items, so this is defensive).
             <BlockListEditor
-              blocks={templateDrafts}
-              onChange={setTemplateDrafts}
+              items={draftsToItems(templateDrafts)}
+              onChange={(next) => {
+                setTemplateDrafts(itemsToDrafts(next));
+              }}
             />
           )}
         </div>

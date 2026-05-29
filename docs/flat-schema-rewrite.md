@@ -102,7 +102,13 @@ migration leaks into the runtime codebase.
    horizontal-depth indicator. Drop = set `indent` + reorder position.
    Playwright drag matrix.
 6. **Phase 5.** Remove the deprecated wrapper node types from schema. Final
-   cleanup.
+   cleanup. **(Shipped 2026-05-28.)** `bullet_list` / `ordered_list` /
+   `task_list` / `list_item` / `task_item` removed from the schema; the
+   `addListNodes(...)` call dropped; `prosemirror-schema-list` uninstalled;
+   `nodes.bulletList` / `.orderedList` / `.listItem` / `.taskList` /
+   `.taskItem` resolved exports removed. Dead `.task-list` / `.task-item`
+   / `.task-checkbox` CSS plus the mixed-list-seam margin-collapse rules
+   removed.
 
 Each phase is independently mergeable + verifiable. The baseline Playwright
 suite in `e2e/editor/` guards each cutover.

@@ -34,7 +34,10 @@ import {
   type FormatRecents,
   pushRecent,
 } from "@/lib/editor/format-actions";
-import { NOTE_OPEN_EVENT } from "@/lib/editor/plugins/note-anchors";
+import {
+  NOTE_OPEN_EVENT,
+  type NoteOpenEventDetail,
+} from "@/lib/editor/plugins/note-anchors";
 import { marks, nodes, type VerseNumberAttrs } from "@/lib/editor/schema";
 import { sectionUndo } from "@/lib/editor/section-undo";
 import { scriptureParagraphsToNodes } from "@/lib/editor/scripture-insert";
@@ -115,6 +118,18 @@ interface EditorContextValue {
   registerView: (view: EditorView, role: EditorRole) => void;
   unregisterView: (view: EditorView) => void;
   setActive: (view: EditorView, state: EditorState) => void;
+  /**
+   * Drop the toolbar's "active KIND" pointer (only) without unregistering
+   * anything or nulling the view/state. Called from non-editor focus targets
+   * inside a dialog (a block card's title textarea, the per-card ⋮ menu, …)
+   * so the dialog toolbar disables itself while the user is on a surface
+   * that doesn't accept formatting. Critically, `activeView` and
+   * `activeState` stay set — the studies-page skeleton ([[studies-loading-
+   * skeleton]]) gates on those, and nulling them would flip the page back
+   * to its cold-load skeleton mid-edit. The next editor `focus`/dispatch
+   * re-asserts the kind via {@link setActive}. Idempotent.
+   */
+  clearActive: () => void;
   runCommand: (command: Command) => void;
   /**
    * Anchor a shared note on the active editor's selection: marks the selected
@@ -150,6 +165,28 @@ interface EditorContextValue {
   formatRecents: FormatAction[];
   /** Run a formatting action on the active editor AND bump it to the front of recents. */
   runFormatAction: (action: FormatAction) => void;
+  /**
+   * Scripture-insert panel open state, hoisted out of the toolbar so other
+   * surfaces — the empty-owner Study Body overlay, future deep links — can
+   * open the same panel without owning a duplicate copy.
+   */
+  scriptureOpen: boolean;
+  setScriptureOpen: (next: boolean | ((prev: boolean) => boolean)) => void;
+  /**
+   * Register a probe that returns true when the study-blocks doc is detached
+   * into its own dockview tab AND that tab is the active (visible) panel in
+   * its group. Read by {@link isDockBlocksVisible}; surfaces from
+   * `StudyDockview` so this provider doesn't depend on dockview internals.
+   * Pass `null` to unregister.
+   */
+  setDockBlocksVisibilityProbe: (probe: (() => boolean) | null) => void;
+  /**
+   * True when the study-blocks doc is detached AND the visible tab in its
+   * group. `createNote` and the note-icon-click handler (in `NotePopover`)
+   * use it to decide whether to focus the entry inline or pop the floating
+   * note editor.
+   */
+  isDockBlocksVisible: () => boolean;
 }
 
 const EditorContext = createContext<EditorContextValue | null>(null);
@@ -182,10 +219,15 @@ export function EditorProvider({
   const [activeView, setActiveView] = useState<EditorView | null>(null);
   const [activeState, setActiveState] = useState<EditorState | null>(null);
   const [activeKind, setActiveKind] = useState<EditorRole | null>(null);
+  const [scriptureOpen, setScriptureOpenState] = useState(false);
   const activeViewRef = useRef<EditorView | null>(null);
   const notesViewRef = useRef<EditorView | null>(null);
   const blocksViewRef = useRef<EditorView | null>(null);
   const viewsRef = useRef<Set<EditorView>>(new Set());
+  // Set by `StudyDockview` once its dockview API is ready; null otherwise (e.g.
+  // dialog-only editor surfaces). `createNote` reads through this ref every
+  // call so it always sees the freshest blocks-tab visibility.
+  const dockBlocksVisibilityProbeRef = useRef<(() => boolean) | null>(null);
   // Per-view role — lets `setActive` derive the active kind without callers
   // having to pass it on every focus/edit.
   const viewKindRef = useRef<Map<EditorView, EditorRole>>(new Map());
@@ -262,6 +304,15 @@ export function EditorProvider({
     [adoptActive],
   );
 
+  const clearActive = useCallback(() => {
+    // Only the KIND is cleared. The dialog toolbar's disabled formula is
+    // `scope === "dialog" && activeKind !== "dialog"`, so nulling the kind
+    // alone disables it. View + state stay set so the studies-page skeleton
+    // (which gates on activeView/activeState being non-null) doesn't flip
+    // back to its cold-load state when the user clicks a header/subtitle.
+    setActiveKind((prev) => (prev === null ? prev : null));
+  }, []);
+
   const runCommand = useCallback((command: Command) => {
     const view = activeViewRef.current;
     if (!view) {
@@ -320,10 +371,52 @@ export function EditorProvider({
     tr.setMeta("allowVerseEdit", true);
     blocksView.dispatch(tr);
 
-    // Open the note's popover to edit it (it focuses its own mini-editor).
-    window.dispatchEvent(new CustomEvent(NOTE_OPEN_EVENT, { detail: { id } }));
+    // Always dispatch the open event with the source caret's screen rect. The
+    // popover's handler decides what to do with it — when the blocks doc is
+    // detached AND visible, it focuses the new entry inline instead of opening
+    // the popup (same branch the inline note-icon click goes through). Routing
+    // both paths through one event keeps the "where does my note land" rule
+    // in one place.
+    let anchorRect: NoteOpenEventDetail["anchorRect"];
+    try {
+      const r = view.coordsAtPos(view.state.selection.to);
+      anchorRect = {
+        left: r.left,
+        top: r.top,
+        right: r.right,
+        bottom: r.bottom,
+      };
+    } catch {
+      anchorRect = undefined;
+    }
+    window.dispatchEvent(
+      new CustomEvent<NoteOpenEventDetail>(NOTE_OPEN_EVENT, {
+        detail: { id, anchorRect },
+      }),
+    );
     return { ok: true, id };
   }, []);
+
+  const setScriptureOpen = useCallback(
+    (next: boolean | ((prev: boolean) => boolean)) => {
+      setScriptureOpenState((prev) =>
+        typeof next === "function" ? next(prev) : next,
+      );
+    },
+    [],
+  );
+
+  const setDockBlocksVisibilityProbe = useCallback(
+    (probe: (() => boolean) | null) => {
+      dockBlocksVisibilityProbeRef.current = probe;
+    },
+    [],
+  );
+
+  const isDockBlocksVisible = useCallback(
+    () => dockBlocksVisibilityProbeRef.current?.() ?? false,
+    [],
+  );
 
   const getBlocksView = useCallback(() => blocksViewRef.current, []);
 
@@ -471,6 +564,7 @@ export function EditorProvider({
       registerView,
       unregisterView,
       setActive,
+      clearActive,
       runCommand,
       createNote,
       getBlocksView,
@@ -482,6 +576,10 @@ export function EditorProvider({
       prefillReference,
       formatRecents,
       runFormatAction,
+      scriptureOpen,
+      setScriptureOpen,
+      setDockBlocksVisibilityProbe,
+      isDockBlocksVisible,
     }),
     [
       activeView,
@@ -490,6 +588,7 @@ export function EditorProvider({
       registerView,
       unregisterView,
       setActive,
+      clearActive,
       runCommand,
       createNote,
       getBlocksView,
@@ -501,6 +600,10 @@ export function EditorProvider({
       prefillReference,
       formatRecents,
       runFormatAction,
+      scriptureOpen,
+      setScriptureOpen,
+      setDockBlocksVisibilityProbe,
+      isDockBlocksVisible,
     ],
   );
 

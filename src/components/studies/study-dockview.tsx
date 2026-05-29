@@ -15,6 +15,7 @@ import { PanelLeft } from "lucide-react";
 import {
   createContext,
   type FunctionComponent,
+  useCallback,
   useContext,
   useEffect,
   useRef,
@@ -37,6 +38,7 @@ import dynamic from "next/dynamic";
 
 import { DocumentViewer } from "@/components/studies/document-viewer";
 import { HistoryPanelSkeleton } from "@/components/studies/editor-skeletons";
+import { useEditorContext } from "@/components/studies/editor-context";
 
 // The editor and history panel are by far the largest client modules in the
 // app (ProseMirror schema + plugins, history virtualization). Splitting them
@@ -123,6 +125,52 @@ function MinePanel(): React.ReactElement {
   const pathname = usePathname();
   const urlSectionId = pathname.split("/")[3] ?? null;
 
+  // Version-history modal state is held HERE, above the `active.section.id
+  // !== urlSectionId` placeholder gate below, on purpose. The user previously
+  // hit "panel opens, then disappears mid-load" — caused by a brief workspace
+  // re-publish that flipped `active` (or nulled it) just long enough for the
+  // gate to swap `MineSectionBody` out for the placeholder, which unmounted
+  // the panel and lost its `historyOpen` state. With state up here, the
+  // modal survives any transient gate flip. We also SNAPSHOT the notes +
+  // blocks ids at open-time into `historyTarget` so the modal keeps working
+  // against a stable target even if `active` becomes null underneath; it
+  // closes naturally when the user actually navigates to a different
+  // section (the new section's MineSectionBody won't re-open it).
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyTarget, setHistoryTarget] = useState<{
+    notesId: string;
+    blocksId: string;
+  } | null>(null);
+  const openHistory = useCallback(() => {
+    if (!active) return;
+    setHistoryTarget({
+      notesId: active.documents.notes.id,
+      blocksId: active.documents.blocks.id,
+    });
+    setHistoryOpen(true);
+  }, [active]);
+  const closeHistory = useCallback(() => {
+    setHistoryOpen(false);
+  }, []);
+  // Close the modal when the user navigates to a DIFFERENT section. The
+  // captured `historyTarget` is from the previous section, so leaving it
+  // open would show stale history for the section the user just left. We
+  // gate on `active` being truthy + IDs actually differing so a transient
+  // null-`active` flicker (the very thing this hoist was meant to survive)
+  // doesn't close the modal.
+  useEffect(() => {
+    if (!active || !historyTarget) return;
+    if (active.documents.notes.id !== historyTarget.notesId) {
+      // Intentional setState-in-effect: this synchronizes modal state with the
+      // active section. The captured historyTarget belongs to the previous
+      // section, so we must close it when the user navigates away.
+      /* eslint-disable react-hooks/set-state-in-effect */
+      setHistoryOpen(false);
+      setHistoryTarget(null);
+      /* eslint-enable react-hooks/set-state-in-effect */
+    }
+  }, [active, historyTarget]);
+
   // The "study has no sections yet" placeholder is shown only when the
   // layout's `listSections` has confirmed the study is empty — NOT just
   // because the URL is at `/studies/[id]` without a section id. Opening a
@@ -147,15 +195,33 @@ function MinePanel(): React.ReactElement {
   // because `editor.activeView` is briefly null between unmount/remount of
   // the section's editors, so the panel can render `MineSectionBody`
   // immediately without flashing the previous section.
-  if (active?.section.id !== urlSectionId) {
-    // We keep returning a placeholder rather than `MineSectionBody` so the
-    // editors don't briefly mount against the previous section's data while
-    // we're between published payloads.
-    return <div className="h-full" />;
-  }
-  // Re-key on the section so the title field + editors remount cleanly when
-  // switching sections (the panel itself, and the dock, stay mounted).
-  return <MineSectionBody key={active.section.id} payload={active} />;
+  const bodyMatchesUrl = active?.section.id === urlSectionId;
+  return (
+    <>
+      {active && bodyMatchesUrl ? (
+        // Re-key on the section so the title field + editors remount cleanly
+        // when switching sections (the panel itself, and the dock, stay
+        // mounted).
+        <MineSectionBody
+          key={active.section.id}
+          payload={active}
+          onOpenHistory={openHistory}
+        />
+      ) : (
+        // Placeholder rather than `MineSectionBody` so the editors don't
+        // briefly mount against the previous section's data while we're
+        // between published payloads.
+        <div className="h-full" />
+      )}
+      {historyOpen && historyTarget ? (
+        <SectionHistoryPanel
+          notesId={historyTarget.notesId}
+          blocksId={historyTarget.blocksId}
+          onClose={closeHistory}
+        />
+      ) : null}
+    </>
+  );
 }
 
 /**
@@ -208,7 +274,6 @@ function InlineBlocksEditor({
       me={me}
       label="Study blocks"
       hideLabel
-      hideHistory
       placeholder="Work through your study here…"
       studyId={studyId}
       isTemplate={isTemplate}
@@ -269,7 +334,6 @@ function BlocksDockPanel(): React.ReactElement {
         me={me}
         label="Study blocks"
         hideLabel
-        hideHistory
         placeholder="Work through your study here…"
         studyId={active.section.study_id}
         isTemplate={active.isTemplate}
@@ -283,11 +347,20 @@ function BlocksDockPanel(): React.ReactElement {
 
 function MineSectionBody({
   payload,
+  onOpenHistory,
 }: {
   payload: ActiveSectionPayload;
+  /**
+   * Open the section's version-history modal. State lives one level up in
+   * `MinePanel` so the modal survives transient remounts of this component
+   * (the placeholder gate flips it during workspace re-publishes); see the
+   * comment on `historyTarget` in {@link MinePanel}.
+   */
+  onOpenHistory: () => void;
 }): React.ReactElement {
   const { me } = useDock();
   const chrome = useStudyChrome();
+  const editor = useEditorContext();
   const {
     section,
     documents,
@@ -299,7 +372,6 @@ function MineSectionBody({
     emptyStateHasPrevious,
   } = payload;
   const [title, setTitle] = useState(section.title);
-  const [historyOpen, setHistoryOpen] = useState(false);
   const titleRef = useRef<HTMLInputElement>(null);
 
   function handleTitleBlur() {
@@ -329,7 +401,7 @@ function MineSectionBody({
     // dropdown's focus-restore on close, so the input keeps focus.
     const handle = requestAnimationFrame(() => {
       if (kind === "history") {
-        setHistoryOpen(true);
+        onOpenHistory();
       } else {
         const input = titleRef.current;
         if (input) {
@@ -342,7 +414,7 @@ function MineSectionBody({
     return () => {
       cancelAnimationFrame(handle);
     };
-  }, [pendingAction, section.id, clearPendingSectionAction]);
+  }, [pendingAction, section.id, clearPendingSectionAction, onOpenHistory]);
 
   // When the sidebar is collapsed, the chrome floats a re-open button over the
   // body's top-left — pad this (leftmost) panel so the title clears it.
@@ -388,8 +460,20 @@ function MineSectionBody({
             me={me}
             label="Study Body"
             hideLabel
-            hideHistory
             placeholder="Write your study…"
+            // Owner + empty body → the scripture-prompt overlay swaps in for
+            // the bare placeholder. The handler opens the same panel as the
+            // toolbar's BookOpen button (state is hoisted into the editor
+            // context so both surfaces share one source of truth).
+            emptyOwnerScripturePrompt={
+              editor
+                ? {
+                    onOpenScripture: () => {
+                      editor.setScriptureOpen(true);
+                    },
+                  }
+                : undefined
+            }
           />
         ) : (
           <DocumentViewer
@@ -423,15 +507,10 @@ function MineSectionBody({
         )}
       </div>
 
-      {isOwner && historyOpen ? (
-        <SectionHistoryPanel
-          notesId={documents.notes.id}
-          blocksId={documents.blocks.id}
-          onClose={() => {
-            setHistoryOpen(false);
-          }}
-        />
-      ) : null}
+      {/* The version-history modal is rendered by `MinePanel` (one level up)
+          so it survives any transient remount of `MineSectionBody`. The
+          sidebar's ⋮ → Version History wires through `onOpenHistory` to set
+          the modal state up there. */}
     </div>
   );
 }
@@ -672,6 +751,7 @@ export function StudyDockview({
 }: StudyDockviewProps): React.ReactElement {
   const workspace = useStudyWorkspace();
   const chrome = useStudyChrome();
+  const editor = useEditorContext();
   const apiRef = useRef<DockviewApi | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [panelCount, setPanelCount] = useState(0);
@@ -844,6 +924,36 @@ export function StudyDockview({
       registerDockHandlers(null);
     };
   }, [registerDockHandlers]);
+
+  // Expose a probe to the editor context so `createNote` can ask "is the
+  // blocks doc detached AND the currently visible tab in its group?" — when
+  // it is, the post-create flow drops the caret into the new note entry
+  // inline instead of opening the floating popover. The probe closes over
+  // `apiRef`, so it always reads the live dockview state without needing a
+  // re-render to refresh.
+  const setDockBlocksVisibilityProbe = editor?.setDockBlocksVisibilityProbe;
+  useEffect(() => {
+    if (!setDockBlocksVisibilityProbe) {
+      return;
+    }
+    setDockBlocksVisibilityProbe(() => {
+      const panel = apiRef.current?.getPanel(BLOCKS_PANEL_ID);
+      if (!panel) {
+        return false;
+      }
+      // NOTE: `panel.api.isActive` reads the GROUP's active state (i.e. "is
+      // this group the one the user last interacted with?"), not "is this
+      // panel the visible tab in its group". Add Note is triggered from the
+      // mine editor, which makes the mine group active — so `isActive` is
+      // false on the blocks panel even though it's clearly on-screen in its
+      // own group. What we actually want is "is blocks the visible tab in
+      // whichever group it lives in", which is exactly `group.activePanel`.
+      return panel.api.group.activePanel?.id === BLOCKS_PANEL_ID;
+    });
+    return () => {
+      setDockBlocksVisibilityProbe(null);
+    };
+  }, [setDockBlocksVisibilityProbe]);
 
   // Reconcile the dockview panel state with the React `blocksDetached` flag.
   // The flag is the source of truth; this effect adds the panel when it goes

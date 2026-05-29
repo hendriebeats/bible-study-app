@@ -1,50 +1,53 @@
 import { type Command, TextSelection } from "prosemirror-state";
 
 import { nodes } from "../schema";
+import { FIRST_CHILD_IS_CHROME } from "../wrapper-chrome";
 
 /**
- * Backspace at the start of a collapsible's header (the first child paragraph)
- * dissolves the toggle — exactly like Backspace at the start of a `list_item`
- * lifts it. The collapsible is replaced by its children at the parent level,
- * so the header text becomes a flat sibling paragraph and any body paragraphs
- * follow. With the Notion-style schema the cursor can naturally arrow-left out
- * of the header too, so the user no longer feels "trapped" inside a toggle.
+ * Backspace at the start of a wrapper's chrome (the first child) dissolves
+ * the wrapper — exactly like Backspace at the start of a `list_item` lifts
+ * it. The wrapper is replaced by its content at the parent level, so the
+ * chrome text becomes a flat sibling paragraph and any body children follow.
  *
- * Conservatively scoped: only fires when the selection is an empty cursor at
- * offset 0 of the FIRST child of a collapsible (the header). Cursor in body
- * paragraphs, or in selection ranges, falls through to the default chain.
+ * Generalized over every node type in `FIRST_CHILD_IS_CHROME` (collapsible,
+ * callout). Conservatively scoped: only fires when the selection is an
+ * empty cursor at offset 0 of the FIRST child of one of those wrappers.
+ * Cursor in body content, selection ranges, or deeper nested structures
+ * falls through to the default chain.
+ *
+ * Naming kept (`collapsibleBackspace`) for keymap compat after Round-4's
+ * imports. Behavior is now wrapper-generic.
  */
 export const collapsibleBackspace: Command = (state, dispatch) => {
   const { $from, empty } = state.selection;
   if (!empty) return false;
-  // Cursor must be at the very start of its parent textblock — that's how we
-  // recognise "the user is trying to outdent / dissolve from here."
   if ($from.parentOffset !== 0) return false;
 
   for (let d = $from.depth; d > 0; d--) {
     const ancestor = $from.node(d);
-    if (ancestor.type !== nodes.collapsible) continue;
+    if (!FIRST_CHILD_IS_CHROME.has(ancestor.type)) continue;
 
-    // Header = first child of the collapsible. Body children sit at index > 0.
-    // Backspace at start of a body paragraph keeps the default behavior (join
-    // with the previous textblock — the end of the header — which is exactly
-    // what list_item does and feels right here too).
+    // Chrome = first child. Body children sit at index > 0. Backspace at the
+    // start of a body block keeps the default behavior (join with the
+    // previous textblock — the end of the chrome — which feels right).
     if ($from.index(d) !== 0) return false;
-    // Only act when the cursor sits DIRECTLY inside the header textblock —
-    // i.e. the cursor's parent is the first child of the collapsible. Cursor
-    // nested deeper (a bullet item, a callout, etc. used as the header)
-    // falls through to the default chain so the inner structure can lift
-    // first; one more Backspace there will eventually reach this case.
+    // Only act when the cursor's parent IS the chrome textblock. Cursor
+    // nested deeper (a bullet or callout used as the chrome) falls through
+    // so its inner structure lifts first; the next Backspace reaches here.
     if ($from.depth !== d + 1) return false;
 
     const before = $from.before(d);
     const after = $from.after(d);
+    // Defensive: the range must be exactly the wrapper's own bounds. PM's
+    // `before/after` should give us that, but if a future change to the
+    // ancestor walk ever pointed us at a different node, refuse rather
+    // than dispatch a replace that could swallow neighbors (e.g. an
+    // ordered list sitting just above the wrapper).
+    if (after - before !== ancestor.nodeSize) return false;
     if (dispatch) {
-      // Replace the entire collapsible with its content — header becomes a
-      // flat sibling paragraph, body paragraphs follow as their own siblings.
+      // Replace the entire wrapper with its content — chrome becomes a flat
+      // sibling paragraph; body blocks follow as their own siblings.
       const tr = state.tr.replaceWith(before, after, ancestor.content);
-      // Drop the caret into what used to be the header (now the first new
-      // sibling). `before + 1` skips past that paragraph's open tag.
       const target = Math.min(before + 1, tr.doc.content.size);
       tr.setSelection(TextSelection.create(tr.doc, target));
       dispatch(tr.scrollIntoView());

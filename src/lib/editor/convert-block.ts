@@ -214,6 +214,18 @@ function buildPlainConversion(
     typeof sourceBlock.attrs.indent === "number" ? sourceBlock.attrs.indent : 0;
 
   if (target.kind === "wrap") {
+    // If the source is a list_row, convert it to a paragraph first so the
+    // row's inline content becomes the new wrapper's header — instead of the
+    // list_row surviving INSIDE the new collapsible / callout / blockquote.
+    // The user typing `> ` (or `!! `, `>> `) on a bullet expects the bullet
+    // to BECOME the wrapped block, not to be nested as the wrapper's first
+    // child. List-specific attrs (listType / checked / listStart) drop off
+    // since they have no meaning on a paragraph.
+    if (sourceBlock.type === nodes.listRow) {
+      tr.setBlockType(range.start, range.end, nodes.paragraph, {
+        indent: sourceIndent,
+      });
+    }
     const wrap = findWrapping(range, target.nodeType, target.attrs);
     if (!wrap) return null;
     tr.wrap(range, wrap);

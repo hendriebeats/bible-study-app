@@ -10,15 +10,24 @@ import {
 } from "@/app/studies/actions";
 import { DocPreview } from "@/components/studies/doc-preview";
 import { useEditorContext } from "@/components/studies/editor-context";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { Slider } from "@/components/ui/slider";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { DocumentStepMeta } from "@/lib/db/types";
-import { groupMomentsIntoSessions } from "@/lib/editor/history-sessions";
+import {
+  type HistoryMoment,
+  groupMomentsIntoSessions,
+} from "@/lib/editor/history-sessions";
 import { jsonToDoc } from "@/lib/editor/serialize";
 import { cn } from "@/lib/utils";
 
-/** Debounce before materializing a scrubbed-to point (keeps dragging smooth). */
+/** Debounce before materializing a scrubbed-to point (keeps clicks snappy). */
 const PREVIEW_DEBOUNCE_MS = 180;
 
 function formatTime(iso: string): string {
@@ -28,7 +37,52 @@ function formatTime(iso: string): string {
   });
 }
 
-/** The version a document was at by time `iso` (its last step at or before it). */
+/** Time-of-day at minute granularity (e.g. "6:30 PM") for the per-minute
+ * sub-rows inside an accordion-expanded session. The session header already
+ * carries the date, so these only disambiguate within an editing burst. */
+function formatMomentTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+/** Stable per-local-minute key for grouping. Uses Date methods (not ISO
+ * substring) so the boundaries align with the user's local clock — UTC
+ * minute slicing would split or fuse minutes inconsistently across DST or
+ * non-zero UTC offsets. */
+function localMinuteKey(iso: string): string {
+  const d = new Date(iso);
+  return `${String(d.getFullYear())}-${String(d.getMonth())}-${String(
+    d.getDate(),
+  )}-${String(d.getHours())}-${String(d.getMinutes())}`;
+}
+
+/**
+ * Collapse a session's fine-grained moments to one entry per local minute,
+ * keeping the EARLIEST moment of each minute as the representative (its
+ * `index` is what we'll restore/scrub to). Input is already ascending by
+ * timestamp, so the first time we see a minute key is the earliest. Returns
+ * the reduced list in ascending order.
+ */
+function groupMomentsByMinute(moments: HistoryMoment[]): HistoryMoment[] {
+  const byMinute = new Map<string, HistoryMoment>();
+  for (const moment of moments) {
+    const key = localMinuteKey(moment.iso);
+    if (!byMinute.has(key)) {
+      byMinute.set(key, moment);
+    }
+  }
+  return Array.from(byMinute.values());
+}
+
+/**
+ * The version a document was at by time `iso` — its last step at or before it.
+ * Requires `steps` to be ASCENDING by `created_at` so that overwriting `version`
+ * on each match yields the latest one. `fetchDocumentMoments` guarantees that
+ * order; flipping the order here would silently re-introduce the "preview
+ * stuck on the earliest version" scrub bug.
+ */
 function versionAt(steps: DocumentStepMeta[], iso: string): number {
   let version = 0;
   for (const step of steps) {
@@ -46,15 +100,17 @@ function headVersion(steps: DocumentStepMeta[]): number {
 }
 
 /**
- * One shared version history for a section's two documents (Study Body + Study
- * blocks). The two per-document step-logs are merged into a single timeline by
- * timestamp; scrubbing to a moment reconstructs BOTH documents as they were then
- * and previews them together, and Restore rolls both back at once.
+ * One shared version history for a section's two documents (Study Body +
+ * Study blocks). The two per-document step-logs are merged into a single
+ * timeline by timestamp; picking a moment reconstructs BOTH documents as
+ * they were then and previews them together, and Restore rolls both back
+ * at once via `ctx.restoreSection`. See [[section-shared-history]].
  *
- * Loads only lightweight step metadata up front (so it opens fast regardless of
- * how long the history is) and materializes the scrubbed-to point on demand with
- * a bounded server query — see `fetchDocumentStepsMeta` /
- * `reconstructDocumentVersion`.
+ * UX shape (v3): a pinned "Now (latest)" row + an accordion of editing
+ * sessions in the left sidebar; expanding a session reveals its individual
+ * moments as clickable rows. The right pane shows skeleton previews while a
+ * reconstruct round-trip is in flight, then the materialized past docs.
+ * Restore lives in the top-right of the header.
  */
 export function SectionHistoryPanel({
   notesId,
@@ -70,14 +126,18 @@ export function SectionHistoryPanel({
   const [blocksSteps, setBlocksSteps] = useState<DocumentStepMeta[] | null>(
     null,
   );
-  // Index into the merged moments; the last index is "now" (current head).
+  // Index into the merged moments; null means "Now (latest)".
   const [index, setIndex] = useState<number | null>(null);
-  // Which editing session is expanded; null defaults to the most recent.
+  // Which editing session is expanded in the accordion; null = collapsed.
+  // Initialized to the latest session once `sessions` arrives (see effect).
   const [sessionIdx, setSessionIdx] = useState<number | null>(null);
   const [preview, setPreview] = useState<{
     notesDoc: Node;
     blocksDoc: Node;
   } | null>(null);
+  // Surface reconstruct failures (legacy step replay can fail under the
+  // current schema). Without this the previews would silently render nothing.
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -107,7 +167,8 @@ export function SectionHistoryPanel({
     };
   }, [onClose]);
 
-  // Merged, de-duplicated timestamps across both documents' steps, ascending.
+  // Merged, de-duplicated timestamps across both documents' steps, ascending —
+  // one "moment" = one timestamp that exists in at least one of the two logs.
   const moments = useMemo(() => {
     if (!notesSteps || !blocksSteps) {
       return [];
@@ -123,38 +184,44 @@ export function SectionHistoryPanel({
   const atHead = current >= maxIndex;
   const currentIso = atHead ? null : (moments[current] ?? null);
 
-  // Cluster the dense per-save moments into coarse editing sessions for display.
+  // Cluster the dense per-word moments into coarse editing sessions for display.
   const sessions = useMemo(() => groupMomentsIntoSessions(moments), [moments]);
-  // Default to the most recent session so the panel opens on recent work.
-  const selectedIdx =
-    sessionIdx ?? (sessions.length > 0 ? sessions.length - 1 : 0);
-  const session = sessions[selectedIdx] ?? null;
-  const isLastSession = selectedIdx === sessions.length - 1;
-  // Scrub within the selected session only; the most recent one extends to "now".
-  const sliderMin = session ? session.startIndex : 0;
-  const sliderMax = session
-    ? isLastSession
-      ? maxIndex
-      : session.endIndex
-    : maxIndex;
-  const showSlider = sliderMax > sliderMin;
-  const sliderValue = Math.min(Math.max(current, sliderMin), sliderMax);
 
-  // Jump to a session's latest point (the head itself for the most recent one).
-  function selectSession(i: number) {
-    const picked = sessions[i];
-    if (!picked) {
-      return;
+  // Default-expand the latest session once `sessions` is populated. We only
+  // initialize when the user hasn't already touched the accordion (sessionIdx
+  // still null), so collapse/expand interactions aren't fought by this effect.
+  useEffect(() => {
+    if (sessionIdx === null && sessions.length > 0) {
+      // Intentional setState-in-effect: this is exactly the "react to a derived
+      // value transitioning from 0 → N on first load" case. We deliberately
+      // don't depend on `sessionIdx` so toggling collapse to null later isn't
+      // overridden by this effect.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSessionIdx(sessions.length - 1);
     }
-    setSessionIdx(i);
-    setIndex(i === sessions.length - 1 ? maxIndex : picked.endIndex);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessions.length]);
+
+  function selectNow() {
+    setIndex(null);
   }
 
   // Materialize both documents at the selected moment (debounced, on demand).
+  // Clears `preview` to null up-front so the right pane flips to PreviewSkeleton
+  // for the round-trip — feedback that something is loading after each click.
   useEffect(() => {
     if (!notesSteps || !blocksSteps) {
       return;
     }
+    // Intentional setState-in-effect: clears the preview pane the moment the
+    // user clicks a new moment, so the right side flips to PreviewSkeleton for
+    // the round-trip rather than showing stale content while reconstruction
+    // runs. This IS the synchronization with the (notesSteps, blocksSteps,
+    // currentIso) tuple — the rule's "update external systems" use case.
+    /* eslint-disable react-hooks/set-state-in-effect */
+    setPreview(null);
+    setPreviewError(null);
+    /* eslint-enable react-hooks/set-state-in-effect */
     const notesV =
       currentIso === null
         ? headVersion(notesSteps)
@@ -168,11 +235,34 @@ export function SectionHistoryPanel({
       void Promise.all([
         reconstructDocumentVersion(notesId, notesV),
         reconstructDocumentVersion(blocksId, blocksV),
-      ]).then(([n, b]) => {
-        if (active) {
-          setPreview({ notesDoc: jsonToDoc(n), blocksDoc: jsonToDoc(b) });
-        }
-      });
+      ])
+        .then(([n, b]) => {
+          if (!active) return;
+          try {
+            setPreview({ notesDoc: jsonToDoc(n), blocksDoc: jsonToDoc(b) });
+            setPreviewError(null);
+          } catch (err) {
+            // jsonToDoc throws when stored content doesn't validate against
+            // the current schema (a real, user-visible problem with this
+            // section's history, not a transient glitch).
+            console.error(
+              "[SectionHistoryPanel] doc deserialization failed",
+              err,
+            );
+            setPreview(null);
+            setPreviewError(err instanceof Error ? err.message : String(err));
+          }
+        })
+        .catch((err: unknown) => {
+          if (!active) return;
+          console.error(
+            "[SectionHistoryPanel] reconstructDocumentVersion failed",
+            { notesV, blocksV, notesId, blocksId },
+            err,
+          );
+          setPreview(null);
+          setPreviewError(err instanceof Error ? err.message : String(err));
+        });
     }, PREVIEW_DEBOUNCE_MS);
     return () => {
       active = false;
@@ -185,7 +275,7 @@ export function SectionHistoryPanel({
       return;
     }
     // Reconstruct fresh at the selected moment (don't trust the async preview,
-    // which may still be catching up to the slider).
+    // which may still be catching up to the click).
     const [notesDoc, blocksDoc] = await Promise.all([
       reconstructDocumentVersion(notesId, versionAt(notesSteps, currentIso)),
       reconstructDocumentVersion(blocksId, versionAt(blocksSteps, currentIso)),
@@ -198,16 +288,31 @@ export function SectionHistoryPanel({
   const empty = !loading && moments.length === 0;
 
   return (
-    <>
-      <button
-        type="button"
-        aria-label="Close version history"
-        className="fixed inset-0 z-40 bg-foreground/20 motion-safe:animate-in motion-safe:fade-in"
-        onClick={onClose}
-      />
-      <aside className="fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l bg-card shadow-lg motion-safe:animate-in motion-safe:slide-in-from-right sm:w-96">
-        <header className="flex items-center justify-between p-4">
-          <span className="font-semibold">Section history</span>
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="section-history-title"
+      className="fixed inset-0 z-50 flex flex-col bg-card motion-safe:animate-in motion-safe:fade-in"
+    >
+      {/* Top bar — title left, Restore + X close right. The Restore button
+          lives here (not in the sidebar) so it's always reachable regardless
+          of which session is expanded. */}
+      <header className="flex items-center justify-between border-b px-4 py-3">
+        <h2 id="section-history-title" className="text-lg font-semibold">
+          Version history
+        </h2>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            disabled={atHead}
+            onClick={() => {
+              void handleRestore();
+            }}
+          >
+            <RotateCcw className="size-4" />
+            Restore this version
+          </Button>
           <Button
             type="button"
             size="icon"
@@ -217,91 +322,157 @@ export function SectionHistoryPanel({
           >
             <X className="size-4" />
           </Button>
-        </header>
-        <Separator />
+        </div>
+      </header>
 
-        {loading || empty ? (
-          <p className="p-4 text-sm text-muted-foreground">
-            {loading ? "Loading…" : "No saved history yet."}
-          </p>
-        ) : (
-          <>
-            <div className="max-h-48 space-y-1 overflow-auto p-2">
-              {sessions.map((s, i) => (
-                <button
-                  key={s.startIso}
-                  type="button"
-                  onClick={() => {
-                    selectSession(i);
-                  }}
-                  aria-pressed={i === selectedIdx}
-                  className={cn(
-                    "w-full rounded-md px-3 py-2 text-left text-sm",
-                    i === selectedIdx
-                      ? "bg-accent text-accent-foreground"
-                      : "hover:bg-muted",
-                  )}
-                >
-                  {s.label}
-                </button>
-              ))}
-            </div>
-            <Separator />
-
-            <div className="space-y-3 p-4">
-              {showSlider ? (
-                <Slider
-                  min={sliderMin}
-                  max={sliderMax}
-                  step={1}
-                  value={[sliderValue]}
-                  onValueChange={(values) => {
-                    setIndex(values[0] ?? sliderMax);
-                  }}
-                  aria-label="Point in time within session"
-                />
-              ) : null}
-              <span className="text-xs text-muted-foreground">
-                {currentIso === null
-                  ? "Now (latest)"
-                  : `As of ${formatTime(currentIso)}`}
-              </span>
-            </div>
-            <Separator />
-
-            <div className="min-h-0 flex-1 space-y-4 overflow-auto p-4">
-              <div className="space-y-2">
-                <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                  Study Body
-                </span>
-                {preview ? <DocPreview doc={preview.notesDoc} /> : null}
-              </div>
-              <Separator />
-              <div className="space-y-2">
-                <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                  Study blocks
-                </span>
-                {preview ? <DocPreview doc={preview.blocksDoc} /> : null}
-              </div>
-            </div>
-            <Separator />
-
-            <div className="p-4">
-              <Button
+      {loading || empty ? (
+        <p className="p-6 text-sm text-muted-foreground">
+          {loading ? "Loading…" : "No saved history yet."}
+        </p>
+      ) : (
+        <div className="flex min-h-0 flex-1">
+          {/* Left sidebar — pinned "Now" + accordion of sessions. */}
+          <aside className="flex w-80 flex-col border-r">
+            <div className="border-b p-2">
+              <button
                 type="button"
-                className="w-full"
-                disabled={atHead}
-                onClick={() => {
-                  void handleRestore();
+                onClick={selectNow}
+                aria-pressed={atHead}
+                className={cn(
+                  "w-full rounded-md px-3 py-2 text-left text-sm font-medium",
+                  atHead
+                    ? "bg-accent text-accent-foreground"
+                    : "hover:bg-muted",
+                )}
+              >
+                Now (latest)
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto p-1">
+              <Accordion
+                type="single"
+                collapsible
+                value={sessionIdx !== null ? String(sessionIdx) : undefined}
+                onValueChange={(value) => {
+                  if (value === "") {
+                    // Collapsing — leave the moment selection alone so a
+                    // subsequent re-expand returns the user where they were.
+                    setSessionIdx(null);
+                    return;
+                  }
+                  // Expanding via user click — jump the preview to this
+                  // session's FIRST moment (the earliest row the user is
+                  // about to see in the per-minute grouped sub-list, which
+                  // by construction is the session's earliest moment).
+                  // Only fires on user interaction; the initial auto-expand
+                  // of the latest session updates `value` declaratively and
+                  // doesn't trigger this handler, so we keep "Now" as the
+                  // panel's default on open.
+                  const nextSessionIdx = Number(value);
+                  setSessionIdx(nextSessionIdx);
+                  const firstMoment = sessions[nextSessionIdx]?.moments[0];
+                  if (firstMoment) {
+                    setIndex(firstMoment.index);
+                  }
                 }}
               >
-                <RotateCcw className="size-4" />
-                Restore this point
-              </Button>
+                {sessions.map((s, i) => (
+                  <AccordionItem key={s.startIso} value={String(i)}>
+                    <AccordionTrigger>{s.label}</AccordionTrigger>
+                    <AccordionContent>
+                      <ul className="space-y-0.5 pl-2">
+                        {groupMomentsByMinute(s.moments).map((m) => {
+                          const selected = !atHead && current === m.index;
+                          return (
+                            <li key={m.iso}>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setIndex(m.index);
+                                }}
+                                aria-pressed={selected}
+                                className={cn(
+                                  "w-full rounded-md px-3 py-1.5 text-left text-xs",
+                                  selected
+                                    ? "bg-accent text-accent-foreground"
+                                    : "hover:bg-muted",
+                                )}
+                              >
+                                {formatMomentTime(m.iso)}
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </AccordionContent>
+                  </AccordionItem>
+                ))}
+              </Accordion>
             </div>
-          </>
-        )}
-      </aside>
-    </>
+            <Separator />
+            <div className="px-4 py-3 text-xs text-muted-foreground">
+              {currentIso === null
+                ? "Now (latest)"
+                : `As of ${formatTime(currentIso)}`}
+            </div>
+          </aside>
+
+          {/* Right pane — error UI + Study Body + Study blocks previews. */}
+          <div className="min-h-0 flex-1 space-y-4 overflow-auto p-6">
+            {previewError ? (
+              <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-xs text-destructive">
+                <p className="font-medium">
+                  Couldn&apos;t reconstruct this version.
+                </p>
+                <p className="mt-1 text-muted-foreground">
+                  Most likely an older step in this section&apos;s history
+                  references a node type the editor no longer recognizes (the
+                  flat-schema rewrite). The current document is safe — only the
+                  preview at this point in time failed.
+                </p>
+                <p className="mt-2 font-mono text-xs break-all text-muted-foreground">
+                  {previewError}
+                </p>
+              </div>
+            ) : null}
+            <section className="space-y-2">
+              <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                Study Body
+              </span>
+              {preview ? (
+                <DocPreview doc={preview.notesDoc} />
+              ) : previewError ? null : (
+                <PreviewSkeleton />
+              )}
+            </section>
+            <Separator />
+            <section className="space-y-2">
+              <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                Study blocks
+              </span>
+              {preview ? (
+                <DocPreview doc={preview.blocksDoc} />
+              ) : previewError ? null : (
+                <PreviewSkeleton />
+              )}
+            </section>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Placeholder for a single doc preview while it's reconstructing. The
+ * reconstruct effect explicitly nulls `preview` at the start of each
+ * round-trip so this renders during the click → load transition. */
+function PreviewSkeleton() {
+  return (
+    <div className="space-y-2">
+      <Skeleton className="h-4 w-4/5" />
+      <Skeleton className="h-4 w-3/4" />
+      <Skeleton className="h-4 w-5/6" />
+      <Skeleton className="h-4 w-2/3" />
+    </div>
   );
 }

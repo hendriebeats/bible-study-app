@@ -6,7 +6,6 @@ import { redirect } from "next/navigation";
 import { Transform } from "prosemirror-transform";
 
 import { EMPTY_DOC, type DocumentStepMeta } from "@/lib/db/types";
-import type { DocumentTimeline } from "@/lib/db/types";
 import {
   blocksDocFromSpecs,
   specsFromBlocksDoc,
@@ -441,6 +440,11 @@ export type AppendResult =
  * Append a batch of ProseMirror steps to a document's history (and update its
  * materialized doc) atomically via the `append_document_steps` RPC. Returns the
  * new head version, or a conflict if the client's base is stale.
+ *
+ * `boundaries` are 0-indexed positions inside `steps` where a NEW word/action
+ * group starts (from `withUndoBoundary`/`isUndoBoundary`). Steps in the same
+ * group share a `created_at`; groups are staggered server-side so the history
+ * scrubber surfaces one moment per word/action instead of one per save batch.
  */
 export async function appendDocumentSteps(
   documentId: string,
@@ -448,6 +452,7 @@ export async function appendDocumentSteps(
   steps: SerializedStep[],
   newDoc: PMDocJSON,
   clientId: string,
+  boundaries: number[] = [],
 ): Promise<AppendResult> {
   const { supabase } = await requireUser();
   const { data, error } = await supabase.rpc("append_document_steps", {
@@ -456,6 +461,7 @@ export async function appendDocumentSteps(
     _steps: steps as unknown as Json,
     _new_doc: newDoc as unknown as Json,
     _client_id: clientId,
+    _boundaries: boundaries,
   });
   if (error) {
     // The RPC raises SQLSTATE PT409 on a version conflict so the client resyncs.
@@ -476,49 +482,22 @@ export async function appendDocumentSteps(
   return { ok: true, version: data };
 }
 
-/** Fetch a document's full history (checkpoints + steps) for the history panel. */
-export async function fetchDocumentTimeline(
-  documentId: string,
-): Promise<DocumentTimeline> {
-  const { supabase } = await requireUser();
-  const { data: checkpoints, error: cpError } = await supabase
-    .from("section_checkpoints")
-    .select("version, label, created_at, doc")
-    .eq("document_id", documentId)
-    .order("version", { ascending: true });
-  if (cpError) {
-    throw new Error(cpError.message);
-  }
-  const { data: steps, error: stepsError } = await supabase
-    .from("section_steps")
-    .select("version, step, created_at")
-    .eq("document_id", documentId)
-    .order("version", { ascending: true });
-  if (stepsError) {
-    throw new Error(stepsError.message);
-  }
-  return {
-    checkpoints: checkpoints.map((c) => ({
-      version: c.version,
-      label: c.label,
-      created_at: c.created_at,
-      doc: c.doc as unknown as PMDocJSON,
-    })),
-    steps: steps.map((s) => ({
-      version: s.version,
-      step: s.step as unknown as SerializedStep,
-      created_at: s.created_at,
-    })),
-  };
-}
-
 /**
- * The document's recent history "moments" — one row per save-batch (version +
+ * The document's history "moments" — one row per word/action group (version +
  * timestamp, NO step payloads) — for building the history scrubber without
- * transferring the whole step log. Backed by the `document_history_moments` RPC,
- * which groups steps by batch and caps at the most recent 1000 (well under
- * PostgREST's max_rows); older states stay in the DB but aren't scrubbable. The
- * chosen point is materialized on demand by {@link reconstructDocumentVersion}.
+ * transferring the whole step log. Backed by the `document_history_moments`
+ * RPC, which groups `section_steps` by the per-group staggered `created_at`
+ * stamped in `append_document_steps`. Defaults to up to 50000 rows (decades of
+ * normal use); older states still in the DB but aren't surfaced. The chosen
+ * point is materialized on demand by {@link reconstructDocumentVersion}.
+ *
+ * **Returns ascending by `created_at`.** The RPC orders DESC so its `LIMIT`
+ * keeps the MOST RECENT moments rather than the oldest — that's a deliberate
+ * SQL-side choice. We flip back here so downstream `versionAt(steps, iso)`
+ * (which keeps the *last* match while iterating) and `headVersion(steps)`
+ * (which reads the last element) behave as their names imply. Without this
+ * flip the panel's preview resolves to roughly the earliest version at every
+ * scrub position and never refreshes.
  */
 export async function fetchDocumentMoments(
   documentId: string,
@@ -530,10 +509,12 @@ export async function fetchDocumentMoments(
   if (error) {
     throw new Error(error.message);
   }
-  return data.map((r) => ({
-    version: r.version,
-    created_at: r.created_at,
-  }));
+  return data
+    .map((r) => ({
+      version: r.version,
+      created_at: r.created_at,
+    }))
+    .reverse();
 }
 
 /**
@@ -547,6 +528,25 @@ export async function reconstructDocumentVersion(
   version: number,
 ): Promise<PMDocJSON> {
   const { supabase } = await requireUser();
+
+  // Fast path: when `version` is the document's current head, the
+  // materialized content is already in `documents.content` — return it
+  // directly without replaying any steps. Step replay (below) can fail with
+  // "Position out of range" or schema-mismatch errors when the persisted step
+  // log has drifted from the current schema (e.g. legacy steps that pre-date
+  // a node-type migration). For "Now (latest)" we already have the answer.
+  const { data: docRow, error: docErr } = await supabase
+    .from("documents")
+    .select("content, current_version")
+    .eq("id", documentId)
+    .maybeSingle();
+  if (docErr) {
+    throw new Error(docErr.message);
+  }
+  if (docRow && version >= docRow.current_version) {
+    return docRow.content as unknown as PMDocJSON;
+  }
+
   const { data: checkpoint, error: cpError } = await supabase
     .from("section_checkpoints")
     .select("version, doc")
@@ -567,13 +567,22 @@ export async function reconstructDocumentVersion(
     // history then. Fall back to its CURRENT content (not EMPTY_DOC) so a
     // section restore leaves an as-yet-unedited doc untouched instead of wiping
     // it.
-    const { data: docRow } = await supabase
-      .from("documents")
-      .select("content")
-      .eq("id", documentId)
-      .maybeSingle();
     baseDoc = (docRow?.content as PMDocJSON | undefined) ?? EMPTY_DOC;
   }
+  // Heal historical blocks-doc checkpoints that pre-date the pinned
+  // `notes_index` node. When the user first opened the editor, the in-memory
+  // doc was patched by `ensureNotesIndex` (see document-editor.tsx) to lead
+  // with an empty `notes_index` — but the `_old_doc` snapshot
+  // `append_document_steps` writes for the very first checkpoint comes from
+  // `documents.content` BEFORE that patch, so the stored v0 doc is two
+  // positions shorter than every step authored against it. Replaying yields
+  // "Position N out of range" on the first non-trivial step and every preview
+  // for a past moment ends up showing the red error banner instead of
+  // content. Detect the missing index by shape (no leading `notes_index`,
+  // contains at least one `study_block`) and prepend an empty one — cheap,
+  // surgical, and a no-op for docs that already have the index or aren't
+  // blocks docs.
+  baseDoc = ensureNotesIndexInBlocksDoc(baseDoc);
   if (version <= baseVersion) {
     return baseDoc;
   }
@@ -592,6 +601,30 @@ export async function reconstructDocumentVersion(
     transform.step(jsonToStep(row.step as unknown as SerializedStep));
   }
   return docToJSON(transform.doc);
+}
+
+/**
+ * Prepend an empty `notes_index` to a blocks-doc base if it's missing one.
+ * See {@link reconstructDocumentVersion} for the motivating bug. Pure JSON
+ * surgery — no schema parse, no client-only imports, safe to run on every
+ * reconstruct call. Idempotent (re-runs leave a fixed doc unchanged).
+ */
+function ensureNotesIndexInBlocksDoc(doc: PMDocJSON): PMDocJSON {
+  const children = (doc as { content?: { type?: string }[] }).content ?? [];
+  if (children[0]?.type === "notes_index") {
+    return doc;
+  }
+  // Only apply to blocks docs; a notes doc has no study_block at the top.
+  const looksLikeBlocksDoc = children.some(
+    (child) => child.type === "study_block",
+  );
+  if (!looksLikeBlocksDoc) {
+    return doc;
+  }
+  return {
+    ...doc,
+    content: [{ type: "notes_index", content: [] }, ...children],
+  } as PMDocJSON;
 }
 
 /** Fetch a document's current materialized doc + head version (viewer resync). */

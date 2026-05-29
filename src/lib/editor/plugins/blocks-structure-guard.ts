@@ -44,37 +44,23 @@ function foreignTopLevelCount(doc: Node): number {
   return count;
 }
 
-/** Locate the (single) top-level `notes_index`: its child index + absolute pos. */
-function findNotesIndex(
-  doc: Node,
-): { index: number; pos: number; node: Node } | null {
-  let pos = 0;
-  for (let i = 0; i < doc.childCount; i++) {
-    const child = doc.child(i);
-    if (child.type === nodes.notesIndex) {
-      return { index: i, pos, node: child };
-    }
-    pos += child.nodeSize;
-  }
-  return null;
-}
-
 /**
  * Locks down the Study-blocks document so the top level holds only study blocks
- * and the pinned notes index — no freeform text outside a block — and so whole
- * study blocks can't be removed by a stray selection (the verse guard already
+ * and the notes index — no freeform text outside a block — and so whole study
+ * blocks can't be removed by a stray selection (the verse guard already
  * protects scripture; this protects the blocks themselves).
  *
- * Two layers, mirroring {@link verseGuard}/{@link notesIndexGuard}:
- *   - `filterTransaction` vetoes any user edit that ADDS a foreign node to the
- *     top level, or that reduces the study-block count — unless flagged
- *     `allowVerseEdit` (the escape hatch used by Add block, the block menu's
- *     Delete, Move, drag-reorder, and version restore). It compares before/after
- *     (not "result is pristine") so a doc with pre-existing stray content stays
- *     editable.
- *   - `appendTransaction` re-pins the notes index to position 0 if anything ever
- *     leaves it elsewhere (covers `allowVerseEdit` moves/restores that bypass the
- *     filter), so nothing can sit above it.
+ * `filterTransaction` (mirroring {@link verseGuard}/{@link notesIndexGuard})
+ * vetoes any user edit that ADDS a foreign node to the top level, or that
+ * reduces the study-block count — unless flagged `allowVerseEdit` (the escape
+ * hatch used by Add block, the block menu's Delete, Move, drag-reorder, and
+ * version restore). It compares before/after (not "result is pristine") so a
+ * doc with pre-existing stray content stays editable.
+ *
+ * Note: the notes index is NOT pinned to position 0 anymore — it's a normal
+ * top-level block that the user can drag-reorder freely (deletion is still
+ * blocked by `notesIndexGuard`). The previous `appendTransaction` re-pin was
+ * dropped when the dialog gained a draggable Notes card.
  *
  * Added to the BLOCKS editor only (the Study Body stays freeform).
  */
@@ -93,20 +79,6 @@ export function blocksStructureGuard(): Plugin {
         return false;
       }
       return true;
-    },
-    appendTransaction(transactions, _oldState, newState) {
-      if (!transactions.some((t) => t.docChanged)) {
-        return null;
-      }
-      const info = findNotesIndex(newState.doc);
-      if (!info || info.index === 0) {
-        return null;
-      }
-      const tr = newState.tr;
-      tr.delete(info.pos, info.pos + info.node.nodeSize);
-      tr.insert(0, info.node);
-      tr.setMeta("allowVerseEdit", true);
-      return tr;
     },
   });
 }

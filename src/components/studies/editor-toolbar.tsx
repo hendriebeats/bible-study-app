@@ -1,50 +1,39 @@
 "use client";
 
 import {
-  BookOpen,
   Bold,
-  ChevronDown,
-  CircleCheck,
   FileImage,
   Heading1,
   Heading2,
   Heading3,
-  Heart,
   Image as ImageIcon,
-  Info,
+  IndentDecrease,
+  IndentIncrease,
   Italic,
-  Lightbulb,
   List,
   ListChecks,
   ListOrdered,
+  Megaphone,
   MessageSquarePlus,
   PanelTopOpen,
   Quote,
   Redo,
-  Sparkles,
   Strikethrough,
   Table as TableIcon,
-  TriangleAlert,
   Underline,
   Undo,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { Command } from "prosemirror-state";
-import { type ReactNode, useState } from "react";
+import { type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { ColorControl } from "@/components/studies/color-control";
 import { useEditorContext } from "@/components/studies/editor-context";
 import { LinkControl } from "@/components/studies/link-control";
-import { ScriptureInsertPanel } from "@/components/studies/scripture-insert-panel";
+import { ScriptureControl } from "@/components/studies/scripture-insert-panel";
 import { ZoomControl } from "@/components/studies/zoom-control";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
 import {
   Tooltip,
@@ -52,6 +41,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
+  indentSelected,
   insertCallout,
   insertCollapsible,
   insertTable,
@@ -59,6 +49,7 @@ import {
   isBlockActive,
   isListRowActive,
   isMarkActive,
+  outdentSelected,
   toggleBlockquote,
   toggleBold,
   toggleBulletList,
@@ -123,9 +114,10 @@ interface ToolbarGroup {
  * It reads/acts on whichever editor is currently focused (via the editor
  * context) and routes "Add scripture" to the notes editor.
  *
- * Group order (Google-Docs-like): undo/redo + zoom · text marks · structure
- * (headings, lists, collapsible, quote) · doc-specific (link, note, scripture)
- * · insert blocks (callouts, table, image, media) · trailing (group menu).
+ * Group order: undo/redo + zoom · text marks (ending in highlight) · headings
+ * (H1/H2/H3) · lists (bullet/ordered/checklist + collapsible) · indent pair ·
+ * link + quote + callout + table · doc-specific (note, scripture) · media
+ * inserts (image, media) · trailing (group menu).
  *
  * Every actionable entry carries a hover tooltip with the label + keyboard
  * shortcut + markdown syntax where available, so the bar is self-teaching
@@ -155,11 +147,15 @@ export function EditorToolbar({
 }) {
   const ctx = useEditorContext();
   const isMac = useIsMac();
-  const [scriptureOpen, setScriptureOpen] = useState(false);
 
   if (!ctx) {
     return null;
   }
+  // `scriptureOpen` lives in the editor context so the empty-owner Study Body
+  // overlay (in `DocumentEditor`) can open the same popover by toggling the
+  // context flag. The Scripture button + popover itself is `ScriptureControl`,
+  // which reads the flag from context directly — the toolbar no longer
+  // forwards it.
   const { activeState, runCommand, createNote, activeKind, editorTools } = ctx;
   // In `scope="dialog"`, the toolbar is rendered inside the blocks dialog and
   // must only act on dialog-body editors — otherwise it would target the
@@ -185,10 +181,6 @@ export function EditorToolbar({
     ? buildGroups({
         activeState,
         allowDocSpecific,
-        scriptureOpen,
-        onToggleScripture: () => {
-          setScriptureOpen((open) => !open);
-        },
         onAddNote: handleAddNote,
         editorTools,
         mod: modKey(isMac),
@@ -249,13 +241,6 @@ export function EditorToolbar({
           </>
         ) : null}
       </div>
-      {scriptureOpen ? (
-        <ScriptureInsertPanel
-          onClose={() => {
-            setScriptureOpen(false);
-          }}
-        />
-      ) : null}
     </div>
   );
 }
@@ -359,16 +344,12 @@ function SlotTooltip({
 function buildGroups({
   activeState,
   allowDocSpecific,
-  scriptureOpen,
-  onToggleScripture,
   onAddNote,
   editorTools,
   mod,
 }: {
   activeState: NonNullable<ReturnType<typeof useEditorContext>>["activeState"];
   allowDocSpecific: boolean;
-  scriptureOpen: boolean;
-  onToggleScripture: () => void;
   onAddNote: () => void;
   editorTools: EditorTools;
   /** Pre-resolved modifier glyph (⌘ on macOS, Ctrl elsewhere). */
@@ -465,14 +446,50 @@ function buildGroups({
   );
   const marksGroup: ToolbarGroup = { id: "marks", entries: marksEntries };
 
-  // Group 3 — block-level structure (headings, lists, collapsible, quote).
-  // Collapsible sits next to Checklist because it's a structural container,
-  // not an "insert" — it shapes how content is organized, like a list does.
-  // The three heading buttons are a single feature ("Headings" toggle on the
-  // account page) — when off, they drop out together, not one at a time.
-  const structureEntries: ToolbarEntry[] = [];
+  // Group 3 — list-shaped containers: bullets, ordered, checklist, plus the
+  // collapsible (which is structurally a list-like row of one item with a
+  // collapsible body, so it slots next to checklist).
+  const listsEntries: ToolbarEntry[] = [
+    {
+      kind: "button",
+      icon: List,
+      label: "Bullet list",
+      command: toggleBulletList,
+      active: isListRowActive(activeState, "bullet"),
+      markdown: "- or *",
+    },
+    {
+      kind: "button",
+      icon: ListOrdered,
+      label: "Numbered list",
+      command: toggleOrderedList,
+      active: isListRowActive(activeState, "ordered"),
+      markdown: "1.",
+    },
+    {
+      kind: "button",
+      icon: ListChecks,
+      label: "Checklist",
+      command: toggleTaskList,
+      active: isListRowActive(activeState, "task"),
+      markdown: "- [ ]",
+    },
+  ];
+  if (editorTools.collapsibles) {
+    listsEntries.push({
+      kind: "button",
+      icon: PanelTopOpen,
+      label: "Collapsible section",
+      command: insertCollapsible,
+      active: false,
+    });
+  }
+  const lists: ToolbarGroup = { id: "lists", entries: listsEntries };
+
+  // Group 4 — headings (H1/H2/H3). One opt-in (`headings`) controls all three.
+  const headings: ToolbarGroup = { id: "headings", entries: [] };
   if (editorTools.headings) {
-    structureEntries.push(
+    headings.entries.push(
       {
         kind: "button",
         icon: Heading1,
@@ -499,42 +516,43 @@ function buildGroups({
       },
     );
   }
-  structureEntries.push(
-    {
-      kind: "button",
-      icon: List,
-      label: "Bullet list",
-      command: toggleBulletList,
-      active: isListRowActive(activeState, "bullet"),
-      markdown: "- or *",
-    },
-    {
-      kind: "button",
-      icon: ListOrdered,
-      label: "Numbered list",
-      command: toggleOrderedList,
-      active: isListRowActive(activeState, "ordered"),
-      markdown: "1.",
-    },
-    {
-      kind: "button",
-      icon: ListChecks,
-      label: "Checklist",
-      command: toggleTaskList,
-      active: isListRowActive(activeState, "task"),
-      markdown: "- [ ]",
-    },
-  );
-  if (editorTools.collapsibles) {
-    structureEntries.push({
-      kind: "button",
-      icon: PanelTopOpen,
-      label: "Collapsible section",
-      command: insertCollapsible,
-      active: false,
+
+  // Group 5 — indent / outdent. Tab and Shift-Tab equivalents, sized as one
+  // standalone pair so they don't get lost inside the lists group.
+  const indentGroup: ToolbarGroup = {
+    id: "indent",
+    entries: [
+      {
+        kind: "button",
+        icon: IndentDecrease,
+        label: "Decrease indent",
+        command: outdentSelected,
+        active: false,
+        shortcut: "⇧ Tab",
+      },
+      {
+        kind: "button",
+        icon: IndentIncrease,
+        label: "Increase indent",
+        command: indentSelected,
+        active: false,
+        shortcut: "Tab",
+      },
+    ],
+  };
+
+  // Group 6 — Link + Quote. Quote travels with Link because both are
+  // inline-or-block annotations the user typically applies to existing
+  // content (rather than fresh structural inserts).
+  const linkQuote: ToolbarGroup = { id: "link-quote", entries: [] };
+  if (editorTools.links) {
+    linkQuote.entries.push({
+      kind: "slot",
+      key: "link",
+      node: <LinkControl size="icon" />,
     });
   }
-  structureEntries.push({
+  linkQuote.entries.push({
     kind: "button",
     icon: Quote,
     label: "Quote",
@@ -542,23 +560,28 @@ function buildGroups({
     active: isAncestorActive(activeState, nodes.blockquote),
     markdown: "> ",
   });
-  const structure: ToolbarGroup = {
-    id: "structure",
-    entries: structureEntries,
-  };
-
-  // Group 4 — doc-specific actions: Link (gated on the `links` opt-in tool),
-  // Note (anchors on selection, body lives in the blocks doc), Scripture
-  // (inserts into notes). Note + Scripture are hidden in dialog scope (no
-  // notes_index/notes available).
-  const docSpecific: ToolbarGroup = { id: "doc-specific", entries: [] };
-  if (editorTools.links) {
-    docSpecific.entries.push({
+  // Callout + Table tag along after Quote — they're the other two "annotate
+  // a stretch of content" inserts that the user keeps near at hand. Each
+  // remains gated on its opt-in tool, same as before.
+  if (editorTools.callouts) {
+    linkQuote.entries.push({
       kind: "slot",
-      key: "link",
-      node: <LinkControl size="icon" />,
+      key: "callout-menu",
+      node: <CalloutMenu />,
     });
   }
+  if (editorTools.tables) {
+    linkQuote.entries.push({
+      kind: "button",
+      icon: TableIcon,
+      label: "Table",
+      command: insertTable,
+      active: false,
+    });
+  }
+
+  // Group 7 — doc-specific actions (Note, Scripture). Hidden in dialog scope.
+  const docSpecific: ToolbarGroup = { id: "doc-specific", entries: [] };
   if (allowDocSpecific) {
     docSpecific.entries.push(
       {
@@ -584,49 +607,16 @@ function buildGroups({
       {
         kind: "slot",
         key: "scripture",
-        node: (
-          <SlotTooltip label="Insert scripture">
-            <Button
-              type="button"
-              size="icon"
-              variant={scriptureOpen ? "secondary" : "ghost"}
-              aria-label="Insert scripture"
-              aria-pressed={scriptureOpen}
-              onMouseDown={(event) => {
-                event.preventDefault();
-              }}
-              onClick={onToggleScripture}
-            >
-              <BookOpen className="size-4" />
-            </Button>
-          </SlotTooltip>
-        ),
+        node: <ScriptureControl />,
       },
     );
   }
 
-  // Group 5 — insertable blocks. Each entry is tool-gated: if the user hasn't
-  // opted into it in Account → Editor tools the entry simply isn't in the
-  // group (the same gating slash-menu uses). Image + Media are not yet wired
-  // into the editor; they're shown as `comingSoon` slots so the toolbar has a
-  // permanent home for them — when the feature ships, swap in a real command.
+  // Group 8 — media inserts. Image + Media are not yet wired into the editor;
+  // they're shown as `comingSoon` slots so the toolbar has a permanent home
+  // for them — when the feature ships, swap in a real command. Callout + Table
+  // moved up into the link-quote group at the user's request.
   const inserts: ToolbarGroup = { id: "inserts", entries: [] };
-  if (editorTools.callouts) {
-    inserts.entries.push({
-      kind: "slot",
-      key: "callout-menu",
-      node: <CalloutMenu />,
-    });
-  }
-  if (editorTools.tables) {
-    inserts.entries.push({
-      kind: "button",
-      icon: TableIcon,
-      label: "Table",
-      command: insertTable,
-      active: false,
-    });
-  }
   if (showComingSoon(editorTools, "images")) {
     inserts.entries.push({
       kind: "button",
@@ -648,7 +638,16 @@ function buildGroups({
     });
   }
 
-  return [history, marksGroup, structure, docSpecific, inserts];
+  return [
+    history,
+    marksGroup,
+    headings,
+    lists,
+    indentGroup,
+    linkQuote,
+    docSpecific,
+    inserts,
+  ];
 }
 
 /**
@@ -664,56 +663,30 @@ function showComingSoon(tools: EditorTools, key: EditorToolKey): boolean {
 const noopCommand: Command = () => false;
 
 /**
- * The five callout variants share a single dropdown to keep the inserts group
- * compact. Each item dispatches `insertCallout(variant)` which replaces the
- * current empty block or inserts after the current block (see
- * `commands.ts:insertCallout`).
+ * Single-click callout insert. Drops the variant-picker dropdown: the variant
+ * is just a color now, and that color is re-picked inline via the floating
+ * chip on the callout itself (CalloutView). The toolbar button always inserts
+ * the default `note` variant; the user recolors after the fact.
  */
 function CalloutMenu() {
   const ctx = useEditorContext();
-  const variants: { key: string; label: string; icon: LucideIcon }[] = [
-    { key: "note", label: "Note", icon: Info },
-    { key: "insight", label: "Key insight", icon: Lightbulb },
-    { key: "warning", label: "Warning", icon: TriangleAlert },
-    { key: "prayer", label: "Prayer", icon: Heart },
-    { key: "application", label: "Application", icon: CircleCheck },
-  ];
   return (
-    <DropdownMenu>
-      <SlotTooltip label="Insert callout">
-        <DropdownMenuTrigger asChild>
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            aria-label="Insert callout"
-            // Keep editor focused/selection intact when opening the menu.
-            onMouseDown={(event) => {
-              event.preventDefault();
-            }}
-            className="relative"
-          >
-            <Sparkles className="size-4" />
-            <ChevronDown className="absolute right-0.5 bottom-0.5 size-2.5 opacity-60" />
-          </Button>
-        </DropdownMenuTrigger>
-      </SlotTooltip>
-      <DropdownMenuContent align="start">
-        {variants.map((variant) => {
-          const Icon = variant.icon;
-          return (
-            <DropdownMenuItem
-              key={variant.key}
-              onSelect={() => {
-                ctx?.runCommand(insertCallout(variant.key));
-              }}
-            >
-              <Icon className="size-4" />
-              {variant.label}
-            </DropdownMenuItem>
-          );
-        })}
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <SlotTooltip label="Insert callout">
+      <Button
+        type="button"
+        size="icon"
+        variant="ghost"
+        aria-label="Insert callout"
+        // Keep editor focused/selection intact when clicking.
+        onMouseDown={(event) => {
+          event.preventDefault();
+        }}
+        onClick={() => {
+          ctx?.runCommand(insertCallout("note"));
+        }}
+      >
+        <Megaphone className="size-4" />
+      </Button>
+    </SlotTooltip>
   );
 }

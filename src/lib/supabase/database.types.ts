@@ -138,6 +138,7 @@ export type Database = {
           subtitle: string | null
           title: string
           updated_at: string
+          variant: string
         }
         Insert: {
           created_at?: string
@@ -150,6 +151,7 @@ export type Database = {
           subtitle?: string | null
           title: string
           updated_at?: string
+          variant?: string
         }
         Update: {
           created_at?: string
@@ -162,6 +164,7 @@ export type Database = {
           subtitle?: string | null
           title?: string
           updated_at?: string
+          variant?: string
         }
         Relationships: [
           {
@@ -1134,6 +1137,7 @@ export type Database = {
       }
       append_document_steps: {
         Args: {
+          _boundaries?: number[]
           _client_id?: string
           _document_id: string
           _expected_base: number
@@ -1207,7 +1211,7 @@ export type Database = {
       }
       deny_join_request: { Args: { _id: string }; Returns: undefined }
       document_history_moments: {
-        Args: { _document_id: string }
+        Args: { _document_id: string; _limit?: number }
         Returns: {
           created_at: string
           version: number

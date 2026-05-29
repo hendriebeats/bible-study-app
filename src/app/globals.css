@@ -46,6 +46,16 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+  /*
+    Right-edge side panels (Version history, Trash, Notifications) used to
+    pick widths from raw arbitrary values like `sm:w-[28rem]`. These three
+    tokens give a progressive width across breakpoints so a panel showing
+    document previews has real room to breathe on wide screens without each
+    panel re-inventing the ramp.
+  */
+  --width-side-panel-sm: 28rem;
+  --width-side-panel-md: 36rem;
+  --width-side-panel-lg: 44rem;
 }
 
 /*
@@ -97,6 +107,29 @@
   --callout-prayer-accent: oklch(0.52 0.1 305);
   --callout-application-bg: oklch(0.96 0.04 150);
   --callout-application-accent: oklch(0.5 0.1 150);
+  /* Action-variant study_block tones — a small palette of light shades the
+     user can pick per block. Accents reuse the callout palette tokens above
+     1:1 (sky↔note, amber↔insight, coral↔warning, plum↔prayer, sage↔application)
+     so retuning a callout retunes its matching tone. Grays are their own
+     soft warm shades, sitting a touch above --card so the bar stands out
+     without going dark. Text color is the standard --foreground in every
+     tone. Keep IDs in sync with src/lib/editor/block-tones.ts. */
+  --tone-default-bg: oklch(0.95 0.014 80);
+  --tone-stone-bg: oklch(0.94 0.01 60);
+  --tone-slate-bg: oklch(0.94 0.012 240);
+  --tone-sky-bg: var(--callout-note-bg);
+  --tone-amber-bg: var(--callout-insight-bg);
+  --tone-coral-bg: var(--callout-warning-bg);
+  --tone-plum-bg: var(--callout-prayer-bg);
+  --tone-sage-bg: var(--callout-application-bg);
+  /* Inline-start space every block-host container reserves so the absolute
+     `.block-handle` (positioned at `block.rect.left − 24px` by
+     block-handle.ts) sits cleanly INSIDE the host instead of straddling its
+     border. Mirrors `INDENT_STEP_REM` in src/lib/editor/schema.ts — when this
+     changes, the indent step should change with it. Hosts opt in by tagging
+     their content container with `.pm-block-host` (see the rule alongside
+     `.block-handle` below). Layout token — same value in light and dark. */
+  --block-gutter: 1.75rem;
 }
 
 .dark {
@@ -141,6 +174,18 @@
   --callout-prayer-accent: oklch(0.76 0.1 305);
   --callout-application-bg: oklch(0.3 0.04 150);
   --callout-application-accent: oklch(0.74 0.1 150);
+  /* Dark-mode tones — accents reuse the dark callout palette (so a sky tone
+     reads as the same blue as a note callout); grays are soft warm shades
+     just above the dark --card surface so the bar stands out without going
+     white. */
+  --tone-default-bg: oklch(0.32 0.018 56);
+  --tone-stone-bg: oklch(0.3 0.014 60);
+  --tone-slate-bg: oklch(0.3 0.018 240);
+  --tone-sky-bg: var(--callout-note-bg);
+  --tone-amber-bg: var(--callout-insight-bg);
+  --tone-coral-bg: var(--callout-warning-bg);
+  --tone-plum-bg: var(--callout-prayer-bg);
+  --tone-sage-bg: var(--callout-application-bg);
 }
 
 @layer base {
@@ -215,59 +260,6 @@
   .ProseMirror h3 {
     @apply mt-4 mb-2 text-xl font-semibold;
   }
-  .ProseMirror ul {
-    @apply list-disc pl-6;
-  }
-  .ProseMirror ol {
-    @apply list-decimal pl-6;
-  }
-  .ProseMirror li {
-    @apply my-1;
-  }
-  /*
-    Mixed-type list seams. The markdown shortcuts (`- ` / `1. ` / `[ ] ` etc.)
-    convert ONE item in place by splitting the parent list into 2–3 sibling
-    lists. Without these rules the editor's `> * + *` top-margin and the li's
-    own `my-1` would put a visible gap at the seam — defeating the user-facing
-    illusion of one continuous list. Zeroing margins on the immediate edges
-    (and on the boundary li's themselves) keeps the rows visually flush.
-    Selector list explicitly covers .task-list because it is also a <ul>.
-  */
-  .ProseMirror ul + ul,
-  .ProseMirror ul + ol,
-  .ProseMirror ol + ul,
-  .ProseMirror ol + ol {
-    margin-top: 0;
-  }
-  .ProseMirror ul:has(+ ul) > li:last-child,
-  .ProseMirror ul:has(+ ol) > li:last-child,
-  .ProseMirror ol:has(+ ul) > li:last-child,
-  .ProseMirror ol:has(+ ol) > li:last-child {
-    margin-bottom: 0;
-  }
-  .ProseMirror ul + ul > li:first-child,
-  .ProseMirror ul + ol > li:first-child,
-  .ProseMirror ol + ul > li:first-child,
-  .ProseMirror ol + ol > li:first-child {
-    margin-top: 0;
-  }
-  /* Checklists: no marker/indent, a checkbox beside the content. */
-  .ProseMirror .task-list {
-    @apply list-none pl-0;
-  }
-  .ProseMirror .task-item {
-    @apply flex items-start gap-2;
-  }
-  .ProseMirror .task-checkbox {
-    @apply mt-1 size-4 shrink-0;
-    accent-color: var(--primary);
-  }
-  .ProseMirror .task-item-content {
-    @apply min-w-0 flex-1;
-  }
-  .ProseMirror .task-item[data-checked="true"] > .task-item-content {
-    @apply text-muted-foreground line-through;
-  }
   /*
     Flat-schema list rows. A single `list_row` node carries `listType` /
     `indent` / `checked` / `listStart`; the NodeView (`ListRowView`) builds a
@@ -312,6 +304,36 @@
     margin-top: 0;
   }
   .ProseMirror .list-row:has(+ .list-row) {
+    margin-bottom: 0;
+  }
+  /*
+    Make a `.collapsible` (and `.callout`) feel like just another list item
+    when it sits next to one — no extra vertical air around the seam. Mirrors
+    the `list-row + list-row` collapse above, extended to the wrappers users
+    treat as list-shaped (toggles, callouts).
+  */
+  .ProseMirror .collapsible,
+  .ProseMirror .callout {
+    margin-block: 0.25rem;
+  }
+  .ProseMirror .list-row + .collapsible,
+  .ProseMirror .collapsible + .list-row,
+  .ProseMirror .collapsible + .collapsible,
+  .ProseMirror .list-row + .callout,
+  .ProseMirror .callout + .list-row,
+  .ProseMirror .callout + .callout,
+  .ProseMirror .collapsible + .callout,
+  .ProseMirror .callout + .collapsible {
+    margin-top: 0;
+  }
+  .ProseMirror .list-row:has(+ .collapsible),
+  .ProseMirror .collapsible:has(+ .list-row),
+  .ProseMirror .collapsible:has(+ .collapsible),
+  .ProseMirror .list-row:has(+ .callout),
+  .ProseMirror .callout:has(+ .list-row),
+  .ProseMirror .callout:has(+ .callout),
+  .ProseMirror .collapsible:has(+ .callout),
+  .ProseMirror .callout:has(+ .collapsible) {
     margin-bottom: 0;
   }
   .ProseMirror .list-row::before {
@@ -372,51 +394,147 @@
   .ProseMirror blockquote {
     @apply border-l-4 border-primary pl-4 font-serif text-muted-foreground italic;
   }
-  /* Callout boxes: tinted box + accent left bar + a colored variant header. */
+  /*
+    Callout boxes: tinted box + accent left bar. Variant attribute is now
+    purely a color key (no labels / emoji rendered); the variant's accent
+    color drives the border + the first-child (editable header) typography.
+    The wrapper hosts a floating color chip + popover for inline re-coloring.
+  */
   .ProseMirror .callout {
     @apply my-3 rounded-lg border p-3;
+    position: relative;
     border-left-width: 3px;
-  }
-  .ProseMirror .callout-header {
-    @apply mb-1 flex items-center gap-1.5 text-sm font-semibold select-none;
   }
   .ProseMirror .callout-body > * + * {
     @apply mt-2;
   }
-  .ProseMirror .callout-note {
-    background: var(--callout-note-bg);
+  /* First child of the body == the editable header. Sized + weighted to
+     read as a "title" without being a separate non-editable element. */
+  .ProseMirror .callout-body > :first-child {
+    @apply font-semibold;
+  }
+  /* Empty-header placeholder. `:empty` matches an empty textblock (PM renders
+     `<p></p>` with no children when the inline content is empty). */
+  .ProseMirror .callout-body > :first-child:empty::before {
+    content: "Type a title…";
+    @apply pointer-events-none text-muted-foreground/70;
+  }
+  /*
+    Callout tones — uses the unified `--tone-{id}-bg` palette shared with
+    action study-blocks. Default + grayscales (stone, slate) plus five
+    accents (sky, amber, coral, plum, sage). New callouts store the BlockTone
+    key directly in `variant`; saved legacy values (note/insight/…) are
+    normalized to their tone equivalents in CalloutView's `readTone`.
+  */
+  .ProseMirror .callout-default {
+    background: var(--tone-default-bg);
+    border-color: var(--border);
+  }
+  .ProseMirror .callout-stone {
+    background: var(--tone-stone-bg);
+    border-color: var(--border);
+  }
+  .ProseMirror .callout-slate {
+    background: var(--tone-slate-bg);
+    border-color: var(--border);
+  }
+  .ProseMirror .callout-sky {
+    background: var(--tone-sky-bg);
     border-color: var(--callout-note-accent);
   }
-  .ProseMirror .callout-note .callout-header {
-    color: var(--callout-note-accent);
-  }
-  .ProseMirror .callout-insight {
-    background: var(--callout-insight-bg);
+  .ProseMirror .callout-amber {
+    background: var(--tone-amber-bg);
     border-color: var(--callout-insight-accent);
   }
-  .ProseMirror .callout-insight .callout-header {
-    color: var(--callout-insight-accent);
-  }
-  .ProseMirror .callout-warning {
-    background: var(--callout-warning-bg);
+  .ProseMirror .callout-coral {
+    background: var(--tone-coral-bg);
     border-color: var(--callout-warning-accent);
   }
-  .ProseMirror .callout-warning .callout-header {
-    color: var(--callout-warning-accent);
-  }
-  .ProseMirror .callout-prayer {
-    background: var(--callout-prayer-bg);
+  .ProseMirror .callout-plum {
+    background: var(--tone-plum-bg);
     border-color: var(--callout-prayer-accent);
   }
-  .ProseMirror .callout-prayer .callout-header {
-    color: var(--callout-prayer-accent);
-  }
-  .ProseMirror .callout-application {
-    background: var(--callout-application-bg);
+  .ProseMirror .callout-sage {
+    background: var(--tone-sage-bg);
     border-color: var(--callout-application-accent);
   }
-  .ProseMirror .callout-application .callout-header {
+  /* Header text color tracks the variant accent for the colored tones; the
+     grayscale tones use the default foreground (already inherited). */
+  .ProseMirror .callout-sky .callout-body > :first-child {
+    color: var(--callout-note-accent);
+  }
+  .ProseMirror .callout-amber .callout-body > :first-child {
+    color: var(--callout-insight-accent);
+  }
+  .ProseMirror .callout-coral .callout-body > :first-child {
+    color: var(--callout-warning-accent);
+  }
+  .ProseMirror .callout-plum .callout-body > :first-child {
+    color: var(--callout-prayer-accent);
+  }
+  .ProseMirror .callout-sage .callout-body > :first-child {
     color: var(--callout-application-accent);
+  }
+  /* Color chip — top-right disc showing the current tone color. Click
+     dispatches CALLOUT_COLOR_EVENT for the React-mounted popover. */
+  .ProseMirror .callout-color-chip {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    width: 1.25rem;
+    height: 1.25rem;
+    border-radius: 9999px;
+    border: 1px solid var(--border);
+    cursor: pointer;
+    opacity: 0.85;
+    transition:
+      opacity 120ms ease-out,
+      transform 120ms ease-out;
+  }
+  .ProseMirror .callout-color-chip:hover {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+  .ProseMirror .callout-default > .callout-color-chip {
+    background: var(--tone-default-bg);
+  }
+  .ProseMirror .callout-stone > .callout-color-chip {
+    background: var(--tone-stone-bg);
+  }
+  .ProseMirror .callout-slate > .callout-color-chip {
+    background: var(--tone-slate-bg);
+  }
+  .ProseMirror .callout-sky > .callout-color-chip {
+    background: var(--tone-sky-bg);
+  }
+  .ProseMirror .callout-amber > .callout-color-chip {
+    background: var(--tone-amber-bg);
+  }
+  .ProseMirror .callout-coral > .callout-color-chip {
+    background: var(--tone-coral-bg);
+  }
+  .ProseMirror .callout-plum > .callout-color-chip {
+    background: var(--tone-plum-bg);
+  }
+  .ProseMirror .callout-sage > .callout-color-chip {
+    background: var(--tone-sage-bg);
+  }
+  /*
+    Empty-body hint — clickable affordance shown when the callout's body has
+    no real content. Click inserts an empty paragraph. Mirrors the
+    `.collapsible-empty-hint` rules exactly so the two wrappers feel uniform.
+  */
+  .ProseMirror .callout-empty-hint {
+    display: none;
+    margin-top: 0.125rem;
+    padding: 0.125rem 0;
+    color: var(--muted-foreground);
+    font-size: 0.875rem;
+    cursor: text;
+    user-select: none;
+  }
+  .ProseMirror .callout[data-empty-body="true"] > .callout-empty-hint {
+    display: block;
   }
   /*
     Collapsible (toggleable) sections — Notion-style. A 2-column grid puts the
@@ -445,6 +563,16 @@
   .ProseMirror .collapsible-content {
     grid-column: 2;
     min-width: 0;
+  }
+  /* The collapsible grid's chevron column (1.25rem) + column-gap (0.25rem)
+     already supplies ~1.5rem of inset to the left of the body — wide enough
+     for a `.block-handle` to sit between the chevron and the body's text
+     without additional padding. The `.pm-block-host` marker is still applied
+     by `CollapsibleView` (so `block-drag.ts` sizes the drop indicator to the
+     collapsible body, not the outer editor), but we override the gutter
+     padding here to avoid double-insetting body text. */
+  .ProseMirror .collapsible-content.pm-block-host {
+    padding-inline-start: 0;
   }
   /* Tight vertical rhythm inside the toggle — body paragraphs sit close to
      the header, matching how list items stack. */
@@ -480,6 +608,24 @@
     > .collapsible-empty-hint {
     display: block;
   }
+  /*
+    Callout empty-body hint — same affordance as the collapsible's. Lives
+    inside the callout's wrapper, just after the contentDOM. Click inserts a
+    fresh body paragraph; drops in the body land normally via the
+    block-handle drop logic now that `callout` is a drag container.
+  */
+  .ProseMirror .callout-empty-hint {
+    display: none;
+    margin-top: 0.125rem;
+    padding: 0.125rem 0;
+    color: var(--muted-foreground);
+    font-size: 0.875rem;
+    cursor: text;
+    user-select: none;
+  }
+  .ProseMirror .callout[data-empty-body="true"] > .callout-empty-hint {
+    display: block;
+  }
   /* Tables (opt-in). Fixed layout so columns share width and don't overflow. */
   .ProseMirror table {
     @apply my-3 w-full border-collapse text-sm;
@@ -513,9 +659,16 @@
      handle + verse ref) sits flush against the wrapper's left side instead of
      inset by `.study-block-body`'s p-3. Other sides keep that padding. The
      extra `.notes-index` qualifier raises specificity above the later-defined
-     `.ProseMirror .study-block-body { padding: 0.75rem }`. */
-  .ProseMirror .notes-index .notes-index-body-col {
+     `.ProseMirror .study-block-body { padding: 0.75rem }` AND above the
+     generic `.ProseMirror .pm-block-host` gutter — notes use their own
+     per-row `.note-entry-drag` handle, not the gutter handle, so the host
+     reserves no inline-start padding. The `.pm-block-host` segment is in the
+     selector so the marker added by `NotesIndexView` doesn't accidentally
+     bypass this override. */
+  .ProseMirror .notes-index .notes-index-body-col,
+  .ProseMirror .notes-index .notes-index-body-col.pm-block-host {
     padding-left: 0;
+    padding-inline-start: 0;
   }
   /* Empty-state placeholder shown inside the notes block when no entries
      exist (see notes-index-view.ts). Inset matches the body's normal padding
@@ -645,6 +798,19 @@
     position: absolute;
     left: -1.5rem;
   }
+  /* Any container that hosts draggable blocks tags its contentDOM with
+     `.pm-block-host` so it reserves an inline-start gutter wide enough for
+     the absolute `.block-handle` to live INSIDE the host (instead of bleeding
+     across a sibling's border — the symptom the rule fixes inside
+     `.study-block-body`, where a 250px header column previously sat 12px
+     INSIDE the handle's reach). The same marker is consumed by
+     `block-drag.ts`'s `hostRect` helper to size the drop-line indicator to
+     the host, not the outer editor. Per-host overrides (collapsible,
+     notes-index) follow below — they need the marker for the indicator math
+     but supply their gutter via a different mechanism. */
+  .ProseMirror .pm-block-host {
+    padding-inline-start: var(--block-gutter);
+  }
   /* Drag-to-reorder (pointer-reorder.ts): a floating drop indicator + drag
      affordances shared by every reorderable list (notes, blocks, templates). */
   .reorder-drop-indicator {
@@ -664,18 +830,25 @@
   }
   /* Phase 4c hierarchical block drag. The source range is ghosted with a
      transparent overlay (lets clicks fall through to the editor for the
-     drop calc); the drop indicator is a horizontal blue line whose
-     `margin-inline-start` is set inline by the NodeView per the chosen
-     indent step, so it snaps left/right as the cursor moves horizontally. */
+     drop calc); the drop indicator is a single absolutely-positioned div
+     painted by the block-drag plugin view. It sits OUTSIDE the editor's
+     flow on purpose — a widget-decoration indicator injected 6 px of
+     in-flow space and caused a flicker feedback loop when the cursor sat
+     near a row boundary. The overlay reads `getBoundingClientRect()` once
+     per instruction change so no layout shift is induced. */
   .ProseMirror .pm-drag-source {
     opacity: 0.4;
     pointer-events: none;
   }
-  .ProseMirror .pm-drop-indicator {
-    height: 2px;
+  .pm-drop-indicator {
+    /* Position + size set inline by block-drag.ts per chosen instruction.
+       All four gestures (reorder-above / reorder-below / make-child /
+       reparent) render as a horizontal 2-px line; the gesture is
+       communicated by the line's vertical anchor (between rows vs. on a
+       row's top edge) plus the source row's existing ghost opacity. */
+    z-index: 5;
     border-radius: 1px;
     background-color: var(--primary);
-    margin-block: 2px;
     pointer-events: none;
   }
   body.pm-dragging {
@@ -685,10 +858,16 @@
   .ProseMirror code {
     @apply rounded bg-muted px-1 py-0.5 font-mono text-sm;
   }
-  /* Placeholder text for an empty document. */
+  /* Placeholder text for an empty document.
+     `[data-empty-overlay]` (set by `DocumentEditor` on the mount wrapper when
+     the empty-owner scripture-prompt overlay is rendering) suppresses the CSS
+     placeholder so the two don't double up on the same empty paragraph. */
   .ProseMirror p.is-editor-empty:first-child::before {
     content: attr(data-placeholder);
     @apply pointer-events-none float-left h-0 text-muted-foreground;
+  }
+  [data-empty-overlay] .ProseMirror p.is-editor-empty:first-child::before {
+    content: none;
   }
   /* A read-along viewer's rendering of the writer's live caret + selection. */
   .remote-caret {
@@ -814,6 +993,72 @@
       flex: 1 1 0%;
     }
   }
+  /* Action-variant study block: a reminder bar with header + subheader
+     centered together (no visible body), used for "do this, don't write
+     anything" steps like opening prayer. Background comes from the per-block
+     `tone` (see `.study-block--tone-*` rules below — every action block
+     carries one); text stays the regular --foreground in both themes. */
+  .study-block-action {
+    /* Title + subtitle sit side-by-side, sized to their content, centered as
+       a group in the bar (not pushed to opposite edges). `flex-wrap` keeps
+       them stacking gracefully when the bar gets too narrow to fit both. */
+    @apply flex flex-wrap items-baseline justify-center gap-x-3 gap-y-1 px-4 py-3;
+  }
+  .study-block-action-title,
+  .study-block-action-subtitle {
+    /* Borderless transparent textareas that inherit the text color and grow
+       with their content (mirrors .study-block-title). */
+    @apply min-w-0 bg-transparent text-center outline-none;
+    color: inherit;
+    resize: none;
+    overflow: hidden;
+    field-sizing: content;
+  }
+  .study-block-action-title {
+    @apply text-base font-semibold;
+  }
+  .study-block-action-title::placeholder,
+  .study-block-action-subtitle::placeholder {
+    /* Faded version of the inherited text color so the prompt reads as a hint
+       on every tone without us defining a per-tone placeholder color. */
+    color: currentColor;
+    opacity: 0.55;
+  }
+  .study-block-action-subtitle {
+    @apply text-sm;
+  }
+  /* The body still exists structurally (block+ content rule unchanged) so
+     ProseMirror has a valid contentDOM mount point — hide it completely. */
+  .study-block-body--hidden {
+    display: none;
+  }
+  /* Per-tone background colors for action-variant bars. The `.study-block--action`
+     scope keeps standard blocks untouched (they always show as bg-card today).
+     Tone IDs MUST stay in sync with src/lib/editor/block-tones.ts. */
+  .study-block.study-block--action.study-block--tone-default {
+    background: var(--tone-default-bg);
+  }
+  .study-block.study-block--action.study-block--tone-stone {
+    background: var(--tone-stone-bg);
+  }
+  .study-block.study-block--action.study-block--tone-slate {
+    background: var(--tone-slate-bg);
+  }
+  .study-block.study-block--action.study-block--tone-sky {
+    background: var(--tone-sky-bg);
+  }
+  .study-block.study-block--action.study-block--tone-amber {
+    background: var(--tone-amber-bg);
+  }
+  .study-block.study-block--action.study-block--tone-coral {
+    background: var(--tone-coral-bg);
+  }
+  .study-block.study-block--action.study-block--tone-plum {
+    background: var(--tone-plum-bg);
+  }
+  .study-block.study-block--action.study-block--tone-sage {
+    background: var(--tone-sage-bg);
+  }
   /* Scripture: a non-editable passage with superscript verse numbers. */
   .scripture {
     @apply rounded-lg border-l-4 border-primary bg-muted/40 py-2 pr-3 pl-4 font-serif;
@@ -862,4 +1107,65 @@
    the moment a co-member panel is added. */
 [data-study-dock][data-single-panel] .dv-tabs-and-actions-container {
   display: none;
+}
+
+/* Version-history red/green diff highlights for the SectionHistoryPanel's
+   DocPreview. Anchored in the PAST doc:
+     - `.history-diff-removed` decorates text that exists in the past version
+       but no longer in current — what was DELETED. Red tint + strikethrough.
+     - `.history-diff-added` is a widget chip rendering text from the CURRENT
+       doc that didn't exist in the past — what was ADDED. Green tint.
+   See src/lib/editor/history-diff.ts for how the ranges are computed.
+   Reuses the destructive / application-callout tokens so the colours track
+   the rest of the warm palette in dark mode too. */
+.ProseMirror .history-diff-removed {
+  background-color: color-mix(in oklch, var(--destructive) 18%, transparent);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(
+    in oklch,
+    var(--destructive) 65%,
+    transparent
+  );
+  border-radius: 2px;
+  padding: 0 1px;
+}
+/* `.history-diff-added` now has two flavours driven by what was inserted:
+   - `--inline` for text-level inserts (a word added mid-paragraph) — a small
+     inline pill that flows with the surrounding text.
+   - `--block` for whole-paragraph / structural inserts — a stacked container
+     with a left rule, so the user can see an inserted block as its own
+     visual unit rather than a one-line chip. Inside `--block`, nested
+     ProseMirror nodes are rendered via DOMSerializer (see history-diff.ts);
+     we strip their margins so the block doesn't accumulate extra gaps inside
+     the green container. */
+.ProseMirror .history-diff-added--inline {
+  background-color: color-mix(
+    in oklch,
+    var(--callout-application-accent) 22%,
+    transparent
+  );
+  color: var(--callout-application-accent);
+  border-radius: 2px;
+  padding: 0 3px;
+  margin: 0 1px;
+  white-space: pre-wrap;
+}
+.ProseMirror .history-diff-added--block {
+  display: block;
+  background-color: color-mix(
+    in oklch,
+    var(--callout-application-accent) 14%,
+    transparent
+  );
+  border-left: 3px solid
+    color-mix(in oklch, var(--callout-application-accent) 65%, transparent);
+  border-radius: 2px;
+  padding: 0.35rem 0.6rem;
+  margin: 0.35rem 0;
+}
+.ProseMirror .history-diff-added--block > :first-child {
+  margin-top: 0;
+}
+.ProseMirror .history-diff-added--block > :last-child {
+  margin-bottom: 0;
 }

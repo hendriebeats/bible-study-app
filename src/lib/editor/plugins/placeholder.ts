@@ -35,6 +35,12 @@ export function placeholder(text: string): Plugin {
 
         doc.descendants((node, pos) => {
           if (node.type.name === "study_block") {
+            // Action-variant blocks have no visible body, so the placeholder
+            // hint would never be seen — and we'd be decorating a structural
+            // empty paragraph the user can't interact with. Skip them.
+            if (node.attrs.variant === "action") {
+              return false;
+            }
             const ph: unknown = node.attrs.placeholder;
             if (typeof ph === "string" && ph !== "" && node.childCount === 1) {
               const body = node.child(0);

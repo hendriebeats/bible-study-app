@@ -2,8 +2,8 @@
 
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { gapCursor } from "prosemirror-gapcursor";
-import { closeHistory, history, undo } from "prosemirror-history";
-import { History, PanelRight } from "lucide-react";
+import { closeHistory, history } from "prosemirror-history";
+import { BookOpen, PanelRight } from "lucide-react";
 import { keymap } from "prosemirror-keymap";
 import type { Node } from "prosemirror-model";
 import { EditorState } from "prosemirror-state";
@@ -22,11 +22,11 @@ import {
 import { useEditorContext } from "@/components/studies/editor-context";
 import { PresenceAvatars } from "@/components/studies/presence-avatars";
 import { StudyBlocksDialog } from "@/components/studies/study-blocks-dialog";
-import { VersionHistoryPanel } from "@/components/studies/version-history-panel";
 import { Button } from "@/components/ui/button";
 import type { DocumentHistory, StudyDocument } from "@/lib/db/types";
 import { blocksDocFromSpecs, specsFromBlocksDoc } from "@/lib/editor/blocks";
 import { makeModASelect } from "@/lib/editor/commands";
+import { isDocEmpty } from "@/lib/editor/doc-utils";
 import {
   DEFAULT_EDITOR_TOOLS,
   type EditorTools,
@@ -41,8 +41,17 @@ import { noteAnchors } from "@/lib/editor/plugins/note-anchors";
 import { notesIndexGuard } from "@/lib/editor/plugins/notes-index-guard";
 import { placeholder as placeholderPlugin } from "@/lib/editor/plugins/placeholder";
 import { slashMenu } from "@/lib/editor/plugins/slash-menu";
-import { applyIndentRunDrop } from "@/lib/editor/indent-run";
-import { blockDragPlugin } from "@/lib/editor/plugins/block-drag";
+import {
+  applyIndentRunDrop,
+  applyIndentRunDropAtPosition,
+  type DropInstruction,
+} from "@/lib/editor/indent-run";
+import {
+  type BlockDragState,
+  blockDragPlugin,
+  getBlockDragState,
+} from "@/lib/editor/plugins/block-drag";
+import { computeDropInstruction } from "@/lib/editor/plugins/block-handle";
 import { selectionShadowPlugin } from "@/lib/editor/plugins/selection-shadow";
 import { verseGuard } from "@/lib/editor/plugins/verse-guard";
 import { verseLabel } from "@/lib/editor/plugins/verse-label";
@@ -60,7 +69,11 @@ import {
   stepToJSON,
 } from "@/lib/editor/serialize";
 import type { PMDocJSON, SerializedStep } from "@/lib/editor/types";
-import { UNDO_GROUP_DELAY_MS, withUndoBoundary } from "@/lib/editor/word-undo";
+import {
+  UNDO_GROUP_DELAY_MS,
+  isUndoBoundary,
+  withUndoBoundary,
+} from "@/lib/editor/word-undo";
 import {
   broadcastCursor,
   broadcastSteps,
@@ -228,8 +241,10 @@ function buildInitialState(
 /**
  * Editable, autosaving editor for ONE document (notes or blocks) the user owns.
  * Persists ProseMirror steps via the document RPCs with optimistic concurrency,
- * broadcasts them + the cursor to read-along viewers, snapshots checkpoints,
- * and offers per-document version history. The section title lives one level up.
+ * broadcasts them + the cursor to read-along viewers, and snapshots checkpoints
+ * to bound replay length. Version history is exposed one level up — at the
+ * section ⋮ menu — by {@link SectionHistoryPanel}; this editor has no per-doc
+ * History button. The section title lives one level up too.
  */
 export function DocumentEditor({
   document: doc,
@@ -237,13 +252,13 @@ export function DocumentEditor({
   me,
   label,
   hideLabel = false,
-  hideHistory = false,
   placeholder,
   studyId,
   isTemplate = false,
   sectionPosition,
   emptyStateHasTemplate = false,
   emptyStateHasPrevious = false,
+  emptyOwnerScripturePrompt,
   onDetach,
 }: {
   document: StudyDocument;
@@ -252,8 +267,6 @@ export function DocumentEditor({
   label: string;
   /** Keep the label for screen readers but hide it visually (still shows the controls row). */
   hideLabel?: boolean;
-  /** Hide this editor's own History button (a section-level history is used instead). */
-  hideHistory?: boolean;
   placeholder: string;
   /** Set on the blocks editor to enable the study-blocks dialog. */
   studyId?: string;
@@ -264,6 +277,16 @@ export function DocumentEditor({
   /** Empty-state action availability (pre-computed in the section page). */
   emptyStateHasTemplate?: boolean;
   emptyStateHasPrevious?: boolean;
+  /**
+   * When set, an instructional empty-state overlay replaces the bare
+   * placeholder as long as the doc is empty: a BookOpen icon, a heading
+   * ("Add Scripture to Get Started"), and a sub-line pointing at the
+   * scripture button in the top toolbar. Clicking the overlay calls
+   * `onOpenScripture` (the same handler the toolbar button uses). Currently
+   * passed only on the owner's notes editor — viewers and the blocks editor
+   * keep the default placeholder.
+   */
+  emptyOwnerScripturePrompt?: { onOpenScripture: () => void };
   /**
    * If set, renders a toolbar button that opens this editor in its own dockview
    * panel. Owner-only callers wire this on the inline blocks editor; the
@@ -280,8 +303,6 @@ export function DocumentEditor({
     editorToolsRef.current = editorTools;
   });
   const [status, setStatus] = useState<SaveStatus>("idle");
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [historyHead, setHistoryHead] = useState(0);
   const [seeding, setSeeding] = useState(false);
   // The blocks editor always renders (the pinned notes index is the lowest-level
   // structure). `noStudyBlocks` toggles the empty-state callout below the
@@ -290,6 +311,13 @@ export function DocumentEditor({
   const [noStudyBlocks, setNoStudyBlocks] = useState(
     () =>
       doc.kind === "blocks" && !hasStudyBlock(initialBlocksDoc(doc.content)),
+  );
+  // True while the editor's doc is the schema's blank state (a lone empty
+  // paragraph). Drives the owner-only "Add Scripture to Get Started" overlay
+  // on the notes editor — passed in via `emptyOwnerScripturePrompt`; ignored
+  // when no prompt is provided (e.g. the blocks editor, viewer paths).
+  const [isEmpty, setIsEmpty] = useState(() =>
+    isDocEmpty(initialDoc(doc.content)),
   );
   const [members, setMembers] = useState<PresenceMember[]>([]);
   const viewRef = useRef<EditorView | null>(null);
@@ -308,6 +336,14 @@ export function DocumentEditor({
   const lastVersionRef = useRef(docHistory.headVersion);
   const lastCheckpointRef = useRef(docHistory.baseVersion);
   const pendingStepsRef = useRef<SerializedStep[]>([]);
+  // 0-indexed positions inside `pendingStepsRef` where a NEW word/action group
+  // begins (per `isUndoBoundary` — the same predicate that drives `closeHistory`
+  // tagging in `dispatchTransaction`). Flushed alongside the steps so persisted
+  // history shows one moment per word/action — the same granularity as Cmd-Z —
+  // instead of one moment per ~1.2s autosave batch. The very first step of a
+  // batch implicitly starts a group; only boundaries DURING the batch are
+  // recorded here.
+  const pendingBoundariesRef = useRef<number[]>([]);
   const flushingRef = useRef(false);
 
   useEffect(() => {
@@ -356,7 +392,9 @@ export function DocumentEditor({
       }
       flushingRef.current = true;
       const batch = pendingStepsRef.current;
+      const boundaries = pendingBoundariesRef.current;
       pendingStepsRef.current = [];
+      pendingBoundariesRef.current = [];
       const base = lastVersionRef.current;
       const newDoc = docToJSON(view.state.doc);
       try {
@@ -366,6 +404,7 @@ export function DocumentEditor({
           batch,
           newDoc,
           clientId,
+          boundaries,
         );
         // The view may have been torn down (section swap) while the save was in
         // flight — the steps are persisted, so just stop before touching it.
@@ -382,6 +421,7 @@ export function DocumentEditor({
           }
           if (head) {
             pendingStepsRef.current = [];
+            pendingBoundariesRef.current = [];
             lastVersionRef.current = head.version;
             lastCheckpointRef.current = head.version;
             const fresh = EditorState.create({
@@ -396,6 +436,7 @@ export function DocumentEditor({
             if (role === "blocks") {
               setNoStudyBlocks(!hasStudyBlock(fresh.doc));
             }
+            setIsEmpty(isDocEmpty(fresh.doc));
             setStatus("saved");
             toast.info("Synced with your latest edits from another tab.");
           }
@@ -427,7 +468,14 @@ export function DocumentEditor({
       } catch {
         // Keep the steps and let the next change (or blur) retry. Surface a
         // single, deduped error toast (cleared on the next successful save).
+        // Boundaries collected after we drained must shift right by the
+        // re-prepended batch length so they keep pointing at the same step.
+        const shift = batch.length;
         pendingStepsRef.current = [...batch, ...pendingStepsRef.current];
+        pendingBoundariesRef.current = [
+          ...boundaries,
+          ...pendingBoundariesRef.current.map((i) => i + shift),
+        ];
         setStatus("idle");
         toast.error("Couldn't save your changes. Retrying…", {
           id: "section-save-error",
@@ -517,6 +565,23 @@ export function DocumentEditor({
           setNoStudyBlocks((prev) => (prev === empty ? prev : empty));
         }
         if (transaction.docChanged) {
+          // Mirror the empty/non-empty doc shape into React so the owner-only
+          // scripture-prompt overlay appears the moment the doc empties and
+          // disappears on the user's first character.
+          const nextEmpty = isDocEmpty(next.doc);
+          setIsEmpty((prev) => (prev === nextEmpty ? prev : nextEmpty));
+        }
+        if (transaction.docChanged) {
+          // The very first step of a pending batch implicitly opens a group,
+          // so we only record an explicit boundary when the batch is non-empty
+          // AND this transaction is a word/action boundary (the same predicate
+          // `withUndoBoundary` used above to tag undo groups).
+          if (
+            pendingStepsRef.current.length > 0 &&
+            isUndoBoundary(current, transaction)
+          ) {
+            pendingBoundariesRef.current.push(pendingStepsRef.current.length);
+          }
           for (const step of transaction.steps) {
             pendingStepsRef.current.push(stepToJSON(step));
           }
@@ -576,13 +641,43 @@ export function DocumentEditor({
          * so Playwright can lock down the structural outcome without
          * synthesizing pointer events (which teleport and miss the
          * gutter-hover bridge per playwright-testing-notes.md).
+         *
+         * Two shapes are accepted so the legacy 4-tuple call sites
+         * (existing e2e specs) keep working alongside the new instruction
+         * form. The 4-tuple form is a shim that maps `(pos, indent)` onto
+         * `reorder-above` / `reorder-below` depending on where pos lands.
          */
-        simulateBlockDrop: (
+        simulateBlockDrop: ((
           sourceStart: number,
           sourceEnd: number,
           targetPos: number,
           targetIndent: number,
-        ) => boolean;
+        ) => boolean) &
+          ((
+            sourceStart: number,
+            sourceEnd: number,
+            instruction: DropInstruction,
+          ) => boolean);
+        /**
+         * Test-only: read the live block-drag plugin state on the focused
+         * view (idle | active w/ instruction). Used by the manual pixel-
+         * sweep diagnostic in plans/i-want-paragraph-buzzing-quilt.md.
+         */
+        getBlockDragState: () => BlockDragState | null;
+        /**
+         * Test-only: ask the driver "what DropInstruction would you emit at
+         * this client (x, y) for a drag of the given source range?" without
+         * starting a real drag. Lets the manual pixel sweep map every
+         * coordinate to its computed instruction (or null) so we can see
+         * gap dead-zones and seam transitions.
+         */
+        probeDropInstruction: (
+          clientX: number,
+          clientY: number,
+          sourceStart: number,
+          sourceEnd: number,
+          rootIndent: number,
+        ) => DropInstruction | null;
       }
       const w = window as unknown as { __PM_DEBUG__?: PMDebugApi };
       if (!w.__PM_DEBUG__) {
@@ -601,21 +696,52 @@ export function DocumentEditor({
           getDocJSON: (): unknown => focused()?.state.doc.toJSON() ?? null,
           getView: focused,
           getFocusedView: focused,
+          getBlockDragState: (): BlockDragState | null => {
+            const v = focused();
+            return v ? getBlockDragState(v) : null;
+          },
+          probeDropInstruction: (
+            clientX: number,
+            clientY: number,
+            sourceStart: number,
+            sourceEnd: number,
+            rootIndent: number,
+          ): DropInstruction | null => {
+            const v = focused();
+            if (!v) return null;
+            // Fabricate the subset of PointerEvent that computeDropInstruction
+            // actually reads. Casting through unknown is required because
+            // PointerEvent has many more fields we don't need.
+            const fakeEvent = {
+              clientX,
+              clientY,
+            } as unknown as PointerEvent;
+            return computeDropInstruction(
+              v,
+              fakeEvent,
+              sourceStart,
+              sourceEnd,
+              rootIndent,
+            );
+          },
           simulateBlockDrop: (
             sourceStart: number,
             sourceEnd: number,
-            targetPos: number,
-            targetIndent: number,
+            third: number | DropInstruction,
+            fourth?: number,
           ): boolean => {
             const v = focused();
             if (!v) return false;
-            const tr = applyIndentRunDrop(
-              v.state,
-              sourceStart,
-              sourceEnd,
-              targetPos,
-              targetIndent,
-            );
+            const tr =
+              typeof third === "number"
+                ? applyIndentRunDropAtPosition(
+                    v.state,
+                    sourceStart,
+                    sourceEnd,
+                    third,
+                    typeof fourth === "number" ? fourth : 0,
+                  )
+                : applyIndentRunDrop(v.state, sourceStart, sourceEnd, third);
             if (!tr) return false;
             v.dispatch(tr);
             return true;
@@ -723,40 +849,6 @@ export function DocumentEditor({
     });
   }
 
-  // Restore by replacing the whole doc with a past version — flows through the
-  // normal step pipeline, so it's persisted, broadcast, and itself undoable.
-  function applyRestore(targetDoc: PMDocJSON) {
-    const view = viewRef.current;
-    if (!view) {
-      return;
-    }
-    const node = jsonToDoc(targetDoc);
-    const tr = view.state.tr.replaceWith(
-      0,
-      view.state.doc.content.size,
-      node.content,
-    );
-    tr.setMeta("allowVerseEdit", true);
-    if (tr.docChanged) {
-      view.dispatch(tr);
-      // The restore is a single undoable transaction — offer a one-click revert.
-      toast.success("Version restored.", {
-        action: {
-          label: "Undo",
-          onClick: () => {
-            const current = viewRef.current;
-            if (current) {
-              undo(current.state, current.dispatch);
-              current.focus();
-            }
-          },
-        },
-      });
-    }
-    setHistoryOpen(false);
-    view.focus();
-  }
-
   // `status` itself is still tracked via `setStatus` calls inside the autosave
   // loop — see comment in the right-side cluster below for why the visible
   // label was removed but the state stays.
@@ -802,31 +894,31 @@ export function DocumentEditor({
               Open in panel
             </Button>
           ) : null}
-          {hideHistory ? null : (
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                setHistoryHead(lastVersionRef.current);
-                setHistoryOpen(true);
-              }}
-            >
-              <History className="size-4" />
-              History
-            </Button>
-          )}
         </div>
       </div>
       {/* The blocks editor always has the pinned notes index, so it doesn't
           need a min-height clickable canvas — applying one would just stretch
           the wrapper and leave a tall empty gap before the empty-state
           callout. The notes editor stays with `min-h-32` so an empty notes
-          doc still offers a sensible click target. */}
-      <div
-        ref={mountRef}
-        className={doc.kind === "blocks" ? undefined : "min-h-32"}
-      />
+          doc still offers a sensible click target. The relative wrapper exists
+          so the empty-owner scripture prompt can overlay the editor area. */}
+      <div className="relative">
+        <div
+          ref={mountRef}
+          // `data-empty-overlay` hides the CSS `::before` placeholder when the
+          // React overlay is showing instead — see the matching selector in
+          // `globals.css`. The attribute is harmless when no overlay is present.
+          data-empty-overlay={
+            isEmpty && emptyOwnerScripturePrompt ? "true" : undefined
+          }
+          className={doc.kind === "blocks" ? undefined : "min-h-32"}
+        />
+        {isEmpty && emptyOwnerScripturePrompt ? (
+          <EmptyScripturePromptOverlay
+            onClick={emptyOwnerScripturePrompt.onOpenScripture}
+          />
+        ) : null}
+      </div>
       {doc.kind === "blocks" && noStudyBlocks ? (
         <div className="mt-2 rounded-lg border border-dashed border-muted-foreground/40 p-6 text-center text-sm text-muted-foreground">
           <p className="font-medium text-foreground">No study blocks yet.</p>
@@ -872,16 +964,50 @@ export function DocumentEditor({
           </p>
         </div>
       ) : null}
-      {historyOpen ? (
-        <VersionHistoryPanel
-          documentId={doc.id}
-          headVersion={historyHead}
-          onRestore={applyRestore}
-          onClose={() => {
-            setHistoryOpen(false);
-          }}
-        />
-      ) : null}
+    </div>
+  );
+}
+
+/**
+ * The owner-only empty-state shown over the Study Body when the doc has no
+ * content yet. Sits on top of the editor's empty paragraph (the `relative`
+ * wrapper in {@link DocumentEditor}). The outer container is
+ * `pointer-events-none` so clicks pass through to the editor below — the user
+ * can still click anywhere in the empty body to focus it and type freely (just
+ * like a normal placeholder). Only the inner BookOpen button intercepts
+ * clicks, opening the scripture-insert panel. The sub-line renders the same
+ * `BookOpen` icon as the toolbar button so the connection between the two is
+ * visual, not just verbal.
+ */
+function EmptyScripturePromptOverlay({
+  onClick,
+}: {
+  onClick: () => void;
+}): React.ReactElement {
+  return (
+    <div className="pointer-events-none absolute inset-0 flex min-h-32 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-muted-foreground/40 bg-muted/10 p-6 text-center text-sm text-muted-foreground">
+      <button
+        type="button"
+        onClick={onClick}
+        // `mousedown` prevents the editor below from grabbing focus before the
+        // panel opens — without it the editor steals focus and the user has to
+        // tab back to the panel.
+        onMouseDown={(event) => {
+          event.preventDefault();
+        }}
+        aria-label="Add Scripture to Get Started"
+        className="pointer-events-auto flex flex-col items-center gap-2 rounded-md px-3 py-2 transition-colors hover:bg-muted/30"
+      >
+        <BookOpen className="size-8 text-foreground/60" aria-hidden />
+        <span className="font-medium text-foreground">
+          Add Scripture to Get Started
+        </span>
+        <span className="text-xs">
+          Click the{" "}
+          <BookOpen className="inline size-3.5 -translate-y-0.5" aria-hidden />{" "}
+          in the top bar.
+        </span>
+      </button>
     </div>
   );
 }

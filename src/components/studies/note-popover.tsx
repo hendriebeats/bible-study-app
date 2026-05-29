@@ -20,6 +20,7 @@ import {
   toggleItalic,
 } from "@/lib/editor/commands";
 import { DEFAULT_EDITOR_TOOLS } from "@/lib/editor/editor-tools";
+import { placeNearAnchor } from "@/lib/editor/floating-position";
 import { buildNodeViews } from "@/lib/editor/node-views";
 import { buildInputRules } from "@/lib/editor/plugins/input-rules";
 import { buildKeymaps } from "@/lib/editor/plugins/keymap";
@@ -27,11 +28,16 @@ import {
   NOTE_OPEN_EVENT,
   type NoteOpenEventDetail,
 } from "@/lib/editor/plugins/note-anchors";
+import { focusNoteEntryBody } from "@/lib/editor/plugins/notes-index-view";
 import { setNoteSticky } from "@/lib/editor/note-highlight";
 import { schema } from "@/lib/editor/schema";
 import { UNDO_GROUP_DELAY_MS, withUndoBoundary } from "@/lib/editor/word-undo";
 
 const WIDTH = 360;
+/** Estimated popover height for the initial placement (we haven't measured the
+ * real height yet on the open event). The clamp pulls us back inside the
+ * viewport either way, and the drag handle lets the user nudge it. */
+const ESTIMATED_HEIGHT = 220;
 /** Debounce before writing popover edits back into the blocks doc. */
 const WRITEBACK_MS = 200;
 
@@ -54,6 +60,7 @@ export function NotePopover() {
   // These are stable useCallbacks on the context, safe as effect deps.
   const findNoteEntry = ctx?.findNoteEntry;
   const getBlocksView = ctx?.getBlocksView;
+  const isDockBlocksVisible = ctx?.isDockBlocksVisible;
   const activeState = ctx?.activeState ?? null;
   const editorTools = ctx?.editorTools ?? DEFAULT_EDITOR_TOOLS;
 
@@ -62,21 +69,49 @@ export function NotePopover() {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const miniRef = useRef<EditorView | null>(null);
 
-  // Open on the window event; park the popover near the top-right, clamped.
+  // Open on the window event. When the study-blocks doc is detached AND the
+  // visible tab in its group, the inline notes-index row IS the editing
+  // surface — focus the caret in that entry and skip the popover entirely.
+  // Otherwise show the popover, anchored near whatever surfaced the request
+  // (the caret after `createNote()`, or the inline icon the user clicked) so
+  // it appears in their line of sight rather than always at the top-right.
   useEffect(() => {
     const onOpen = (event: Event) => {
       const detail = (event as CustomEvent<NoteOpenEventDetail>).detail;
-      setPos({
-        x: Math.max(16, window.innerWidth - WIDTH - 32),
-        y: 96,
-      });
+      // Route through the visibility probe first. Both entry points
+      // (createNote + inline-icon click) go through this event, so the rule
+      // is centralised here.
+      if (isDockBlocksVisible?.() && findNoteEntry && getBlocksView) {
+        const hit = findNoteEntry(detail.id);
+        const blocksView = getBlocksView();
+        if (hit && blocksView) {
+          focusNoteEntryBody(blocksView, hit.pos);
+          return;
+        }
+        // Fall through to the popup if the entry can't be located — should
+        // be impossible for a freshly-created note but harmless as a fallback.
+      }
+      const anchor = detail.anchorRect;
+      if (anchor) {
+        const placement = placeNearAnchor(
+          anchor,
+          { width: WIDTH, height: ESTIMATED_HEIGHT },
+          { preferred: "below", align: "start", gap: 8 },
+        );
+        setPos({ x: placement.left, y: placement.top });
+      } else {
+        setPos({
+          x: Math.max(16, window.innerWidth - WIDTH - 32),
+          y: 96,
+        });
+      }
       setOpenId(detail.id);
     };
     window.addEventListener(NOTE_OPEN_EVENT, onOpen);
     return () => {
       window.removeEventListener(NOTE_OPEN_EVENT, onOpen);
     };
-  }, []);
+  }, [findNoteEntry, getBlocksView, isDockBlocksVisible]);
 
   // Build the mini editor when a note opens; tear it down on close / id change.
   useEffect(() => {

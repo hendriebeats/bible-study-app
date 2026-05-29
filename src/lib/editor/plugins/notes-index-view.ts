@@ -11,6 +11,21 @@ import { setNoteHover } from "../note-highlight";
 import { reorderSiblings } from "../reorder-node";
 
 /**
+ * Place the caret at the first valid position inside the `note_entry` body at
+ * `entryPos` (the entry node's start position in the doc). Used by the stationary-
+ * click handler on the drag handle AND by `createNote` when the new note's
+ * blocks panel is already on-screen, so we focus the entry instead of opening
+ * the popover.
+ */
+export function focusNoteEntryBody(view: EditorView, entryPos: number): void {
+  const $pos = view.state.doc.resolve(entryPos + 1);
+  view.dispatch(
+    view.state.tr.setSelection(TextSelection.near($pos)).scrollIntoView(),
+  );
+  view.focus();
+}
+
+/**
  * Renders the `notes_index` — the single pinned container (first block of the
  * Study-blocks document) holding every note's body for the section. A
  * non-editable "Notes" header sits over the entries (`contentDOM`). Reordering
@@ -47,7 +62,13 @@ export class NotesIndexView implements NodeView {
     // *after* the body — `globals.css` uses an adjacent-sibling rule to hide
     // the placeholder whenever the body has at least one entry.
     const bodyCol = document.createElement("div");
-    bodyCol.className = "notes-index-body-col study-block-body";
+    // `pm-block-host` marks this as the draggable-block container so
+    // `block-drag.ts`'s `hostRect` sizes the drop indicator to the body column
+    // (not the outer editor). Notes use their own per-row `.note-entry-drag`
+    // handle rather than the gutter `.block-handle`, so the host's inline-
+    // start gutter is zeroed by the `.notes-index .notes-index-body-col.pm-block-host`
+    // override in globals.css (keeps the verse-ref column flush left).
+    bodyCol.className = "notes-index-body-col study-block-body pm-block-host";
 
     const body = document.createElement("div");
     body.className = "notes-index-body";
@@ -278,12 +299,7 @@ export class NoteEntryView implements NodeView {
     if (myPos == null) {
       return;
     }
-    const view = this.view;
-    const $pos = view.state.doc.resolve(myPos + 1);
-    view.dispatch(
-      view.state.tr.setSelection(TextSelection.near($pos)).scrollIntoView(),
-    );
-    view.focus();
+    focusNoteEntryBody(this.view, myPos);
   }
 
   /** Move this note from index `from` to `to` within the notes index. */

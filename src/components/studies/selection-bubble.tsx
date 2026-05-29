@@ -17,6 +17,7 @@ import { ColorControl } from "@/components/studies/color-control";
 import { useEditorContext } from "@/components/studies/editor-context";
 import { Button } from "@/components/ui/button";
 import { clearFormatting, isMarkActive } from "@/lib/editor/commands";
+import { placeNearAnchor } from "@/lib/editor/floating-position";
 import type { FormatAction } from "@/lib/editor/format-actions";
 import { colorName } from "@/lib/editor/format-colors";
 import { marks } from "@/lib/editor/schema";
@@ -206,8 +207,9 @@ export function SelectionBubble() {
     };
   }, [visible, selKey, activeView]);
 
-  // Position the bubble imperatively: centred over the selection, above it
-  // (flipping below when there's no room near the top), clamped to the viewport.
+  // Position the bubble imperatively via the shared `placeNearAnchor` helper:
+  // centred over the selection, above it (flipping below when there's no room
+  // near the top), clamped to the viewport.
   useEffect(() => {
     const el = bubbleRef.current;
     if (!el) {
@@ -222,16 +224,21 @@ export function SelectionBubble() {
       el.style.visibility = "hidden";
       return;
     }
-    const half = el.offsetWidth / 2;
-    const height = el.offsetHeight;
-    const viewportWidth = window.innerWidth;
-    let left = rect.left + rect.width / 2;
-    left = Math.min(Math.max(left, half + 8), viewportWidth - half - 8);
-    const above = rect.top - GAP - height >= 8;
-    const top = above ? rect.top - GAP - height : rect.bottom + GAP;
-    el.style.left = `${String(Math.round(left))}px`;
-    el.style.top = `${String(Math.round(top))}px`;
-    el.style.transform = "translateX(-50%)";
+    const placement = placeNearAnchor(
+      {
+        left: rect.left,
+        top: rect.top,
+        right: rect.left + rect.width,
+        bottom: rect.bottom,
+      },
+      { width: el.offsetWidth, height: el.offsetHeight },
+      { preferred: "above", align: "center", gap: GAP },
+    );
+    el.style.left = `${String(Math.round(placement.left))}px`;
+    el.style.top = `${String(Math.round(placement.top))}px`;
+    // `placeNearAnchor` returns the top-left already (centring applied),
+    // so we don't need translateX(-50%) anymore.
+    el.style.transform = "";
     el.style.visibility = "visible";
   }, [visible, selKey, tick, activeView, formatRecents]);
 

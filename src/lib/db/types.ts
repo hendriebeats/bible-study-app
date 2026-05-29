@@ -198,6 +198,9 @@ export interface GenreBlockTemplate {
   default_content: PMNodeJSON[] | null;
   position: number;
   lineage_id: string;
+  /** Visual variant — "standard" (titled card with body) or "action"
+   * (high-contrast reminder bar, header+subheader only, no body). */
+  variant: "standard" | "action";
 }
 
 /** Lightweight section shape for the sidebar (no document content). */
@@ -273,23 +276,6 @@ export interface DocumentHistory {
   baseDoc: PMDocJSON;
   baseVersion: number;
   headVersion: number;
-  steps: DocumentStepRow[];
-}
-
-/** A full-doc checkpoint = a user-facing "version" of a document. */
-export interface DocumentCheckpointRow {
-  version: number;
-  label: string | null;
-  created_at: string;
-  doc: PMDocJSON;
-}
-
-/**
- * The complete history of a document (all checkpoints + all steps), enough to
- * reconstruct it at any version on the client for the history panel.
- */
-export interface DocumentTimeline {
-  checkpoints: DocumentCheckpointRow[];
   steps: DocumentStepRow[];
 }
 
