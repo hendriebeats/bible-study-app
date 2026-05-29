@@ -15,6 +15,40 @@ function studyBlockCount(doc: Node): number {
 }
 
 /**
+ * Snapshot of the top-level study_block sequence by `lineageId`. Used by
+ * {@link blocksStructureGuard} to detect any rearrangement — reorders,
+ * nesting one block inside another's body, promoting a nested block out —
+ * that the existing count-only check can't see.
+ *
+ * Anonymous blocks (legacy / pre-lineageId docs) appear as `null`. A swap of
+ * two `null`-lineage blocks passes the pairwise compare; acceptable, because
+ * every block created via `blocks.ts` now gets `crypto.randomUUID()`, so this
+ * is a narrow legacy-only crack rather than a live regression surface.
+ */
+function topLevelStudyBlockLineageIds(doc: Node): (string | null)[] {
+  const ids: (string | null)[] = [];
+  for (let i = 0; i < doc.childCount; i++) {
+    const child = doc.child(i);
+    if (child.type === nodes.studyBlock) {
+      const raw: unknown = child.attrs.lineageId;
+      ids.push(typeof raw === "string" ? raw : null);
+    }
+  }
+  return ids;
+}
+
+function lineageSequenceEqual(
+  a: readonly (string | null)[],
+  b: readonly (string | null)[],
+): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+/**
  * Count top-level nodes that don't belong in the blocks doc — anything other
  * than a `study_block` or the pinned `notes_index` (freeform paragraphs,
  * headings, lists, callouts, tables, …). The fresh/empty placeholder (a single
@@ -51,11 +85,13 @@ function foreignTopLevelCount(doc: Node): number {
  * protects scripture; this protects the blocks themselves).
  *
  * `filterTransaction` (mirroring {@link verseGuard}/{@link notesIndexGuard})
- * vetoes any user edit that ADDS a foreign node to the top level, or that
- * reduces the study-block count — unless flagged `allowVerseEdit` (the escape
- * hatch used by Add block, the block menu's Delete, Move, drag-reorder, and
- * version restore). It compares before/after (not "result is pristine") so a
- * doc with pre-existing stray content stays editable.
+ * vetoes any user edit that ADDS a foreign node to the top level, that
+ * reduces the study-block count, or that rearranges the top-level study_block
+ * sequence (reorder, nest one inside another's body, promote a nested block
+ * out) — unless flagged `allowVerseEdit` (the escape hatch used by Add block,
+ * the block menu's Delete, Move, drag-reorder, the dialog's section apply,
+ * and version restore). It compares before/after (not "result is pristine")
+ * so a doc with pre-existing stray content stays editable.
  *
  * Note: the notes index is NOT pinned to position 0 anymore — it's a normal
  * top-level block that the user can drag-reorder freely (deletion is still
@@ -76,6 +112,21 @@ export function blocksStructureGuard(): Plugin {
       }
       // Study blocks are removed only through the explicit, flagged Delete.
       if (studyBlockCount(tr.doc) < studyBlockCount(state.doc)) {
+        return false;
+      }
+      // The top-level study_block sequence (by `lineageId`) is immutable
+      // outside the `allowVerseEdit` escape hatch. This is the structural
+      // backstop behind the UI-level guards in `block-handle.ts`: even if a
+      // future code path (keyboard, paste, programmatic) bypasses the drag
+      // handle and tries to rearrange the top-level blocks, the transaction
+      // is rejected here. Edits inside any block body leave the lineage
+      // sequence intact and pass through.
+      if (
+        !lineageSequenceEqual(
+          topLevelStudyBlockLineageIds(state.doc),
+          topLevelStudyBlockLineageIds(tr.doc),
+        )
+      ) {
         return false;
       }
       return true;

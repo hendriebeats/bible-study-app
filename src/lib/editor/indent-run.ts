@@ -267,6 +267,54 @@ function clamp(value: number, lo: number, hi: number): number {
 }
 
 /**
+ * Collapse "moves that are structurally reparents" into the explicit
+ * `reparent` kind so downstream consumers (especially the drop-indicator
+ * painter in `block-drag.ts`) see one canonical shape per gesture.
+ *
+ * Background: the pointer driver translates cursor geometry into
+ * `reorder-above` / `reorder-below` / `make-child` based on which non-source
+ * row the cursor is over. But when the cursor sits in the seam immediately
+ * adjacent to the source (R = source's literal prev, or X = source's literal
+ * next), three different cursor positions produce three different
+ * instruction *shapes* even though they all describe the same gesture:
+ *
+ *   - cursor in R.lower at indent N      → `reorder-below R, indent: N`
+ *   - cursor inside source at indent N   → `reparent, indent: N`
+ *   - cursor in X.upper at indent N      → `reorder-above X, indent: N`
+ *
+ * `applyIndentRunDrop` already collapses cases 1 and 3 into a reparent
+ * internally (via the `targetPos === sourceStart || targetPos === sourceEnd`
+ * branch). But the *indicator painter* reads the instruction's anchor
+ * sibling for its paint Y — and R.bottom..source.top vs source.bottom..X.top
+ * are two completely different Y values, so the line jumps across the source
+ * as the cursor crosses the seam. The user perceives "two drop positions
+ * for one gap."
+ *
+ * Normalizing here — at the boundary between "driver decided what gesture"
+ * and "indicator painter decides what to draw" — means the painter only
+ * ever sees `reparent` for these boundary cases, paints once at the
+ * source row's own top edge, and the indicator stays put across the entire
+ * seam region.
+ *
+ * O(1) per instruction; safe on every `pointermove`.
+ */
+export function normalizeInstruction(
+  state: EditorState,
+  sourceStart: number,
+  sourceEnd: number,
+  instruction: DropInstruction,
+): DropInstruction {
+  if (instruction.kind === "reparent") return instruction;
+  const resolved = resolveMoveTarget(state, instruction);
+  if (!resolved) return instruction;
+  const { targetPos, targetIndent } = resolved;
+  if (targetPos === sourceStart || targetPos === sourceEnd) {
+    return { kind: "reparent", indent: targetIndent };
+  }
+  return instruction;
+}
+
+/**
  * Apply a {@link DropInstruction} against a captured run at
  * `[sourceStart, sourceEnd)`. Returns null when the instruction is a no-op,
  * targets inside the run, or fails a structural precondition.

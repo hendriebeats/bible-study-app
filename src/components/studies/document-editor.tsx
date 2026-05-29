@@ -7,7 +7,7 @@ import { BookOpen, PanelRight } from "lucide-react";
 import { keymap } from "prosemirror-keymap";
 import type { Node } from "prosemirror-model";
 import { EditorState } from "prosemirror-state";
-import { tableEditing } from "prosemirror-tables";
+import { columnResizing, tableEditing } from "prosemirror-tables";
 import { EditorView } from "prosemirror-view";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -50,9 +50,11 @@ import {
   type BlockDragState,
   blockDragPlugin,
   getBlockDragState,
+  probeIndicatorRect,
 } from "@/lib/editor/plugins/block-drag";
 import { computeDropInstruction } from "@/lib/editor/plugins/block-handle";
 import { selectionShadowPlugin } from "@/lib/editor/plugins/selection-shadow";
+import { TableViewWithHandles } from "@/lib/editor/plugins/table-view";
 import { verseGuard } from "@/lib/editor/plugins/verse-guard";
 import { verseLabel } from "@/lib/editor/plugins/verse-label";
 import { nodes, schema } from "@/lib/editor/schema";
@@ -107,7 +109,11 @@ function createPlugins(
     verseLabel(),
     slashMenu(),
     blockHandle(),
-    // Cell selection + structural editing for tables (harmless when none exist).
+    // Tables: `columnResizing` installs `TableViewWithHandles` (drag handles
+    // for rows/columns + `+` quick-adds + edge drag for column width), and
+    // `tableEditing` adds cell selection + Tab/Shift-Tab cell navigation.
+    // Order matters: columnResizing must come before tableEditing.
+    columnResizing({ View: TableViewWithHandles }),
     tableEditing(),
     // Inline clickable icon at the end of each note-anchored range.
     noteAnchors(),
@@ -659,6 +665,33 @@ export function DocumentEditor({
             instruction: DropInstruction,
           ) => boolean);
         /**
+         * Test-only: mirror the prod pointer-driver's pointerup dispatch so
+         * specs can measure the viewport effect of `scrollIntoView`. See
+         * the implementation block below for full doc.
+         */
+        simulatePointerDrop: (
+          sourceStart: number,
+          sourceEnd: number,
+          instruction: DropInstruction,
+          opts?: { scrollIntoView?: boolean },
+        ) => boolean;
+        /**
+         * Test-only: viewport-coord rect the drop indicator WOULD paint at
+         * for a hypothetical instruction. Used to lock down the rule that
+         * `make-child R` and `reorder-above R.next` produce the same Y at
+         * the indent-(R.indent + 1) column — see drag-seam-indicator spec.
+         */
+        probeIndicatorRect: (
+          instruction: DropInstruction,
+          sourceStart: number,
+          sourceEnd: number,
+        ) => {
+          top: number;
+          left: number;
+          width: number;
+          height: number;
+        } | null;
+        /**
          * Test-only: read the live block-drag plugin state on the focused
          * view (idle | active w/ instruction). Used by the manual pixel-
          * sweep diagnostic in plans/i-want-paragraph-buzzing-quilt.md.
@@ -745,6 +778,42 @@ export function DocumentEditor({
             if (!tr) return false;
             v.dispatch(tr);
             return true;
+          },
+          /**
+           * Test-only: mirrors what the production pointer-driver dispatches
+           * on pointerup — same `applyIndentRunDrop` call, optionally with
+           * `tr.scrollIntoView()`. Lets a regression spec measure whether
+           * `scrollIntoView` is what's causing the post-drop scroll jump
+           * without having to synthesize real pointer events.
+           */
+          simulatePointerDrop: (
+            sourceStart: number,
+            sourceEnd: number,
+            instruction: DropInstruction,
+            opts?: { scrollIntoView?: boolean },
+          ): boolean => {
+            const v = focused();
+            if (!v) return false;
+            const tr = applyIndentRunDrop(
+              v.state,
+              sourceStart,
+              sourceEnd,
+              instruction,
+            );
+            if (!tr) return false;
+            v.dispatch(
+              opts?.scrollIntoView === true ? tr.scrollIntoView() : tr,
+            );
+            return true;
+          },
+          probeIndicatorRect: (
+            instruction: DropInstruction,
+            sourceStart: number,
+            sourceEnd: number,
+          ) => {
+            const v = focused();
+            if (!v) return null;
+            return probeIndicatorRect(v, instruction, sourceStart, sourceEnd);
           },
         };
       }

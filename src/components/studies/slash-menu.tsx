@@ -40,7 +40,9 @@ export function SlashMenu() {
   const slashActive = slash?.active ?? false;
   const slashQuery = slash?.query ?? "";
   const items =
-    slashActive && tools ? filterSlashCommands(slashQuery, tools) : [];
+    slashActive && tools && activeState
+      ? filterSlashCommands(slashQuery, tools, activeState)
+      : [];
   const stateKey = slash?.active
     ? `${String(slash.from)}:${slash.query}`
     : null;
@@ -53,7 +55,13 @@ export function SlashMenu() {
       return;
     }
     const onKeyDown = (event: KeyboardEvent) => {
-      const list = tools ? filterSlashCommands(slashQuery, tools) : [];
+      // Re-resolve against the *current* state, not the closed-over one:
+      // typing or cursor moves while the menu is open can change which
+      // entries are valid here (e.g. caret drifting into a chrome header).
+      const liveState = activeView.state;
+      const list = tools
+        ? filterSlashCommands(slashQuery, tools, liveState)
+        : [];
       if (list.length === 0) {
         return;
       }

@@ -243,7 +243,13 @@
 */
 @layer base {
   .ProseMirror {
-    @apply min-h-full text-base leading-relaxed;
+    @apply min-h-full text-base leading-relaxed whitespace-pre-wrap;
+    /* `break-spaces` is what prosemirror-view ships internally — lets
+       trailing spaces wrap (nicer than `pre-wrap` for prose). The
+       `whitespace-pre-wrap` above is the fallback / cascade base; this
+       second declaration upgrades it where the browser supports it.
+       Required by prosemirror-view's checkCSS sanity check. */
+    white-space: break-spaces;
   }
   .ProseMirror:focus {
     @apply outline-none;
@@ -281,7 +287,7 @@
     counter-reset: list-counter 0;
   }
   .ProseMirror .list-row {
-    @apply my-1 flex items-start gap-2;
+    @apply my-1 flex items-start gap-1;
     /* Guarantee the row + its content span are always tall enough for a
        blinking caret on an empty row (an empty inline `<span>` has no
        intrinsic height; without this an empty bullet would render with no
@@ -338,8 +344,8 @@
   }
   .ProseMirror .list-row::before {
     @apply shrink-0 text-muted-foreground select-none;
-    min-width: 1.25rem;
-    text-align: right;
+    width: 1.25rem;
+    text-align: center;
     line-height: inherit;
   }
   .ProseMirror .list-row-content {
@@ -349,6 +355,8 @@
      the pseudo-element generates nothing — the checkbox lives in the DOM. */
   .ProseMirror .list-row[data-list-type="bullet"]::before {
     content: "•";
+    font-size: 1.5em;
+    line-height: 1.1;
   }
   .ProseMirror .list-row[data-list-type="ordered"] {
     counter-increment: list-counter 1;
@@ -376,6 +384,9 @@
   .ProseMirror .list-row-checkbox {
     @apply mt-1 size-4 shrink-0;
     accent-color: var(--primary);
+    /* Center the 1rem checkbox inside the 1.25rem marker cell so its
+       centerline stacks with the bullet/number/chevron above and below. */
+    margin-inline: 0.125rem 0;
   }
   .ProseMirror .list-row[data-checked="true"] > .list-row-content {
     @apply text-muted-foreground line-through;
@@ -553,7 +564,8 @@
     column-gap: 0.25rem;
   }
   .ProseMirror .collapsible-toggle {
-    @apply flex h-6 w-5 shrink-0 items-center justify-center rounded-sm text-xs leading-none text-muted-foreground select-none hover:bg-muted;
+    @apply flex h-5 w-5 shrink-0 items-center justify-center rounded-sm leading-none text-muted-foreground select-none hover:bg-muted;
+    font-size: 1.1rem;
     grid-column: 1;
     cursor: pointer;
   }
@@ -573,6 +585,15 @@
      padding here to avoid double-insetting body text. */
   .ProseMirror .collapsible-content.pm-block-host {
     padding-inline-start: 0;
+  }
+  /* Zero the header `<p>`'s own block margins so the chevron and the header
+     text sit on the same baseline — defensive against any global paragraph
+     margin and keeps the `list-row → collapsible` seam visually identical to
+     `list-row → list-row` (the adjacency-collapse rules above already zero
+     the wrapper margins; this strips the inner margin too). */
+  .ProseMirror .collapsible-content > :first-child {
+    margin-top: 0;
+    margin-bottom: 0;
   }
   /* Tight vertical rhythm inside the toggle — body paragraphs sit close to
      the header, matching how list items stack. */
@@ -647,6 +668,171 @@
   .ProseMirror .selectedCell::after {
     @apply pointer-events-none absolute inset-0 z-10 bg-primary/15;
     content: "";
+  }
+  /* Per-column alignment classes, written alongside the inline `text-align`
+     by the `align` cell attribute (see `tableNodeSpecs` in schema.ts). Inline
+     style would suffice on its own; the class is a stable hook for any future
+     selector — e.g. a column toolbar's active-state highlight. */
+  .ProseMirror .pm-cell-align-left {
+    text-align: left;
+  }
+  .ProseMirror .pm-cell-align-center {
+    text-align: center;
+  }
+  .ProseMirror .pm-cell-align-right {
+    text-align: right;
+  }
+  /* Notion-style table chrome — installed imperatively by `TableViewWithHandles`
+     (src/lib/editor/plugins/table-view.ts). The wrapper itself is the `<div>`
+     `prosemirror-tables`' default TableView creates around the `<table>`; we
+     just add the `.pm-table-wrap` class and absolutely-positioned overlay
+     children (row gutter, column gutter, two `+` quick-adds, a drag indicator).
+     Handles are hidden until the user hovers anywhere on the wrapper, so they
+     don't intrude on read-along viewers' visual rhythm. */
+  .ProseMirror .pm-table-wrap {
+    position: relative;
+    /* Reserve gutters so the overlay buttons never sit OUTSIDE the wrap's
+       hit area (otherwise hovering the handle would leave the wrap and
+       collapse the chrome). The values match the offsets in `reposition()`. */
+    padding: 24px 24px 24px 26px;
+    margin-left: -26px;
+    margin-right: -24px;
+  }
+  .ProseMirror .pm-table-wrap > table {
+    @apply my-0;
+  }
+  .ProseMirror .pm-table-row-gutter,
+  .ProseMirror .pm-table-col-gutter {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+  /* The handle buttons themselves DO accept pointer events; only the gutter
+     containers are pass-through so cells underneath stay clickable.
+     Visibility is inherited from `.drag-handle` (the app-wide standard —
+     `opacity-50 hover:opacity-100`), so handles are always faintly visible
+     wherever a table is on screen. Match the rest of the app's reorder
+     handles instead of hiding ours until wrap-hover (the earlier behavior
+     caused the row handle to "disappear when approached" because the wrap's
+     left margin is only a few pixels wider than the handle). */
+  .ProseMirror .pm-table-handle {
+    position: absolute;
+    width: 20px;
+    height: 24px;
+    pointer-events: auto;
+    /* Hidden by default. Per-row / per-column visibility is driven by the
+       `data-active="true"` attribute that the NodeView sets on whichever
+       handle matches the currently-hovered cell (or the handle itself). This
+       way only the relevant row/column handle surfaces — not all handles at
+       once — matching the user's request for hover-scoped visibility. */
+    opacity: 0;
+    transition: opacity 120ms ease;
+    /* The row handles sit in the same negative-left gutter as the block-
+       handle plugin's invisible sensor strip (block-handle.ts:904 — a 1.5rem
+       wide aria-hidden div used to surface the gutter ⋮ on direct hover). The
+       sensor is also `position: absolute` with no z-index, so DOM order alone
+       decides which receives the click — and on tables the sensor often wins.
+       Bumping the handle's z-index keeps it consistently on top. */
+    z-index: 5;
+  }
+  .ProseMirror .pm-table-handle-col {
+    width: 24px;
+    height: 20px;
+  }
+  /* Active = the row or column the user is currently hovering on. Drag state
+     pins the handle full-opacity in case the pointer briefly leaves the wrap
+     mid-fling. */
+  .ProseMirror .pm-table-handle[data-active="true"] {
+    opacity: 0.5;
+  }
+  .ProseMirror .pm-table-handle[data-active="true"]:hover,
+  .ProseMirror .pm-table-handle[data-dragging="true"] {
+    opacity: 1;
+  }
+  /* `+` quick-adds: dashed-bordered strip flush with the table's far edge.
+     Lazily revealed with the rest of the chrome. */
+  .ProseMirror .pm-table-add {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted-foreground);
+    border: 1px dashed transparent;
+    border-radius: 4px;
+    opacity: 0;
+    transition:
+      opacity 120ms ease,
+      background-color 120ms ease,
+      border-color 120ms ease;
+    cursor: pointer;
+    pointer-events: auto;
+  }
+  .ProseMirror .pm-table-add-row {
+    height: 18px;
+  }
+  .ProseMirror .pm-table-add-col {
+    width: 18px;
+  }
+  .ProseMirror .pm-table-add > svg {
+    width: 14px;
+    height: 14px;
+  }
+  .ProseMirror .pm-table-wrap:hover .pm-table-add {
+    opacity: 0.6;
+    border-color: var(--border);
+  }
+  .ProseMirror .pm-table-add:hover {
+    opacity: 1;
+    background: var(--muted);
+    color: var(--foreground);
+  }
+  /* Single drop-line indicator the drag driver paints between the seam
+     closest to the pointer. Lives in `document.body` with viewport-fixed
+     positioning so it stays visible even if the NodeView holding the drag
+     handler's closure gets recycled mid-gesture (which would otherwise
+     orphan an indicator appended into a detached wrap). */
+  .pm-table-drop-line {
+    position: fixed;
+    background: var(--primary);
+    z-index: 50;
+    pointer-events: none;
+    border-radius: 2px;
+    box-shadow: 0 0 4px 1px color-mix(in oklch, var(--primary) 60%, transparent);
+  }
+  /* Source row/column "I am dragging this" overlay. A translucent rectangle
+     painted by the NodeView over the source strip; viewport-fixed so PM's
+     re-renders can't strip it (and so it stays visible even if the underlying
+     NodeView gets recycled mid-drag). */
+  .pm-table-source-overlay {
+    position: fixed;
+    z-index: 49;
+    pointer-events: none;
+    background: color-mix(in oklch, var(--primary) 12%, transparent);
+    border: 1px dashed color-mix(in oklch, var(--primary) 55%, transparent);
+    border-radius: 4px;
+    box-sizing: border-box;
+    transition: opacity 80ms ease;
+  }
+  /* prosemirror-tables' column-resize affordances. Required for the
+     columnResizing plugin to be usable. */
+  .ProseMirror .column-resize-handle {
+    position: absolute;
+    right: -2px;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    background: var(--ring);
+    pointer-events: none;
+  }
+  .ProseMirror.resize-cursor {
+    cursor: col-resize;
+  }
+  /* prosemirror-tables installs this body class while the user is mid column
+     resize so the cursor stays consistent even when the pointer drifts off
+     the handle. */
+  body.resize-cursor {
+    cursor: col-resize;
+    user-select: none;
   }
   /* Notes — shared annotations. The pinned index renders as a study-block-style
      block (its chrome comes from `.study-stack-item`); its body lists each note

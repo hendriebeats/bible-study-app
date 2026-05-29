@@ -5,7 +5,7 @@ import { history } from "prosemirror-history";
 import { Bold, Italic, List, ListOrdered, Strikethrough } from "lucide-react";
 import { EditorState } from "prosemirror-state";
 import type { Command, Plugin } from "prosemirror-state";
-import { tableEditing } from "prosemirror-tables";
+import { columnResizing, tableEditing } from "prosemirror-tables";
 import { EditorView } from "prosemirror-view";
 import { useEffect, useRef, useState } from "react";
 
@@ -32,6 +32,7 @@ import { buildInputRules } from "@/lib/editor/plugins/input-rules";
 import { buildKeymaps } from "@/lib/editor/plugins/keymap";
 import { placeholder as placeholderPlugin } from "@/lib/editor/plugins/placeholder";
 import { slashMenu } from "@/lib/editor/plugins/slash-menu";
+import { TableViewWithHandles } from "@/lib/editor/plugins/table-view";
 import { verseGuard } from "@/lib/editor/plugins/verse-guard";
 import { verseLabel } from "@/lib/editor/plugins/verse-label";
 import { marks } from "@/lib/editor/schema";
@@ -63,6 +64,8 @@ function hostPlugins(placeholderText: string, tools: EditorTools): Plugin[] {
     ...buildKeymaps(tools),
     gapCursor(),
     history({ newGroupDelay: UNDO_GROUP_DELAY_MS }),
+    // Tables: see DocumentEditor for the order rationale.
+    columnResizing({ View: TableViewWithHandles }),
     tableEditing(),
     placeholderPlugin(placeholderText),
   ];
@@ -83,6 +86,7 @@ function dialogPlugins(placeholderText: string, tools: EditorTools): Plugin[] {
     verseGuard(),
     verseLabel(),
     slashMenu(),
+    columnResizing({ View: TableViewWithHandles }),
     tableEditing(),
     placeholderPlugin(placeholderText),
   ];

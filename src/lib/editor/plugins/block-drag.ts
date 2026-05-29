@@ -101,26 +101,104 @@ function neighborEdgeY(
 }
 
 /**
- * Bounds of the nearest block-host container of the block at `blockPos`.
- * The drop indicator's left/right come from this rect so the line spans only
- * the actual container the drop will land in — not the outer editor. Without
- * this, dropping inside a `.study-block-body` paints the line across the
- * sibling `.study-block-header` column too.
+ * Nearest `.pm-block-host` ancestor of the block at `blockPos`, or null when
+ * the block is at the doc root (no enclosing host).
  *
  * `closest(".pm-block-host")` walks up FROM the block's own DOM through its
  * ancestors; the block's own DOM is never itself a host (hosts ARE the
  * `contentDOM` of node views like `study_block`, `callout`, `collapsible`,
- * `notes_index`), so the walk always lands on the enclosing container.
- * When no host is found (top-level blocks at the document root), falls back
- * to `view.dom` — preserving today's behavior at the root.
+ * `notes_index`), so the walk always lands on the enclosing container when
+ * one exists.
+ *
+ * Exposed so `block-handle.ts` can identity-compare the source's host against
+ * a candidate target's host — the cheapest "are these two blocks in the same
+ * container?" check, since two distinct host containers are always distinct
+ * DOM nodes.
  */
-function hostRect(view: EditorView, blockPos: number): DOMRect {
+export function findHostElement(
+  view: EditorView,
+  blockPos: number,
+): HTMLElement | null {
   const dom = view.nodeDOM(blockPos);
-  if (dom instanceof HTMLElement) {
-    const host = dom.closest<HTMLElement>(".pm-block-host");
-    if (host) return host.getBoundingClientRect();
-  }
-  return view.dom.getBoundingClientRect();
+  return dom instanceof HTMLElement
+    ? dom.closest<HTMLElement>(".pm-block-host")
+    : null;
+}
+
+/**
+ * Drop-indicator geometry for the host container of the block at `blockPos`:
+ *
+ *   - `contentLeft` — viewport X of the container's CONTENT edge (its border
+ *     box left plus its `padding-left`). This is the indent-0 baseline: the
+ *     line should start where text actually starts, not at the host's outer
+ *     border, because the host's `padding-inline-start` reserves the gutter
+ *     column for the drag handle. Reading the live padding (rather than
+ *     assuming it equals `INDENT_STEP_PX`) means this stays correct in two
+ *     forward-looking scenarios:
+ *       1. Users who don't have drag enabled will see the gutter rule turned
+ *          off entirely — padding becomes 0, content edge collapses onto the
+ *          border edge, indicator stays aligned with text.
+ *       2. The design system can retune `--block-gutter` without an
+ *          indicator regression.
+ *   - `right` — viewport X of the container's right edge. Hosts in this
+ *     codebase use only `padding-inline-start`, so the indicator's right
+ *     stays at the border-box right.
+ *
+ * When no `.pm-block-host` is found (top-level blocks at the document root),
+ * falls back to `view.dom` and reads ITS padding-left — so doc-root drags in
+ * the study-body / notes editors get the same content-edge alignment.
+ */
+function hostMetrics(
+  view: EditorView,
+  blockPos: number,
+): { contentLeft: number; right: number } {
+  const host = findHostElement(view, blockPos);
+  const el = host ?? view.dom;
+  const rect = el.getBoundingClientRect();
+  const paddingRaw = parseFloat(getComputedStyle(el).paddingLeft);
+  const padding = Number.isFinite(paddingRaw) ? paddingRaw : 0;
+  return { contentLeft: rect.left + padding, right: rect.right };
+}
+
+/**
+ * Test-only entry into {@link computeIndicatorRect} for probing what the
+ * drop line WOULD paint at, given a hypothetical instruction + source run.
+ * Lives next to the real painter so the two never drift. Returns a rect in
+ * VIEWPORT (clientX/clientY) coordinates so callers can compare against
+ * the rects they read from `getBoundingClientRect()`.
+ *
+ * Used by `e2e/editor/drag-seam-indicator.spec.ts` (via `__PM_DEBUG__`) to
+ * lock down the rule that crossing the seam between R.lower and
+ * R.next.upper at the indent-(R.indent + 1) column produces an identical
+ * paint Y — i.e. `make-child R` and `reorder-above R.next` anchor at the
+ * same point.
+ */
+export function probeIndicatorRect(
+  view: EditorView,
+  instruction: DropInstruction,
+  runStart: number,
+  runEnd: number,
+): { top: number; left: number; width: number; height: number } | null {
+  const wrapper = view.dom.parentElement;
+  if (!wrapper) return null;
+  const rect = computeIndicatorRect(view, wrapper, {
+    kind: "active",
+    runStart,
+    runEnd,
+    rootIndent: 0,
+    instruction,
+  });
+  if (!rect) return null;
+  // computeIndicatorRect returns coords RELATIVE to the wrapper; convert
+  // back to viewport coords so comparisons against client rects work
+  // without ambiguity.
+  const wrapRect = wrapper.getBoundingClientRect();
+  return {
+    top: rect.top + wrapRect.top,
+    left: rect.left + wrapRect.left,
+    width: rect.width,
+    height: rect.height,
+  };
 }
 
 /**
@@ -155,8 +233,9 @@ function computeIndicatorRect(
       const sourceDom = view.nodeDOM(state.runStart);
       if (!(sourceDom instanceof HTMLElement)) return null;
       const sourceRect = sourceDom.getBoundingClientRect();
-      const host = hostRect(view, state.runStart);
-      const left = host.left - wrapperRect.left + instruction.indent * step;
+      const host = hostMetrics(view, state.runStart);
+      const left =
+        host.contentLeft - wrapperRect.left + instruction.indent * step;
       const right = host.right - wrapperRect.left;
       return {
         top: sourceRect.top - wrapperRect.top - 1,
@@ -191,8 +270,9 @@ function computeIndicatorRect(
           : neighborY !== null
             ? (anchorRect.bottom + neighborY) / 2
             : anchorRect.bottom;
-      const host = hostRect(view, anchorPos);
-      const left = host.left - wrapperRect.left + instruction.indent * step;
+      const host = hostMetrics(view, anchorPos);
+      const left =
+        host.contentLeft - wrapperRect.left + instruction.indent * step;
       const right = host.right - wrapperRect.left;
       return {
         top: seamY - wrapperRect.top - 1, // center the 2 px line on the seam
@@ -214,11 +294,30 @@ function computeIndicatorRect(
       // The new child becomes a sibling of `parentPos` inside the same host,
       // so the host bounds come from the parent's container — same lookup as
       // the other cases.
-      const host = hostRect(view, instruction.parentPos);
-      const left = host.left - wrapperRect.left + (parentIndent + 1) * step;
+      const host = hostMetrics(view, instruction.parentPos);
+      const left =
+        host.contentLeft - wrapperRect.left + (parentIndent + 1) * step;
       const right = host.right - wrapperRect.left;
+      // Anchor at the gap midpoint between parent and parent's next sibling.
+      // `make-child P` and `reorder-above (P.next)` describe the same
+      // structural drop with different intent flags — `make-child` carries
+      // the explicit "become P's child" semantic, `reorder-above` is the
+      // shape the driver emits when the cursor crosses into P.next's upper
+      // half. Painting them at the same Y means crossing the P.lower /
+      // P.next.upper seam at the indent-(P.indent + 1) column never moves
+      // the line. (Previously this anchored at `parentRect.bottom`, which
+      // sat ~half a gap height above the seam midpoint — 6 px in the user's
+      // verse-per-line scripture layout, hence the "two snap zones" feel.)
+      // Falls back to `parentRect.bottom` when parent has no next sibling
+      // (end of container), where the make-child target is the visual edge
+      // anyway.
+      const nextTop = neighborEdgeY(view, instruction.parentPos, "next");
+      const seamY =
+        nextTop !== null
+          ? (parentRect.bottom + nextTop) / 2
+          : parentRect.bottom;
       return {
-        top: parentRect.bottom - wrapperRect.top - 1,
+        top: seamY - wrapperRect.top - 1,
         left,
         width: Math.max(0, right - left),
         height: 2,

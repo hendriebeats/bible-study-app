@@ -6,11 +6,13 @@ import {
   applyIndentRunDrop,
   type DropInstruction,
   indentRunBounds,
+  normalizeInstruction,
 } from "../indent-run";
 import { MAX_INDENT, nodes } from "../schema";
 import { isChromeChild } from "../wrapper-chrome";
 import {
   endBlockDrag,
+  findHostElement,
   startBlockDrag,
   updateBlockDragTarget,
 } from "./block-drag";
@@ -116,42 +118,27 @@ function draggableCandidatesAt(
       // hovering it surfaces the OUTER wrapper handle, not a separate inner
       // handle that would render over the chevron / chip and block clicks.
       if (isChromeChild(parent, $pos.index(d - 1))) continue;
-      out.push({ node: $pos.node(d), pos: $pos.before(d), depth: d });
+      // Top-level `study_block` and `notes_index` are managed exclusively
+      // through the blocks dialog (`study-blocks-dialog.tsx`), which drives
+      // its own React `useReorderHandle` — no ProseMirror drag is involved
+      // there. Skipping them here is the single source of truth that both
+      // (a) hides the floating handle next to top-level blocks and
+      // (b) prevents `rowUnderCursor` from nominating them as drop targets
+      // for an in-body drag, so a paragraph dragged out of a body has no
+      // legal top-level landing zone. Nested children inside a study_block
+      // body still resolve normally — their parent is `study_block`, which
+      // remains a drag container, so inner reorder is unaffected.
+      const node = $pos.node(d);
+      if (
+        parent.type === nodes.doc &&
+        (node.type === nodes.studyBlock || node.type === nodes.notesIndex)
+      ) {
+        continue;
+      }
+      out.push({ node, pos: $pos.before(d), depth: d });
     }
   }
   return out;
-}
-
-/**
- * For a block at position `blockPos`, find the immediate NEXT sibling that
- * isn't inside the captured source range. Walks `parent.children` forward
- * from `blockPos`'s index + 1, skipping anything in `[sourceStart, sourceEnd)`.
- *
- * Used by the "single snap per gap" rule in {@link computeDropInstruction}:
- * when the cursor's lower half over row R has a next non-source sibling N,
- * we emit `reorder-above N` instead of `reorder-below R`. Structurally
- * identical insertion, but the indicator anchors to N.top throughout the
- * gap rather than jumping from R.bottom mid-seam.
- */
-function nextNonSourceSibling(
-  state: EditorState,
-  blockPos: number,
-  sourceStart: number,
-  sourceEnd: number,
-): { node: Node; pos: number } | null {
-  const $pos = state.doc.resolve(blockPos);
-  const parent = $pos.parent;
-  const startIndex = $pos.index();
-  let walk = blockPos + parent.child(startIndex).nodeSize;
-  for (let i = startIndex + 1; i < parent.childCount; i++) {
-    const child = parent.child(i);
-    const childStart = walk;
-    const childEnd = walk + child.nodeSize;
-    walk = childEnd;
-    if (childStart >= sourceStart && childEnd <= sourceEnd) continue;
-    return { node: child, pos: childStart };
-  }
-  return null;
 }
 
 /**
@@ -471,10 +458,31 @@ export function computeDropInstruction(
   event: PointerEvent,
   sourceStart: number,
   sourceEnd: number,
-  rootIndent: number,
+  // `rootIndent` was used by the old no-op filter (since dropped — see
+  // `normalizeInstruction`); the source's current indent is now read off
+  // the doc inside `applyIndentRunDrop` when it needs it. The parameter
+  // stays in the signature so external callers (debug hook,
+  // `attachIndentRunDrag`) don't have to thread a new shape — a future
+  // gesture might want it back as the "this is the indent the drag
+  // *started* at" hint.
+  _rootIndent: number,
 ): DropInstruction | null {
   const row = rowUnderCursor(view, event, sourceStart, sourceEnd);
   if (!row) return null;
+
+  // Confine drops to the source's `.pm-block-host` container — body items
+  // dragged out of a study_block (or callout / collapsible / notes_index)
+  // cannot land in another container, including the doc root. Identity
+  // compare on the host element is the cheapest "same body?" check; two
+  // distinct host containers are always distinct DOM nodes. When the source
+  // has no host (top-level — only reachable historically; the candidate
+  // filter in `draggableCandidatesAt` now blocks new top-level grabs), the
+  // check is skipped so legacy / programmatic paths keep working.
+  const sourceHost = findHostElement(view, sourceStart);
+  if (sourceHost !== null) {
+    const targetHost = findHostElement(view, row.pos);
+    if (targetHost !== sourceHost) return null;
+  }
 
   const blockStart = row.pos;
   const blockEnd = row.pos + row.node.nodeSize;
@@ -490,16 +498,31 @@ export function computeDropInstruction(
   // Without this, a drop inside a toggle inherits an extra indent step from
   // the wrapper's chevron offset.
   const containerLeft = row.rect.left - blockIndent * INDENT_STEP_PX;
-  const rawIndent = Math.round(
+  // `Math.floor` (not round) so the cursor's "indent N zone" is exactly
+  // [containerLeft + N*step, containerLeft + (N+1)*step) — the cursor must
+  // move a FULL step past the content edge to flip to the next indent.
+  // This aligns the threshold with where the indicator line at indent N
+  // renders (its left edge sits at `contentLeft + N*step`); under round,
+  // the flip happened at the half-step midpoint and the line visually
+  // jumped a half-step early.
+  const rawIndent = Math.floor(
     (event.clientX - containerLeft) / INDENT_STEP_PX,
   );
 
   const isSourceRow = blockStart >= sourceStart && blockEnd <= sourceEnd;
 
+  // Translate cursor geometry into a candidate instruction. The no-op filter
+  // at the bottom of this function decides whether that instruction is worth
+  // showing — we never short-circuit on "same indent" / "next sibling is
+  // source" up here. Those used to be ad-hoc guards (each born from a
+  // different seam bug) and they're what put the indicator in the wrong gap
+  // when a structural redirect carried the paint anchor across the source.
+  let candidate: DropInstruction;
+
   if (isSourceRow) {
-    // The cursor is over the run itself — the only legal gesture is to
-    // change the run's indent in place. We clamp against the above-neighbor
-    // of the source so the resulting indent is still a valid sibling depth.
+    // Cursor is over the run itself — the only legal gesture is to change
+    // the run's indent in place. Clamp against the source's above-neighbor
+    // so the resulting indent is still a valid sibling depth.
     const above = aboveNeighborIndent(
       view.state,
       sourceStart,
@@ -508,57 +531,70 @@ export function computeDropInstruction(
     );
     const maxIndent = Math.min(MAX_INDENT, above + 1);
     const indent = Math.min(maxIndent, Math.max(0, rawIndent));
-    if (indent === rootIndent) return null;
-    return { kind: "reparent", indent };
+    candidate = { kind: "reparent", indent };
+  } else {
+    // Use the claim-zone midpoint (which collapses into the rect midpoint
+    // when there are no gaps) so Y values in a margin gap above the row read
+    // as "upper half" — i.e. dropAbove — rather than flipping at the rect's
+    // top.
+    const claimTop = Number.isFinite(row.claimTop)
+      ? row.claimTop
+      : row.rect.top;
+    const claimBottom = Number.isFinite(row.claimBottom)
+      ? row.claimBottom
+      : row.rect.bottom;
+    const dropAbove = event.clientY < (claimTop + claimBottom) / 2;
+
+    if (dropAbove) {
+      const above = aboveNeighborIndent(
+        view.state,
+        blockStart,
+        sourceStart,
+        sourceEnd,
+      );
+      const maxIndent = Math.min(MAX_INDENT, above + 1);
+      const indent = Math.min(maxIndent, Math.max(0, rawIndent));
+      candidate = { kind: "reorder-above", siblingPos: blockStart, indent };
+    } else {
+      // Lower half — `row` is the above-neighbor of the insertion point.
+      const maxIndent = Math.min(MAX_INDENT, blockIndent + 1);
+      const indent = Math.min(maxIndent, Math.max(0, rawIndent));
+      if (indent > blockIndent) {
+        // Cursor pushed past the row's own indent column — that's the
+        // "make me your child" gesture. Distinct instruction so the
+        // indicator can render it distinctly even though the structural
+        // outcome equals `reorder-below` at `blockIndent + 1`.
+        candidate = { kind: "make-child", parentPos: blockStart };
+      } else {
+        // Anchor to the row directly under the cursor's lower half. We do
+        // NOT redirect to the next non-source sibling — the indicator
+        // painter reads the LITERAL next sibling for its gap-midpoint Y, so
+        // anchoring here paints the line in the gap the cursor is actually
+        // in. When that next sibling IS the source, the gap reduces to a
+        // no-op (caught by the filter below) and the indicator hides.
+        candidate = { kind: "reorder-below", siblingPos: blockStart, indent };
+      }
+    }
   }
 
-  // Use the claim-zone midpoint (which collapses into the rect midpoint when
-  // there are no gaps) so Y values in a margin gap above the row read as
-  // "upper half" — i.e. dropAbove — rather than flipping at the rect's top.
-  const claimTop = Number.isFinite(row.claimTop) ? row.claimTop : row.rect.top;
-  const claimBottom = Number.isFinite(row.claimBottom)
-    ? row.claimBottom
-    : row.rect.bottom;
-  const dropAbove = event.clientY < (claimTop + claimBottom) / 2;
-
-  if (dropAbove) {
-    const above = aboveNeighborIndent(
-      view.state,
-      blockStart,
-      sourceStart,
-      sourceEnd,
-    );
-    const maxIndent = Math.min(MAX_INDENT, above + 1);
-    const indent = Math.min(maxIndent, Math.max(0, rawIndent));
-    return { kind: "reorder-above", siblingPos: blockStart, indent };
-  }
-
-  // Lower half — `row` is the above-neighbor of the insertion point.
-  const maxIndent = Math.min(MAX_INDENT, blockIndent + 1);
-  const indent = Math.min(maxIndent, Math.max(0, rawIndent));
-  if (indent > blockIndent) {
-    // The user pushed past the row's own indent column — that's the
-    // "make me your child" gesture. Different instruction so the indicator
-    // can render it distinctly even though the structural outcome equals
-    // reorder-below at blockIndent+1.
-    return { kind: "make-child", parentPos: blockStart };
-  }
-  // Single snap per gap: when a next non-source sibling exists, redirect to
-  // `reorder-above N` instead of `reorder-below R`. Structurally equivalent
-  // insertion, but the indicator anchors to N.top across the entire gap
-  // (R.midpoint .. N.midpoint) — collapses the "two snap zones in one gap"
-  // jank into one continuous snap. `reorder-below R` is now reserved for
-  // the case where R has no non-source row after it (end of container).
-  const next = nextNonSourceSibling(
-    view.state,
-    blockStart,
-    sourceStart,
-    sourceEnd,
-  );
-  if (next) {
-    return { kind: "reorder-above", siblingPos: next.pos, indent };
-  }
-  return { kind: "reorder-below", siblingPos: blockStart, indent };
+  // Canonicalize: any candidate whose structural target lands at the
+  // source's own boundary (R.lower → reorder-below R where R.end === src,
+  // X.upper → reorder-above X where X.start === srcEnd, V1.lower at indent
+  // R.indent+1 → make-child R where R.end === src) is *structurally* a
+  // reparent of the run in place — `applyIndentRunDrop` already collapses
+  // them. Collapsing here too means the indicator painter (which keys on
+  // instruction kind) sees one canonical `reparent` for the whole seam
+  // region around the source, so the drop line stays anchored to the
+  // source row instead of jumping between R.bottom..src.top and
+  // src.bottom..X.top as the cursor crosses the seam.
+  //
+  // No-ops (reparent at the source's own root indent) are intentionally
+  // NOT filtered out — the indicator should still paint at the source row
+  // so the user has a continuous, predictable visual whether or not their
+  // cursor position would actually change the document. `applyIndentRunDrop`
+  // already returns null for those, so pointerup won't push an identity
+  // transaction onto history.
+  return normalizeInstruction(view.state, sourceStart, sourceEnd, candidate);
 }
 
 /**
@@ -653,7 +689,16 @@ function attachIndentRunDrag(
           sourceEnd,
           instruction,
         );
-        if (tr) view.dispatch(tr.scrollIntoView());
+        // Dispatch WITHOUT `scrollIntoView()`. The user drove the drop from
+        // a specific visual position — their viewport already contains the
+        // drop site. After delete+insert, the selection lands inside the
+        // moved run, which may be far from the cursor's release point;
+        // letting ProseMirror chase it yanks the viewport (commonly 60+ px,
+        // sometimes a full page) for no UX benefit. The keyboard fallback
+        // below still calls `scrollIntoView` because the user is operating
+        // blind there — Arrow-reordering a row off-screen should keep it
+        // visible. Pointer drops have their own visual locus already.
+        if (tr) view.dispatch(tr);
       }
     }
     reset();

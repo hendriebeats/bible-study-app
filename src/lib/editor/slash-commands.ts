@@ -13,12 +13,13 @@ import {
   Table,
   Type,
 } from "lucide-react";
-import type { Command } from "prosemirror-state";
+import type { Command, EditorState } from "prosemirror-state";
 
 import {
   insertCallout,
   insertCollapsible,
   insertTable,
+  isAncestorActive,
   toggleBlockquote,
   toggleBulletList,
   toggleHeading,
@@ -27,6 +28,7 @@ import {
 } from "./commands";
 import type { EditorToolKey, EditorTools } from "./editor-tools";
 import { nodes } from "./schema";
+import { isChromeChild } from "./wrapper-chrome";
 
 /**
  * One entry in the slash (`/`) command menu. `command` runs against the active
@@ -34,6 +36,13 @@ import { nodes } from "./schema";
  * opt-in editor tool — undefined means always available. `turnInto` marks an
  * entry as a block-type conversion (so the block handle's "Turn into" menu can
  * reuse this registry, excluding insert-only entries like callouts).
+ *
+ * `hiddenWhen` is an optional cursor-context predicate that hides the entry in
+ * the slash menu when it returns true. Used to keep the while-typing surface
+ * honest — entries that can't deliver at the current cursor (e.g. anything
+ * block-shaped inside a callout/collapsible HEADER, or "Quote" while already
+ * inside a quote) stay invisible there. Turn-into and the toolbar bypass this
+ * predicate so they remain the explicit conversion escape hatches.
  */
 export interface SlashCommand {
   id: string;
@@ -44,9 +53,32 @@ export interface SlashCommand {
   command: Command;
   tool?: EditorToolKey;
   turnInto?: boolean;
+  hiddenWhen?: (state: EditorState) => boolean;
 }
 
 const setParagraph: Command = setBlockType(nodes.paragraph);
+
+/**
+ * True when the cursor sits in the index-0 child of a `callout` or
+ * `collapsible` — the chrome "header" zone. Mirrors the same check used by
+ * the input-rule gate in `convert-block.ts`, so the slash menu's visible
+ * entries match what the keyboard would let the user type.
+ */
+function inChromeHeader(state: EditorState): boolean {
+  const { $from } = state.selection;
+  for (let d = $from.depth; d > 0; d--) {
+    if (isChromeChild($from.node(d - 1), $from.index(d - 1))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** True when the cursor is already inside a blockquote — used to hide the
+ *  slash menu's "Quote" entry (wrap-blockquote would silently no-op there). */
+function inBlockquote(state: EditorState): boolean {
+  return isAncestorActive(state, nodes.blockquote);
+}
 
 export const SLASH_COMMANDS: readonly SlashCommand[] = [
   {
@@ -67,6 +99,7 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
     command: toggleHeading(1),
     turnInto: true,
     tool: "headings",
+    hiddenWhen: inChromeHeader,
   },
   {
     id: "h2",
@@ -77,6 +110,7 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
     command: toggleHeading(2),
     turnInto: true,
     tool: "headings",
+    hiddenWhen: inChromeHeader,
   },
   {
     id: "h3",
@@ -87,6 +121,7 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
     command: toggleHeading(3),
     turnInto: true,
     tool: "headings",
+    hiddenWhen: inChromeHeader,
   },
   {
     id: "bullet",
@@ -96,6 +131,7 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
     icon: List,
     command: toggleBulletList,
     turnInto: true,
+    hiddenWhen: inChromeHeader,
   },
   {
     id: "ordered",
@@ -105,6 +141,7 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
     icon: ListOrdered,
     command: toggleOrderedList,
     turnInto: true,
+    hiddenWhen: inChromeHeader,
   },
   {
     id: "checklist",
@@ -114,6 +151,7 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
     icon: ListChecks,
     command: toggleTaskList,
     turnInto: true,
+    hiddenWhen: inChromeHeader,
   },
   {
     id: "quote",
@@ -123,6 +161,7 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
     icon: Quote,
     command: toggleBlockquote,
     turnInto: true,
+    hiddenWhen: (state) => inChromeHeader(state) || inBlockquote(state),
   },
   // Callout — single entry that inserts a default-color callout. The user
   // re-colors after the fact via the inline tone chip on the wrapper (no
@@ -136,6 +175,7 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
     icon: Megaphone,
     command: insertCallout("note"),
     tool: "callouts",
+    hiddenWhen: inChromeHeader,
   },
   {
     id: "collapsible",
@@ -145,6 +185,7 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
     icon: ChevronRight,
     command: insertCollapsible,
     tool: "collapsibles",
+    hiddenWhen: inChromeHeader,
   },
   {
     id: "table",
@@ -154,6 +195,7 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
     icon: Table,
     command: insertTable,
     tool: "tables",
+    hiddenWhen: inChromeHeader,
   },
 ] as const;
 
@@ -162,14 +204,20 @@ function toolEnabled(entry: SlashCommand, tools: EditorTools): boolean {
   return !entry.tool || tools[entry.tool];
 }
 
-/** The slash commands matching `query`, with tool-gated entries filtered out. */
+/** The slash commands matching `query`, with tool-gated and
+ *  cursor-context-gated entries filtered out. `state` powers the per-entry
+ *  `hiddenWhen` predicates (chrome-header lockdown, in-blockquote Quote). */
 export function filterSlashCommands(
   query: string,
   tools: EditorTools,
+  state: EditorState,
 ): SlashCommand[] {
   const q = query.trim().toLowerCase();
   return SLASH_COMMANDS.filter((entry) => {
     if (!toolEnabled(entry, tools)) {
+      return false;
+    }
+    if (entry.hiddenWhen?.(state) === true) {
       return false;
     }
     if (q === "") {

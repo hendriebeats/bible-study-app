@@ -9,6 +9,7 @@ import { findWrapping } from "prosemirror-transform";
 
 import { isAncestorActive } from "./commands";
 import { nodes } from "./schema";
+import { isChromeChild } from "./wrapper-chrome";
 
 /**
  * The unified "convert this block to X" pipeline used by:
@@ -78,6 +79,24 @@ interface CollapsibleHeaderContext {
   collapsibleFrom: number;
   collapsibleTo: number;
   headerNode: Node;
+}
+
+/**
+ * True when the cursor sits in the index-0 child (the chrome "header") of a
+ * `callout` or `collapsible` — the leaf-like zone where typed-shortcut
+ * conversions are ignored and the user is steered to the Turn-into / toolbar
+ * paths instead. Reuses `isChromeChild` so this list stays in lockstep with
+ * the drag-handle and indent-inheritance gates in {@link wrapper-chrome.ts}.
+ */
+function isInChromeHeader(state: EditorState, triggerStart?: number): boolean {
+  const pos = triggerStart ?? state.selection.from;
+  const $from = state.doc.resolve(pos);
+  for (let d = $from.depth; d > 0; d--) {
+    if (isChromeChild($from.node(d - 1), $from.index(d - 1))) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -302,9 +321,23 @@ export function buildConvertTransaction(
     return null;
   }
 
+  // Chrome-header lockdown for typed shortcuts: when the cursor is in a
+  // callout / collapsible HEADER (index-0 child) and the caller is the
+  // input-rule plugin (i.e. `triggerRange` was supplied), the trigger stays
+  // as literal text. Click-driven paths (slash menu / Turn-into / toolbar)
+  // call without `triggerRange`, so they retain their current behavior —
+  // including the collapsible-header dissolve below — as the explicit
+  // conversion escape hatches. The slash menu separately hides
+  // block-conversion entries in this zone via {@link filterSlashCommands}.
+  if (opts.triggerRange && isInChromeHeader(state, opts.triggerRange.from)) {
+    return null;
+  }
+
   // Blockquote inside blockquote: consume the trigger so `> ` doesn't loiter
-  // visibly, but don't actually wrap. Slash menu / Turn-into never reaches
-  // this path because the menu hides Quote when the cursor's inside a quote.
+  // visibly, but don't actually wrap. The slash menu hides "Quote" when the
+  // cursor's inside a quote (filterSlashCommands), so this branch is reached
+  // by typed shortcuts and by Turn-into / toolbar — the latter silently
+  // no-ops rather than producing broken nesting.
   if (
     target.kind === "wrap" &&
     target.nodeType === nodes.blockquote &&

@@ -653,7 +653,30 @@ const notesIndexSpec: NodeSpec = {
 const tableNodeSpecs = tableNodes({
   tableGroup: "block",
   cellContent: "block+",
-  cellAttributes: {},
+  cellAttributes: {
+    // Per-cell horizontal text alignment. `null` = inherit (the default); the
+    // column-handle popover writes one of "left" | "center" | "right" to every
+    // cell in the targeted column via `setColumnAlign` in `table-commands.ts`.
+    // Round-trips through an inline `text-align` style (so paste into other
+    // rich-text apps preserves alignment) and a matching `.pm-cell-align-*`
+    // class so CSS selectors can hook the value.
+    align: {
+      default: null,
+      getFromDOM: (dom) => {
+        const value = dom.style.textAlign;
+        return value === "left" || value === "center" || value === "right"
+          ? value
+          : null;
+      },
+      setDOMAttr: (value, attrs) => {
+        if (value === "left" || value === "center" || value === "right") {
+          attrs.style = `${(attrs.style as string | undefined) ?? ""}text-align:${value};`;
+          attrs.class =
+            `${(attrs.class as string | undefined) ?? ""} pm-cell-align-${value}`.trim();
+        }
+      },
+    },
+  },
 });
 
 const nodeSpecs = baseNodeSpecs

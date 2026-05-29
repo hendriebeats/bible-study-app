@@ -11,6 +11,7 @@ import {
 
 import { BlockMenu } from "@/components/studies/block-menu";
 import { CalloutColorPopover } from "@/components/studies/callout-color-popover";
+import { TableHandlePopover } from "@/components/studies/table-handle-popover";
 import {
   EditorProvider,
   useEditorContext,
@@ -270,6 +271,7 @@ function WorkspaceInner({
       {isOwner ? <SlashMenu /> : null}
       {isOwner ? <BlockMenu /> : null}
       {isOwner ? <CalloutColorPopover /> : null}
+      {isOwner ? <TableHandlePopover /> : null}
       {isOwner ? <NotePopover /> : null}
 
       <StudyDock
