@@ -50,7 +50,7 @@ export function AccountChrome({
         </Button>
 
         <div className="flex min-w-0 flex-1 items-center">
-          <span className="truncate text-sm font-medium">Account settings</span>
+          <span className="truncate text-ui font-medium">Account settings</span>
         </div>
 
         <div className="flex shrink-0 items-center gap-1">{actions}</div>
@@ -66,9 +66,12 @@ export function AccountChrome({
           <AccountSidebar onCollapse={toggleSidebar} />
         </div>
 
-        <main className="flex min-h-0 min-w-0 flex-1 overflow-auto">
-          {children}
-        </main>
+        {/* Block, not flex: a `flex` + `overflow-auto` scroll container
+            truncates its child's `padding-bottom` from the scrollable area
+            in both Chrome and Firefox, so the per-page wrapper's `pb-*`
+            visually disappears at the scroll edge. The single child is
+            already `mx-auto`-centered; flex bought nothing here. */}
+        <main className="min-h-0 min-w-0 flex-1 overflow-auto">{children}</main>
 
         {/* Sidebar collapsed: a floating re-open button at the body's top-left. */}
         {!sidebarOpen ? (

@@ -17,7 +17,7 @@ export function JoinRequestList({ requests }: { requests: OrgJoinRequest[] }) {
 
   if (requests.length === 0) {
     return (
-      <p className="text-sm text-muted-foreground">No pending requests.</p>
+      <p className="text-caption text-muted-foreground">No pending requests.</p>
     );
   }
 
@@ -40,7 +40,7 @@ export function JoinRequestList({ requests }: { requests: OrgJoinRequest[] }) {
             <div className="min-w-0 flex-1">
               <p className="truncate font-medium">{name}</p>
               {req.note ? (
-                <p className="truncate text-sm text-muted-foreground">
+                <p className="truncate text-ui text-muted-foreground">
                   {req.note}
                 </p>
               ) : null}

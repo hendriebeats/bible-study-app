@@ -90,14 +90,14 @@ export function OrgMemberRoster({
                     ),
                   );
                 }}
-                className="h-7 shrink-0 rounded-md border bg-background px-2 text-xs"
+                className="h-7 shrink-0 rounded-md border bg-background px-2 text-caption"
               >
                 <option value="super_admin">Super admin</option>
                 <option value="admin">Admin</option>
                 <option value="member">Member</option>
               </select>
             ) : (
-              <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+              <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-caption font-medium text-muted-foreground">
                 {ROLE_LABEL[member.role]}
               </span>
             )}

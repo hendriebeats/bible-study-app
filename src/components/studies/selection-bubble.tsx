@@ -16,11 +16,17 @@ import { toast } from "sonner";
 import { ColorControl } from "@/components/studies/color-control";
 import { useEditorContext } from "@/components/studies/editor-context";
 import { Button } from "@/components/ui/button";
-import { clearFormatting, isMarkActive } from "@/lib/editor/commands";
+import {
+  clearFormatting,
+  isAncestorActive,
+  isMarkActive,
+} from "@/lib/editor/commands";
 import { placeNearAnchor } from "@/lib/editor/floating-position";
 import type { FormatAction } from "@/lib/editor/format-actions";
 import { colorName } from "@/lib/editor/format-colors";
-import { marks } from "@/lib/editor/schema";
+import { parseOklch } from "@/lib/editor/oklch";
+import { marks, nodes } from "@/lib/editor/schema";
+import { styleBackgroundColor, styleColor } from "@/lib/theme/style-color";
 
 /** Gap (px) between the selection and the bubble. */
 const GAP = 8;
@@ -88,20 +94,28 @@ function Divider() {
 /** A small visual for a recent action: a colour swatch, or the mark's glyph. */
 function ActionGlyph({ action }: { action: FormatAction }) {
   if (action.type === "highlight") {
+    // FormatAction colours are persisted as plain strings; validate at the
+    // boundary so a malformed value doesn't reach the inline style. The
+    // swatch silently disappears for invalid values rather than rendering
+    // an empty `style` attribute.
+    const parsed = parseOklch(action.color);
+    if (!parsed) return null;
     return (
       <span
         aria-hidden
         className="size-3.5 rounded-sm ring-1 ring-foreground/15"
-        style={{ backgroundColor: action.color }}
+        style={styleBackgroundColor(parsed)}
       />
     );
   }
   if (action.type === "textColor") {
+    const parsed = parseOklch(action.color);
+    if (!parsed) return null;
     return (
       <span
         aria-hidden
-        className="text-sm leading-none font-semibold"
-        style={{ color: action.color }}
+        className="text-ui leading-none font-semibold"
+        style={styleColor(parsed)}
       >
         A
       </span>
@@ -136,6 +150,12 @@ export function SelectionBubble() {
   const [dragging, setDragging] = useState(false);
   const [tick, setTick] = useState(0);
   const [dismissedKey, setDismissedKey] = useState<string | null>(null);
+  // Mirrors `bubbleRef.current.contains(document.activeElement)` so we don't
+  // read the ref during render (refs-during-render lint). Flipped in the
+  // focusin/focusout listeners below — the custom-colour picker mounts a
+  // `react-colorful` surface that calls `el.focus()` on mousedown for
+  // pointer-capture, which would otherwise pull the bubble closed mid-pick.
+  const [bubbleHasFocus, setBubbleHasFocus] = useState(false);
 
   const activeView = ctx?.activeView ?? null;
   const activeState = ctx?.activeState ?? null;
@@ -146,7 +166,9 @@ export function SelectionBubble() {
     selection && !selection.empty
       ? `${String(selection.from)}-${String(selection.to)}`
       : null;
-  const focused = !!activeView && activeView.hasFocus();
+  // "Focused" for the bubble's purposes means EITHER the editor itself has
+  // focus, OR focus has been parked on a control inside the bubble.
+  const focused = !!activeView && (activeView.hasFocus() || bubbleHasFocus);
 
   const visible =
     !!selection &&
@@ -174,17 +196,26 @@ export function SelectionBubble() {
     const reposition = () => {
       setTick((t) => t + 1);
     };
+    // Track whether focus has moved INTO the bubble's subtree (e.g. onto the
+    // react-colorful picker), so `focused` can stay true even after the
+    // editor itself blurs. Reads `bubbleRef.current` from inside the effect
+    // — never during render.
+    const onFocusChange = () => {
+      const next = bubbleRef.current?.contains(document.activeElement) ?? false;
+      setBubbleHasFocus(next);
+      setTick((t) => t + 1);
+    };
     document.addEventListener("mousedown", onMouseDown, true);
     document.addEventListener("mouseup", onMouseUp, true);
-    document.addEventListener("focusin", reposition);
-    document.addEventListener("focusout", reposition);
+    document.addEventListener("focusin", onFocusChange);
+    document.addEventListener("focusout", onFocusChange);
     window.addEventListener("scroll", reposition, true);
     window.addEventListener("resize", reposition);
     return () => {
       document.removeEventListener("mousedown", onMouseDown, true);
       document.removeEventListener("mouseup", onMouseUp, true);
-      document.removeEventListener("focusin", reposition);
-      document.removeEventListener("focusout", reposition);
+      document.removeEventListener("focusin", onFocusChange);
+      document.removeEventListener("focusout", onFocusChange);
       window.removeEventListener("scroll", reposition, true);
       window.removeEventListener("resize", reposition);
     };
@@ -252,7 +283,10 @@ export function SelectionBubble() {
   // Notes anchor on the active editor's selection AND insert an entry into the
   // blocks doc's notes_index — neither concept exists for a dialog body editor
   // (its doc is standalone), so the button is hidden when a dialog is focused.
-  const allowAddNote = activeKind !== "dialog";
+  // Also hidden when the selection is already inside a `note_entry`: anchoring
+  // a note on text that's already inside a note body is incoherent.
+  const allowAddNote =
+    activeKind !== "dialog" && !isAncestorActive(activeState, nodes.noteEntry);
 
   const handleAddNote = () => {
     const result = createNote();
@@ -293,7 +327,7 @@ export function SelectionBubble() {
       {shownRecents.length > 0 ? (
         <>
           <div className="flex flex-col gap-0.5">
-            <span className="px-1 text-xs font-medium text-muted-foreground">
+            <span className="px-1 text-caption font-medium text-muted-foreground">
               Recent
             </span>
             <div className="flex items-center gap-0.5">

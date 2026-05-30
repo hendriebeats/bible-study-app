@@ -433,7 +433,7 @@ export async function addScripturePassage(
 }
 
 export type AppendResult =
-  | { ok: true; version: number }
+  | { ok: true; version: number; removedImageSrcs: string[] }
   | { ok: false; conflict: true; head: number };
 
 /**
@@ -445,6 +445,12 @@ export type AppendResult =
  * group starts (from `withUndoBoundary`/`isUndoBoundary`). Steps in the same
  * group share a `created_at`; groups are staggered server-side so the history
  * scrubber surfaces one moment per word/action instead of one per save batch.
+ *
+ * `imageSrcs` is the SET of image-node `src` URLs present in `newDoc` (walked
+ * client-side). The RPC compares it to the previously-stored set, persists
+ * the new one, and returns `removedImageSrcs` — orphan URLs the caller can
+ * move into the bucket's `_trash/` subpath. See the image-feature plan for
+ * the soft-delete + 30-day retention story.
  */
 export async function appendDocumentSteps(
   documentId: string,
@@ -453,6 +459,7 @@ export async function appendDocumentSteps(
   newDoc: PMDocJSON,
   clientId: string,
   boundaries: number[] = [],
+  imageSrcs: string[] = [],
 ): Promise<AppendResult> {
   const { supabase } = await requireUser();
   const { data, error } = await supabase.rpc("append_document_steps", {
@@ -462,6 +469,7 @@ export async function appendDocumentSteps(
     _new_doc: newDoc as unknown as Json,
     _client_id: clientId,
     _boundaries: boundaries,
+    _new_image_src_index: imageSrcs,
   });
   if (error) {
     // The RPC raises SQLSTATE PT409 on a version conflict so the client resyncs.
@@ -479,7 +487,24 @@ export async function appendDocumentSteps(
     }
     throw new Error(error.message);
   }
-  return { ok: true, version: data };
+  // The RPC returns a single-row TABLE(new_version int, removed_srcs text[]).
+  // PostgREST surfaces it as an array; pluck the first row and read fields
+  // through a structural guard so any future shape drift fails loudly.
+  const row: unknown = Array.isArray(data) ? data[0] : data;
+  let version = expectedBase;
+  let removed: string[] = [];
+  if (row && typeof row === "object") {
+    const r = row as { new_version?: unknown; removed_srcs?: unknown };
+    if (typeof r.new_version === "number") version = r.new_version;
+    if (Array.isArray(r.removed_srcs)) {
+      removed = r.removed_srcs.filter(
+        (s): s is string => typeof s === "string",
+      );
+    }
+  } else if (typeof row === "number") {
+    version = row;
+  }
+  return { ok: true, version, removedImageSrcs: removed };
 }
 
 /**
@@ -727,6 +752,57 @@ export async function restoreSection(
     throw new Error(error.message);
   }
   revalidatePath(`/studies/${studyId}`);
+}
+
+/**
+ * Load the notes + blocks documents for a soft-deleted section so the trash
+ * review panel can preview them before the user restores. Owner-only by RLS
+ * (`can_read_section` lets owners see trashed sections — only `archived_at`
+ * hides rows). Re-validates that the section belongs to `studyId` so a stolen
+ * id from another study can't be used to peek into someone else's row.
+ */
+export async function loadDeletedSectionDocuments(
+  sectionId: string,
+  studyId: string,
+): Promise<{ notes: PMDocJSON; blocks: PMDocJSON }> {
+  const { supabase } = await requireUser();
+  const { data: section, error: sectionErr } = await supabase
+    .from("sections")
+    .select("id, study_id, deleted_at")
+    .eq("id", sectionId)
+    .maybeSingle();
+  if (sectionErr) {
+    throw new Error(sectionErr.message);
+  }
+  if (section?.study_id !== studyId) {
+    throw new Error("Section not found");
+  }
+  if (section.deleted_at === null) {
+    throw new Error("Section is not in the trash");
+  }
+
+  const { data: docs, error: docsErr } = await supabase
+    .from("documents")
+    .select("kind, content")
+    .eq("section_id", sectionId);
+  if (docsErr) {
+    throw new Error(docsErr.message);
+  }
+  let notes: PMDocJSON | undefined;
+  let blocks: PMDocJSON | undefined;
+  for (const row of docs) {
+    // `kind` is the documents.kind enum ("notes" | "blocks"); the second
+    // branch needs no further check.
+    if (row.kind === "notes") {
+      notes = row.content as unknown as PMDocJSON;
+    } else {
+      blocks = row.content as unknown as PMDocJSON;
+    }
+  }
+  if (!notes || !blocks) {
+    throw new Error("Section content missing");
+  }
+  return { notes, blocks };
 }
 
 /**

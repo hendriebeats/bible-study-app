@@ -6,6 +6,7 @@ import type {
 } from "prosemirror-view";
 
 import { MAX_INDENT } from "../schema";
+import { placeCaretInRect } from "./node-view-utils";
 
 /** Clamp an untrusted indent value to a whole number in [0, MAX_INDENT]. */
 function clampIndent(value: unknown): number {
@@ -63,8 +64,41 @@ export class ListRowView implements NodeView {
     this.contentDOM = document.createElement("span");
     this.contentDOM.className = "list-row-content";
 
+    // Lock the outer row out of the browser's contenteditable area: it
+    // contains a CE=false checkbox sibling (for `task` rows) and a CE=true
+    // content span, so without this the browser would happily park a caret
+    // in the gap between them. Typing there would land an orphan text node
+    // in the outer div, which `ignoreMutation` would silently drop — and the
+    // next drag-reorder would discard the row's DOM, taking that orphan
+    // text with it. The contentDOM is re-opted-in to editing immediately
+    // below so PM keeps working as normal.
+    this.dom.contentEditable = "false";
+    this.contentDOM.contentEditable = "true";
+
     this.applyAttrs(node);
     this.buildLayout();
+
+    // Click in the outer chrome (the checkbox edge, the row's padding, the
+    // gap between the checkbox and content) → project the click into the
+    // content span and resolve the nearest caret position there. Same
+    // pattern `NoteEntryView` uses for its ref column.
+    this.dom.addEventListener("mousedown", (event) => {
+      if (!(event.target instanceof globalThis.Node)) return;
+      if (this.contentDOM.contains(event.target)) return;
+      if (this.checkbox?.contains(event.target)) return;
+      event.preventDefault();
+      const myPos = this.getPos();
+      placeCaretInRect(
+        this.view,
+        this.contentDOM,
+        event.clientX,
+        event.clientY,
+        (clickedAbove) => {
+          if (myPos == null) return null;
+          return clickedAbove ? myPos + 1 : myPos + this.node.nodeSize - 1;
+        },
+      );
+    });
   }
 
   /** Sync the row's DOM attributes (class/data/style) with the node's attrs. */
@@ -145,7 +179,17 @@ export class ListRowView implements NodeView {
   }
 
   stopEvent(event: Event): boolean {
-    return event.target === this.checkbox;
+    const target = event.target;
+    if (!(target instanceof globalThis.Node)) return false;
+    if (this.checkbox?.contains(target)) return true;
+    // Mousedown anywhere in the outer chrome (the row padding, the gap
+    // between the checkbox and the content span) is owned by the gutter
+    // redirect attached in the constructor — don't let PM also run its
+    // default selection placement against the same coords.
+    if (event.type === "mousedown" && !this.contentDOM.contains(target)) {
+      return true;
+    }
+    return false;
   }
 
   ignoreMutation(mutation: ViewMutationRecord): boolean {

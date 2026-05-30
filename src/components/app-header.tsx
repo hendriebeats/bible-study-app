@@ -28,25 +28,25 @@ export async function AppHeader() {
           className="flex items-center gap-2 font-semibold"
         >
           <BookOpen className="size-6 text-primary" />
-          <span className="text-lg">{siteConfig.name}</span>
+          <span className="text-subheading">{siteConfig.name}</span>
         </Link>
         {org ? (
           <Link
             href="/organizations"
-            className="flex min-w-0 items-center gap-2 border-l border-border/60 pl-3 text-sm text-muted-foreground hover:text-foreground"
+            className="flex min-w-0 items-center gap-2 border-l border-border/60 pl-3 text-ui text-muted-foreground hover:text-foreground"
           >
             <Avatar className="size-6 rounded-sm">
               {org.iconUrl ? (
                 <AvatarImage src={org.iconUrl} alt={org.name} />
               ) : null}
-              <AvatarFallback className="rounded-sm text-xs">
+              <AvatarFallback className="rounded-sm text-caption">
                 {getInitials(org.name)}
               </AvatarFallback>
             </Avatar>
             <span className="truncate">{org.name}</span>
             {!org.verified ? (
               <span
-                className="inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground"
+                className="inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-caption font-medium text-muted-foreground"
                 title="Not yet verified"
               >
                 <ShieldAlert className="size-3" />

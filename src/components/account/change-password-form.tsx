@@ -46,7 +46,9 @@ export function ChangePasswordForm({
           minLength={8}
           required
         />
-        <p className="text-xs text-muted-foreground">At least 8 characters.</p>
+        <p className="text-caption text-muted-foreground">
+          At least 8 characters.
+        </p>
       </div>
       <div className="grid gap-2">
         <Label htmlFor="confirm-password">Confirm new password</Label>

@@ -152,7 +152,7 @@ export function OrgBooksManager({
           onChange={toggleMaster}
           className="mt-1"
         />
-        <span className="text-sm">
+        <span className="text-ui">
           <span className="block font-medium">
             Use the default template library
           </span>
@@ -180,7 +180,7 @@ export function OrgBooksManager({
         {groups.map((group) =>
           group.books.length === 0 ? null : (
             <div key={group.label}>
-              <p className="sticky top-0 bg-muted/80 px-3 py-1 text-xs font-medium text-muted-foreground backdrop-blur-sm">
+              <p className="sticky top-0 bg-muted/80 px-3 py-1 text-caption font-medium text-muted-foreground backdrop-blur-sm">
                 {group.label}
               </p>
               {group.books.map((book) => {
@@ -189,12 +189,12 @@ export function OrgBooksManager({
                 return (
                   <div
                     key={book.ordinal}
-                    className="flex items-center gap-2 px-3 py-1.5 text-sm"
+                    className="flex items-center gap-2 px-3 py-1.5 text-ui"
                   >
                     <span className="min-w-0 flex-1 truncate">{book.name}</span>
                     <span
                       className={cn(
-                        "shrink-0 rounded-full px-1.5 py-0.5 text-xs",
+                        "shrink-0 rounded-full px-1.5 py-0.5 text-caption",
                         st === "override"
                           ? "bg-primary/10 text-primary"
                           : "bg-muted text-muted-foreground",

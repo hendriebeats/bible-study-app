@@ -95,7 +95,7 @@ export function StudyRow({ item }: { item: StudyListItem }) {
             ) : null}
           </div>
           <p
-            className="mt-0.5 truncate text-xs text-muted-foreground"
+            className="mt-0.5 truncate text-caption text-muted-foreground"
             suppressHydrationWarning
           >
             Edited {relativeTime(item.updated_at)}

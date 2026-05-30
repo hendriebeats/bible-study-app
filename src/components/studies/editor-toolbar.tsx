@@ -61,6 +61,7 @@ import {
   toggleUnderline,
 } from "@/lib/editor/commands";
 import type { EditorToolKey, EditorTools } from "@/lib/editor/editor-tools";
+import { openImageInsertDialog } from "@/lib/editor/image-insert-trigger";
 import {
   canSectionRedo,
   canSectionUndo,
@@ -165,8 +166,15 @@ export function EditorToolbar({
   // Notes anchor on the active view AND insert into the blocks doc's notes
   // index; Scripture inserts into the notes editor. Both are meaningless when
   // a dialog body is active, so they're hidden in dialog scope or when the
-  // active editor is a dialog body.
+  // active editor is a dialog body. They're ALSO meaningless when the caret
+  // is inside a `note_entry` — anchoring a new note on text that's already a
+  // note body, or inserting scripture into the popover-relocated note body,
+  // is incoherent. So we keep the buttons in place (no layout reflow) but
+  // render them disabled when the selection is inside a note_entry.
   const allowDocSpecific = scope !== "dialog" && activeKind !== "dialog";
+  const insideNoteEntry =
+    activeState != null && isAncestorActive(activeState, nodes.noteEntry);
+  const docSpecificEnabled = allowDocSpecific && !insideNoteEntry;
 
   function handleAddNote() {
     const result = createNote();
@@ -181,6 +189,7 @@ export function EditorToolbar({
     ? buildGroups({
         activeState,
         allowDocSpecific,
+        docSpecificEnabled,
         onAddNote: handleAddNote,
         editorTools,
         mod: modKey(isMac),
@@ -302,10 +311,14 @@ function ToolbarTooltipBody({ entry }: { entry: ToolbarButton }) {
         ) : null}
       </span>
       {entry.shortcut ? (
-        <span className="font-mono text-xs opacity-70">{entry.shortcut}</span>
+        <span className="font-mono text-caption opacity-70">
+          {entry.shortcut}
+        </span>
       ) : null}
       {entry.markdown ? (
-        <span className="font-mono text-xs opacity-70">{entry.markdown}</span>
+        <span className="font-mono text-caption opacity-70">
+          {entry.markdown}
+        </span>
       ) : null}
     </div>
   );
@@ -332,7 +345,9 @@ function SlotTooltip({
         <div className="flex flex-col items-center gap-0.5">
           <span className="font-medium">{label}</span>
           {shortcut ? (
-            <span className="font-mono text-xs opacity-70">{shortcut}</span>
+            <span className="font-mono text-caption opacity-70">
+              {shortcut}
+            </span>
           ) : null}
         </div>
       </TooltipContent>
@@ -344,12 +359,18 @@ function SlotTooltip({
 function buildGroups({
   activeState,
   allowDocSpecific,
+  docSpecificEnabled,
   onAddNote,
   editorTools,
   mod,
 }: {
   activeState: NonNullable<ReturnType<typeof useEditorContext>>["activeState"];
+  /** Whether to render the doc-specific group at all (Note + Scripture). */
   allowDocSpecific: boolean;
+  /** Whether those buttons should be interactive — false when inside a
+   *  `note_entry`, where they'd be incoherent. Keeps layout stable by
+   *  disabling rather than removing. */
+  docSpecificEnabled: boolean;
   onAddNote: () => void;
   editorTools: EditorTools;
   /** Pre-resolved modifier glyph (⌘ on macOS, Ctrl elsewhere). */
@@ -543,15 +564,14 @@ function buildGroups({
 
   // Group 6 — Link + Quote. Quote travels with Link because both are
   // inline-or-block annotations the user typically applies to existing
-  // content (rather than fresh structural inserts).
+  // content (rather than fresh structural inserts). Links are first-class
+  // (no opt-in) — the LinkControl button is always present.
   const linkQuote: ToolbarGroup = { id: "link-quote", entries: [] };
-  if (editorTools.links) {
-    linkQuote.entries.push({
-      kind: "slot",
-      key: "link",
-      node: <LinkControl size="icon" />,
-    });
-  }
+  linkQuote.entries.push({
+    kind: "slot",
+    key: "link",
+    node: <LinkControl size="icon" />,
+  });
   linkQuote.entries.push({
     kind: "button",
     icon: Quote,
@@ -580,7 +600,11 @@ function buildGroups({
     });
   }
 
-  // Group 7 — doc-specific actions (Note, Scripture). Hidden in dialog scope.
+  // Group 7 — doc-specific actions (Note, Scripture). Hidden in dialog scope
+  // (the dialog body has no notes_index / notes editor to target). In page
+  // scope they're always RENDERED but `docSpecificEnabled === false` (e.g.
+  // caret inside a note_entry) disables them in place so the toolbar layout
+  // doesn't reflow.
   const docSpecific: ToolbarGroup = { id: "doc-specific", entries: [] };
   if (allowDocSpecific) {
     docSpecific.entries.push(
@@ -594,6 +618,7 @@ function buildGroups({
               size="icon"
               variant="ghost"
               aria-label="Add note"
+              disabled={!docSpecificEnabled}
               onMouseDown={(event) => {
                 event.preventDefault();
               }}
@@ -607,24 +632,23 @@ function buildGroups({
       {
         kind: "slot",
         key: "scripture",
-        node: <ScriptureControl />,
+        node: <ScriptureControl disabled={!docSpecificEnabled} />,
       },
     );
   }
 
-  // Group 8 — media inserts. Image + Media are not yet wired into the editor;
-  // they're shown as `comingSoon` slots so the toolbar has a permanent home
-  // for them — when the feature ships, swap in a real command. Callout + Table
-  // moved up into the link-quote group at the user's request.
+  // Group 8 — media inserts. Image is now live (opens the insert dialog via
+  // a CustomEvent picked up by <ImageInsertDialog>); Media is still a
+  // coming-soon placeholder for the audio/video work. Callout + Table moved
+  // up into the link-quote group at the user's request.
   const inserts: ToolbarGroup = { id: "inserts", entries: [] };
-  if (showComingSoon(editorTools, "images")) {
+  if (editorTools.images) {
     inserts.entries.push({
       kind: "button",
       icon: ImageIcon,
       label: "Image",
-      command: noopCommand,
+      command: openImageInsertDialog,
       active: false,
-      comingSoon: true,
     });
   }
   if (showComingSoon(editorTools, "mediaEmbeds")) {

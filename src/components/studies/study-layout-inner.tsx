@@ -3,10 +3,14 @@ import type { ReactNode } from "react";
 
 import { HeaderActions } from "@/components/header-actions";
 import { StudyChrome } from "@/components/studies/study-chrome";
+import { StudyShareMenu } from "@/components/studies/study-share-menu";
 import { StudyWorkspace } from "@/components/studies/study-workspace";
 import { listCompareTargets } from "@/lib/db/compare";
 import { listGenres } from "@/lib/db/genres";
-import { getStudyGroupContext } from "@/lib/db/groups";
+import {
+  getStudyGroupContext,
+  listAttachableGroupsForUser,
+} from "@/lib/db/groups";
 import {
   getStudy,
   isStudyOwner,
@@ -73,6 +77,7 @@ export async function StudyLayoutInner({
     profileResult,
     compareTargets,
     groupContext,
+    attachableGroups,
     savedLayout,
     scriptureOptions,
     formatRecents,
@@ -92,6 +97,9 @@ export async function StudyLayoutInner({
       .maybeSingle(),
     listCompareTargets(studyId),
     getStudyGroupContext(studyId),
+    // Feeds the Share button's "Add to a group" submenu. Cheap (one row per
+    // loose membership) so unconditional here even though most users have 0.
+    listAttachableGroupsForUser(studyId),
     getWorkspaceLayout(studyId),
     getScriptureOptions(),
     getFormatRecents(),
@@ -115,7 +123,19 @@ export async function StudyLayoutInner({
       genres={genres}
       isTemplate={isTemplate}
       templateBackHref={templateBackHref}
-      actions={<HeaderActions />}
+      actions={
+        <>
+          <StudyShareMenu
+            studyId={study.id}
+            isOwner={isOwner}
+            isOrgTemplate={study.is_app_template || study.owner_org_id !== null}
+            groupContext={groupContext}
+            attachableGroups={attachableGroups}
+            meId={user.id}
+          />
+          <HeaderActions />
+        </>
+      }
     >
       <StudyWorkspace
         studyId={studyId}

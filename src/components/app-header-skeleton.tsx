@@ -22,7 +22,7 @@ export function AppHeaderSkeleton() {
           className="flex items-center gap-2 font-semibold text-muted-foreground"
         >
           <BookOpen className="size-6 text-primary/40" />
-          <span className="text-lg">{siteConfig.name}</span>
+          <span className="text-subheading">{siteConfig.name}</span>
         </span>
       </div>
       <div className="flex items-center gap-2">

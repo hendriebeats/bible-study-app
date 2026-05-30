@@ -22,17 +22,21 @@ import { toast } from "sonner";
 import { saveFormatRecents } from "@/app/account/actions";
 import { addScripturePassage } from "@/app/studies/actions";
 import {
+  activeLinkRange,
   setHighlight,
   setTextColor,
   toggleBold,
   toggleItalic,
   toggleStrike,
 } from "@/lib/editor/commands";
+import type { AnchorRect } from "@/lib/editor/floating-position";
 import { type EditorTools } from "@/lib/editor/editor-tools";
 import {
   type FormatAction,
   type FormatRecents,
+  pushCustomColor,
   pushRecent,
+  removeCustomColor,
 } from "@/lib/editor/format-actions";
 import {
   NOTE_OPEN_EVENT,
@@ -88,6 +92,15 @@ function nearestVerseRef(doc: Node, pos: number): string {
 }
 
 export type EditorRole = "notes" | "blocks" | "dialog";
+
+/** Per-open identity for the link popover — React `key` so each open
+ *  re-mounts the form with fresh local state. */
+function freshLinkPopoverId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `link-${String(Date.now())}-${String(Math.random()).slice(2)}`;
+}
 
 export interface ScriptureInsertResult {
   ok: boolean;
@@ -165,6 +178,21 @@ interface EditorContextValue {
   formatRecents: FormatAction[];
   /** Run a formatting action on the active editor AND bump it to the front of recents. */
   runFormatAction: (action: FormatAction) => void;
+  /** User's custom highlight colours (MRU, most-recent first). */
+  customHighlights: string[];
+  /** User's custom text colours (MRU, most-recent first). */
+  customTextColors: string[];
+  /**
+   * Apply a freshly-picked custom colour to the active editor AND bump it to
+   * the front of the appropriate MRU list. Same debounced-persist contract as
+   * {@link runFormatAction}.
+   */
+  applyCustomColor: (surface: "highlight" | "textColor", color: string) => void;
+  /** Drop a custom colour from its MRU list (no doc change). */
+  forgetCustomColor: (
+    surface: "highlight" | "textColor",
+    color: string,
+  ) => void;
   /**
    * Scripture-insert panel open state, hoisted out of the toolbar so other
    * surfaces — the empty-owner Study Body overlay, future deep links — can
@@ -187,6 +215,50 @@ interface EditorContextValue {
    * note editor.
    */
   isDockBlocksVisible: () => boolean;
+  /**
+   * Active link-popover request, or null when no popover is open. Set by
+   * {@link openLinkPopover} (called from the toolbar Link button, Mod-K, and
+   * the link-click plugin). The popover component renders this value.
+   */
+  linkPopover: LinkPopoverRequest | null;
+  /**
+   * Open the link insert / edit popover. Captures the target view + range.
+   * `id` is optional — one will be assigned automatically if omitted; pass
+   * an explicit value only when chaining opens that should share identity.
+   */
+  openLinkPopover: (
+    request: Omit<LinkPopoverRequest, "id"> & { id?: string },
+  ) => void;
+  /** Close the popover (no doc mutation). */
+  closeLinkPopover: () => void;
+  /**
+   * Convenience: derive a {@link LinkPopoverRequest} from a view's current
+   * selection (or the link under the cursor) and open the popover.
+   * Used by the toolbar button and the Mod-K keymap so each caller doesn't
+   * re-derive the anchor + range from scratch.
+   */
+  requestLinkPopoverFor: (
+    view: EditorView,
+    options?: { anchor?: AnchorRect | null },
+  ) => void;
+}
+
+/**
+ * What the link popover needs to render. `range` is captured at open time so
+ * the URL field stealing focus doesn't drift the selection out from under us;
+ * `view` is captured so the click-to-edit handler from a read-only-ish dialog
+ * still targets the right editor.
+ */
+export interface LinkPopoverRequest {
+  /** Per-open identity — React `key` on the form so each open re-mounts
+   *  it with fresh local state (no setState-in-effect dance). */
+  id: string;
+  mode: "insert" | "edit";
+  anchor: AnchorRect;
+  range: { from: number; to: number };
+  initialUrl: string;
+  initialText: string;
+  view: EditorView;
 }
 
 const EditorContext = createContext<EditorContextValue | null>(null);
@@ -418,6 +490,83 @@ export function EditorProvider({
     [],
   );
 
+  // Link popover state. Single-instance: each editor view shares the same
+  // popover; opening it from a new anchor replaces any prior open state.
+  const [linkPopover, setLinkPopover] = useState<LinkPopoverRequest | null>(
+    null,
+  );
+
+  const openLinkPopover = useCallback(
+    (request: Omit<LinkPopoverRequest, "id"> & { id?: string }) => {
+      setLinkPopover({ ...request, id: request.id ?? freshLinkPopoverId() });
+    },
+    [],
+  );
+
+  const closeLinkPopover = useCallback(() => {
+    setLinkPopover(null);
+  }, []);
+
+  const requestLinkPopoverFor = useCallback(
+    (view: EditorView, options?: { anchor?: AnchorRect | null }) => {
+      if (!view.editable) return;
+      const state = view.state;
+      const active = activeLinkRange(state);
+      const sel = state.selection;
+      let range: { from: number; to: number };
+      let initialUrl = "";
+      let initialText = "";
+      let mode: "insert" | "edit" = "insert";
+      if (active) {
+        range = { from: active.from, to: active.to };
+        initialUrl = active.attrs.href;
+        initialText = active.text;
+        mode = "edit";
+      } else if (!sel.empty) {
+        range = { from: sel.from, to: sel.to };
+        initialText = state.doc.textBetween(sel.from, sel.to, "", "");
+      } else {
+        range = { from: sel.from, to: sel.to };
+      }
+      // Anchor: caller-supplied (toolbar button rect) wins; otherwise derive
+      // from the selection / link / caret. Wrapped in try/catch since
+      // coordsAtPos throws on out-of-bounds during teardown.
+      let anchor: AnchorRect | null = options?.anchor ?? null;
+      if (!anchor) {
+        try {
+          const start = view.coordsAtPos(range.from);
+          const endPos = range.to > range.from ? range.to : range.from;
+          const end = view.coordsAtPos(endPos);
+          anchor = {
+            left: Math.min(start.left, end.left),
+            top: Math.min(start.top, end.top),
+            right: Math.max(start.right, end.right),
+            bottom: Math.max(start.bottom, end.bottom),
+          };
+        } catch {
+          // Fallback to the view's bounding rect.
+          const r = view.dom.getBoundingClientRect();
+          anchor = {
+            left: r.left,
+            top: r.top,
+            right: r.left + 1,
+            bottom: r.top + 1,
+          };
+        }
+      }
+      setLinkPopover({
+        id: freshLinkPopoverId(),
+        mode,
+        anchor,
+        range,
+        initialUrl,
+        initialText,
+        view,
+      });
+    },
+    [],
+  );
+
   const getBlocksView = useCallback(() => blocksViewRef.current, []);
 
   const restoreSection = useCallback(
@@ -479,15 +628,42 @@ export function EditorProvider({
     return hit;
   }, []);
 
-  // Recently-used formatting (the bubble's quick action). Optimistic local
-  // state for instant swatch feedback; a debounced upsert persists it to the
-  // account. The ref always holds the latest list so the debounced/unmount save
-  // sends the freshest value regardless of React's batching.
+  // Recently-used formatting (the bubble's quick action) PLUS the two custom-
+  // colour MRU lists. Optimistic local state for instant swatch feedback; a
+  // single debounced upsert persists ALL THREE atomically. The refs always
+  // hold the latest values so the debounced/unmount save sends the freshest
+  // payload regardless of React's batching.
   const [formatRecents, setFormatRecents] = useState<FormatAction[]>(
     initialFormatRecents.actions,
   );
+  const [customHighlights, setCustomHighlights] = useState<string[]>(
+    initialFormatRecents.customHighlights,
+  );
+  const [customTextColors, setCustomTextColors] = useState<string[]>(
+    initialFormatRecents.customTextColors,
+  );
   const recentsRef = useRef<FormatAction[]>(initialFormatRecents.actions);
+  const customHighlightsRef = useRef<string[]>(
+    initialFormatRecents.customHighlights,
+  );
+  const customTextColorsRef = useRef<string[]>(
+    initialFormatRecents.customTextColors,
+  );
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const scheduleSave = useCallback(() => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+    }
+    saveTimerRef.current = setTimeout(() => {
+      saveTimerRef.current = null;
+      void saveFormatRecents({
+        actions: recentsRef.current,
+        customHighlights: customHighlightsRef.current,
+        customTextColors: customTextColorsRef.current,
+      });
+    }, RECENTS_SAVE_DELAY_MS);
+  }, []);
 
   const runFormatAction = useCallback(
     (action: FormatAction) => {
@@ -495,15 +671,55 @@ export function EditorProvider({
       const next = pushRecent(recentsRef.current, action);
       recentsRef.current = next;
       setFormatRecents(next);
-      if (saveTimerRef.current) {
-        clearTimeout(saveTimerRef.current);
-      }
-      saveTimerRef.current = setTimeout(() => {
-        saveTimerRef.current = null;
-        void saveFormatRecents({ actions: recentsRef.current });
-      }, RECENTS_SAVE_DELAY_MS);
+      scheduleSave();
     },
-    [runCommand],
+    [runCommand, scheduleSave],
+  );
+
+  const applyCustomColor = useCallback(
+    (surface: "highlight" | "textColor", color: string) => {
+      const action: FormatAction =
+        surface === "highlight"
+          ? { type: "highlight", color }
+          : { type: "textColor", color };
+      runCommand(commandForAction(action));
+      // Push to the SHARED action recents alongside the surface-specific
+      // custom MRU. This makes the freshly-picked custom colour appear in
+      // the bubble's "Recent" quick-action row right next to preset clicks
+      // — so re-applying it is one click on the next selection. The action
+      // recents allow-list (`normalizeAction`) was widened to accept any
+      // valid custom OKLCH for exactly this purpose.
+      const nextActions = pushRecent(recentsRef.current, action);
+      recentsRef.current = nextActions;
+      setFormatRecents(nextActions);
+      if (surface === "highlight") {
+        const next = pushCustomColor(customHighlightsRef.current, color);
+        customHighlightsRef.current = next;
+        setCustomHighlights(next);
+      } else {
+        const next = pushCustomColor(customTextColorsRef.current, color);
+        customTextColorsRef.current = next;
+        setCustomTextColors(next);
+      }
+      scheduleSave();
+    },
+    [runCommand, scheduleSave],
+  );
+
+  const forgetCustomColor = useCallback(
+    (surface: "highlight" | "textColor", color: string) => {
+      if (surface === "highlight") {
+        const next = removeCustomColor(customHighlightsRef.current, color);
+        customHighlightsRef.current = next;
+        setCustomHighlights(next);
+      } else {
+        const next = removeCustomColor(customTextColorsRef.current, color);
+        customTextColorsRef.current = next;
+        setCustomTextColors(next);
+      }
+      scheduleSave();
+    },
+    [scheduleSave],
   );
 
   // Flush a pending recents save when the surface unmounts (e.g. navigating
@@ -512,7 +728,11 @@ export function EditorProvider({
     return () => {
       if (saveTimerRef.current) {
         clearTimeout(saveTimerRef.current);
-        void saveFormatRecents({ actions: recentsRef.current });
+        void saveFormatRecents({
+          actions: recentsRef.current,
+          customHighlights: customHighlightsRef.current,
+          customTextColors: customTextColorsRef.current,
+        });
       }
     };
   }, []);
@@ -576,10 +796,18 @@ export function EditorProvider({
       prefillReference,
       formatRecents,
       runFormatAction,
+      customHighlights,
+      customTextColors,
+      applyCustomColor,
+      forgetCustomColor,
       scriptureOpen,
       setScriptureOpen,
       setDockBlocksVisibilityProbe,
       isDockBlocksVisible,
+      linkPopover,
+      openLinkPopover,
+      closeLinkPopover,
+      requestLinkPopoverFor,
     }),
     [
       activeView,
@@ -600,10 +828,18 @@ export function EditorProvider({
       prefillReference,
       formatRecents,
       runFormatAction,
+      customHighlights,
+      customTextColors,
+      applyCustomColor,
+      forgetCustomColor,
       scriptureOpen,
       setScriptureOpen,
       setDockBlocksVisibilityProbe,
       isDockBlocksVisible,
+      linkPopover,
+      openLinkPopover,
+      closeLinkPopover,
+      requestLinkPopoverFor,
     ],
   );
 

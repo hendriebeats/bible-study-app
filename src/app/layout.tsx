@@ -3,6 +3,7 @@ import { Poppins, Source_Serif_4 } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { siteConfig } from "@/lib/site";
+import { THEME_IDS } from "@/lib/theme/themes";
 import "./globals.css";
 
 // Poppins is the app-wide primary font (UI + notes). It isn't a variable font,
@@ -45,10 +46,11 @@ export default function RootLayout({
     >
       <body className="flex min-h-full flex-col">
         <ThemeProvider
-          attribute="class"
+          attribute="data-theme"
           defaultTheme="system"
           enableSystem
           disableTransitionOnChange
+          themes={[...THEME_IDS]}
         >
           {children}
           <Toaster />

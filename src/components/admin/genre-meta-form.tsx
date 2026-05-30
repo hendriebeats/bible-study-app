@@ -49,7 +49,7 @@ export function GenreMetaForm({ genre }: { genre: Genre }) {
           }}
           onBlur={save}
           aria-label="Genre name"
-          className="h-auto flex-1 border-0 bg-transparent px-0 text-2xl font-bold shadow-none focus-visible:ring-0"
+          className="h-auto flex-1 border-0 bg-transparent px-0 text-title font-bold shadow-none focus-visible:ring-0"
         />
         <Button
           variant="destructive"
@@ -69,7 +69,7 @@ export function GenreMetaForm({ genre }: { genre: Genre }) {
         onBlur={save}
         aria-label="Genre description"
         placeholder="Describe this genre (optional)…"
-        className="min-h-16 w-full rounded-md border bg-transparent px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="min-h-16 w-full rounded-md border bg-transparent px-3 py-2 text-ui outline-none focus-visible:ring-2 focus-visible:ring-ring"
       />
     </div>
   );

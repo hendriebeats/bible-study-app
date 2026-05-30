@@ -23,7 +23,7 @@ export function MyOrgInvitations({
 
   return (
     <div className="grid gap-2">
-      <h2 className="text-sm font-semibold text-muted-foreground">
+      <h2 className="text-ui font-semibold text-muted-foreground">
         Invitations
       </h2>
       {invitations.map((invite) => (

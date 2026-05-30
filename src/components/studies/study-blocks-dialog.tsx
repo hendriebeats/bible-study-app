@@ -294,7 +294,7 @@ export function StudyBlocksDialog({
                 setTab(value);
               }}
               className={cn(
-                "flex-1 rounded-md px-2 py-1 text-sm font-medium transition-colors",
+                "flex-1 rounded-md px-2 py-1 text-ui font-medium transition-colors",
                 tab === value
                   ? "bg-background text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground",
@@ -321,7 +321,7 @@ export function StudyBlocksDialog({
           {tab === "section" ? (
             <BlockListEditor items={sectionItems} onChange={setSectionItems} />
           ) : templateLoading ? (
-            <p className="px-4 py-6 text-center text-sm text-muted-foreground">
+            <p className="px-4 py-6 text-center text-ui text-muted-foreground">
               Loading template…
             </p>
           ) : (

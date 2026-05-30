@@ -2,11 +2,29 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
-@custom-variant dark (&:is(.dark *));
+/*
+  Theme is selected via `[data-theme="…"]` on <html>, written by next-themes
+  (`attribute="data-theme"` in src/app/layout.tsx). This @custom-variant lets
+  Tailwind's `dark:` utilities target the dark theme by attribute instead of
+  the legacy `.dark` class. The selector deliberately targets `[data-theme="dark"]`
+  rather than `.dark` so adding a third theme later means only adding a new
+  data-theme block below — no Tailwind variant gymnastics.
+*/
+@custom-variant dark (&:where([data-theme="dark"] *));
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  /*
+    Reading-surface "canvas" — what the editor body sits on. Defaults to
+    `--background` (Tier 3 component tokens layer their themes on top of the
+    semantic surface, see the :root Tier 3 block below); a future sepia theme
+    could give the editor a paper tint without retinting the chrome.
+  */
+  --color-surface: var(--surface);
+  --color-editor-surface: var(--editor-surface);
+  /* Modal/dialog backdrop — adapts per theme via color-mix on --foreground. */
+  --color-overlay: var(--overlay);
   --font-sans: var(--font-sans);
   --font-serif: var(--font-serif);
   --font-heading: var(--font-sans);
@@ -27,6 +45,7 @@
   --color-input: var(--input);
   --color-border: var(--border);
   --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
@@ -56,46 +75,139 @@
   --width-side-panel-sm: 28rem;
   --width-side-panel-md: 36rem;
   --width-side-panel-lg: 44rem;
+
+  /* Floating editor popovers — sized to fit a URL + display text on one row
+     (popover) and a Google-Docs-style preview card with image + meta (card). */
+  --width-link-popover: 20rem;
+  --width-link-preview: 22.5rem;
+
+  /*
+    Semantic type scale. Tailwind v4 generates one `text-<name>` utility per
+    `--text-<name>` token here; pick by what the text IS, not how big it looks.
+    All `rem` so user browser font-size scales the whole app. Display tokens
+    use clamp() so hero text fluidly scales between mobile and desktop without
+    breaking the 200%-zoom budget. Em-relative font-sizes (verse superscripts,
+    bullet markers) stay raw on purpose — they should track their parent prose,
+    not a fixed rem.
+
+    Defaults like `text-caption`/`text-ui` are banned by `local/no-default-text-size`
+    in eslint.config.mjs — always reach for a semantic token below instead.
+  */
+  --text-micro: 0.6875rem; /*  11px — remote caret labels, badge-on-badge meta */
+  --text-caption: 0.75rem; /*  12px — timestamps, meta, helper text */
+  --text-ui: 0.875rem; /*  14px — default UI body, labels, buttons */
+  --text-body: 1rem; /*  16px — prose body, callout content */
+  --text-subheading: 1.125rem; /*  18px — small section headers, collapsible toggles */
+  --text-heading: 1.25rem; /*  20px — card / panel titles */
+  --text-title: 1.5rem; /*  24px — page-section titles */
+  --text-page-title: 1.875rem; /*  30px — page titles */
+  --text-display: clamp(2rem, 1.5rem + 2.5vw, 2.25rem); /* marketing */
+  --text-display-xl: clamp(2.75rem, 1.5rem + 6vw, 3.75rem); /* hero */
 }
 
 /*
-  Warm, inviting brand palette (OKLCH).
-  Hue ~50 = terracotta/amber primary; warm cream backgrounds; warm near-black
-  ink. Edit these tokens to reshape the whole app — never hardcode colors.
+  Three-tier colour token model.
+
+  TIER 1 — Primitives. Raw OKLCH values, theme-independent. Only edited when
+    we retune the brand palette itself (a new accent hue, a different cream
+    cast). Themes (Tier 2 below) assemble from these. Naming: family + 50–900
+    scale, matching the brand's warm cream / ink / terracotta core.
+
+  TIER 2 — Semantics. Purpose-shaped tokens (--background, --foreground,
+    --primary, …). Re-defined per theme. Every UI component reaches for these,
+    never for primitives directly. The `:root, [data-theme="light"]` selector
+    makes "light" the SSR default — clients still in next-themes' pre-hydration
+    window see light-mode colours instead of `:root` blanks.
+
+  TIER 3 — Components. Tokens that name a specific surface (--editor-surface,
+    --overlay, --note-active-bg, --picker-handle-shadow, --remote-caret-label-fg,
+    --popover-shadow). Default to a Tier 2 semantic so themes that don't care
+    inherit for free; themes that need divergence override only what changes.
+
+  Adding a new theme: append a `{ id, label }` to `THEMES` in
+  src/lib/theme/themes.ts AND add a `[data-theme="<id>"]` block below that
+  overrides whichever semantic + component tokens diverge.
 */
+
+/* ----- Tier 1: primitives (theme-independent) ----- */
 :root {
-  --background: oklch(0.993 0.006 83);
-  --foreground: oklch(0.24 0.02 56);
-  --card: oklch(0.998 0.004 83);
-  --card-foreground: oklch(0.24 0.02 56);
-  --popover: oklch(0.998 0.004 83);
-  --popover-foreground: oklch(0.24 0.02 56);
-  --primary: oklch(0.56 0.13 47);
-  --primary-foreground: oklch(0.99 0.01 83);
-  --secondary: oklch(0.95 0.022 80);
-  --secondary-foreground: oklch(0.33 0.03 52);
-  --muted: oklch(0.96 0.012 83);
-  --muted-foreground: oklch(0.52 0.025 56);
-  --accent: oklch(0.92 0.04 73);
-  --accent-foreground: oklch(0.33 0.045 50);
+  /* Warm cream backgrounds. Used to assemble the light theme's background /
+     card / muted / sidebar surfaces. */
+  --cream-50: oklch(0.993 0.006 83);
+  --cream-100: oklch(0.998 0.004 83);
+  --cream-150: oklch(0.97 0.01 83);
+  --cream-200: oklch(0.96 0.012 83);
+  --cream-300: oklch(0.95 0.022 80);
+  --cream-400: oklch(0.92 0.04 73);
+  /* Warm ink (foreground / muted-foreground). */
+  --ink-300: oklch(0.52 0.025 56);
+  --ink-500: oklch(0.33 0.03 52);
+  --ink-600: oklch(0.33 0.045 50);
+  --ink-900: oklch(0.24 0.02 56);
+  /* Dark theme neutrals (warm near-black through warm gray). */
+  --warm-black-900: oklch(0.2 0.014 56);
+  --warm-black-800: oklch(0.24 0.016 56);
+  --warm-black-700: oklch(0.3 0.018 56);
+  --warm-black-600: oklch(0.36 0.035 60);
+  --warm-gray-300: oklch(0.72 0.022 80);
+  --warm-paper: oklch(0.95 0.008 83);
+  /* Brand terracotta family. */
+  --terracotta-500: oklch(0.56 0.13 47);
+  --terracotta-400: oklch(0.7 0.13 50);
+  --terracotta-foreground-light: oklch(0.99 0.01 83);
+  --terracotta-foreground-dark: oklch(0.2 0.02 50);
+  /* Borders. */
+  --warm-border-light: oklch(0.9 0.014 78);
+  --warm-border-dark: oklch(1 0 0 / 12%);
+  --warm-input-dark: oklch(1 0 0 / 15%);
+}
+
+/* ----- Tier 2: semantics — LIGHT theme (also the SSR default) ----- */
+:root,
+[data-theme="light"] {
+  --background: var(--cream-50);
+  --surface: var(--cream-50);
+  /*
+    Tier 3 `--editor-surface` is _also_ pinned per-theme here (instead of just
+    defaulting to `var(--surface)` in the :root block below) because the
+    transitive var() chain (editor-surface → surface → cream-50) silently
+    resolved to the LIGHT value in some browsers / hot-reload states even
+    when `[data-theme="dark"]` was active — manifested as a white editor body
+    in dark mode. A direct per-theme value can't lose that race.
+  */
+  --editor-surface: var(--cream-50);
+  --foreground: var(--ink-900);
+  --card: var(--cream-100);
+  --card-foreground: var(--ink-900);
+  --popover: var(--cream-100);
+  --popover-foreground: var(--ink-900);
+  --primary: var(--terracotta-500);
+  --primary-foreground: var(--terracotta-foreground-light);
+  --secondary: var(--cream-300);
+  --secondary-foreground: var(--ink-500);
+  --muted: var(--cream-200);
+  --muted-foreground: var(--ink-300);
+  --accent: var(--cream-400);
+  --accent-foreground: var(--ink-600);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.9 0.014 78);
-  --input: oklch(0.9 0.014 78);
-  --ring: oklch(0.56 0.13 47);
+  --destructive-foreground: var(--terracotta-foreground-light);
+  --border: var(--warm-border-light);
+  --input: var(--warm-border-light);
+  --ring: var(--terracotta-500);
   --chart-1: oklch(0.65 0.13 47);
   --chart-2: oklch(0.6 0.1 75);
   --chart-3: oklch(0.55 0.08 120);
   --chart-4: oklch(0.6 0.09 200);
   --chart-5: oklch(0.55 0.1 300);
   --radius: 0.625rem;
-  --sidebar: oklch(0.97 0.01 83);
-  --sidebar-foreground: oklch(0.24 0.02 56);
-  --sidebar-primary: oklch(0.56 0.13 47);
-  --sidebar-primary-foreground: oklch(0.99 0.01 83);
-  --sidebar-accent: oklch(0.92 0.04 73);
-  --sidebar-accent-foreground: oklch(0.33 0.045 50);
-  --sidebar-border: oklch(0.9 0.014 78);
-  --sidebar-ring: oklch(0.56 0.13 47);
+  --sidebar: var(--cream-150);
+  --sidebar-foreground: var(--ink-900);
+  --sidebar-primary: var(--terracotta-500);
+  --sidebar-primary-foreground: var(--terracotta-foreground-light);
+  --sidebar-accent: var(--cream-400);
+  --sidebar-accent-foreground: var(--ink-600);
+  --sidebar-border: var(--warm-border-light);
+  --sidebar-ring: var(--terracotta-500);
   /* Callout variants: tinted background + accent (border / header) per variant. */
   --callout-note-bg: oklch(0.96 0.03 235);
   --callout-note-accent: oklch(0.52 0.09 235);
@@ -130,40 +242,53 @@
      their content container with `.pm-block-host` (see the rule alongside
      `.block-handle` below). Layout token — same value in light and dark. */
   --block-gutter: 1.75rem;
+  /* Light-theme note highlighter: brighter, more saturated yellow at higher
+     alpha so it pops against the cream paper background. Tune in concert
+     with the dark override below. */
+  --note-active-bg: oklch(0.93 0.2 100 / 0.6);
+  /* Light-theme entry-row flash: nearly opaque yellow + a darker yellow ring
+     so the pulse is unmistakable against cream. */
+  --note-flash-bg: oklch(0.93 0.22 100 / 0.95);
+  --note-flash-ring: oklch(0.7 0.2 95);
 }
 
-.dark {
-  --background: oklch(0.2 0.014 56);
-  --foreground: oklch(0.95 0.008 83);
-  --card: oklch(0.24 0.016 56);
-  --card-foreground: oklch(0.95 0.008 83);
-  --popover: oklch(0.24 0.016 56);
-  --popover-foreground: oklch(0.95 0.008 83);
-  --primary: oklch(0.7 0.13 50);
-  --primary-foreground: oklch(0.2 0.02 50);
-  --secondary: oklch(0.3 0.02 56);
-  --secondary-foreground: oklch(0.95 0.008 83);
-  --muted: oklch(0.3 0.018 56);
-  --muted-foreground: oklch(0.72 0.022 80);
-  --accent: oklch(0.36 0.035 60);
-  --accent-foreground: oklch(0.95 0.008 83);
+/* ----- Tier 2: semantics — DARK theme ----- */
+[data-theme="dark"] {
+  --background: var(--warm-black-900);
+  --surface: var(--warm-black-900);
+  /* See note on `--editor-surface` in the light block above. */
+  --editor-surface: var(--warm-black-900);
+  --foreground: var(--warm-paper);
+  --card: var(--warm-black-800);
+  --card-foreground: var(--warm-paper);
+  --popover: var(--warm-black-800);
+  --popover-foreground: var(--warm-paper);
+  --primary: var(--terracotta-400);
+  --primary-foreground: var(--terracotta-foreground-dark);
+  --secondary: var(--warm-black-700);
+  --secondary-foreground: var(--warm-paper);
+  --muted: var(--warm-black-700);
+  --muted-foreground: var(--warm-gray-300);
+  --accent: var(--warm-black-600);
+  --accent-foreground: var(--warm-paper);
   --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 12%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.7 0.13 50);
+  --destructive-foreground: var(--warm-paper);
+  --border: var(--warm-border-dark);
+  --input: var(--warm-input-dark);
+  --ring: var(--terracotta-400);
   --chart-1: oklch(0.7 0.13 47);
   --chart-2: oklch(0.65 0.1 75);
   --chart-3: oklch(0.6 0.08 120);
   --chart-4: oklch(0.65 0.09 200);
   --chart-5: oklch(0.6 0.1 300);
-  --sidebar: oklch(0.24 0.016 56);
-  --sidebar-foreground: oklch(0.95 0.008 83);
-  --sidebar-primary: oklch(0.7 0.13 50);
-  --sidebar-primary-foreground: oklch(0.2 0.02 50);
-  --sidebar-accent: oklch(0.36 0.035 60);
-  --sidebar-accent-foreground: oklch(0.95 0.008 83);
-  --sidebar-border: oklch(1 0 0 / 12%);
-  --sidebar-ring: oklch(0.7 0.13 50);
+  --sidebar: var(--warm-black-800);
+  --sidebar-foreground: var(--warm-paper);
+  --sidebar-primary: var(--terracotta-400);
+  --sidebar-primary-foreground: var(--terracotta-foreground-dark);
+  --sidebar-accent: var(--warm-black-600);
+  --sidebar-accent-foreground: var(--warm-paper);
+  --sidebar-border: var(--warm-border-dark);
+  --sidebar-ring: var(--terracotta-400);
   --callout-note-bg: oklch(0.3 0.04 235);
   --callout-note-accent: oklch(0.74 0.09 235);
   --callout-insight-bg: oklch(0.32 0.05 85);
@@ -186,6 +311,82 @@
   --tone-coral-bg: var(--callout-warning-bg);
   --tone-plum-bg: var(--callout-prayer-bg);
   --tone-sage-bg: var(--callout-application-bg);
+  /* Dark-theme note highlighter: drop the lightness a hair and back the
+     alpha off so the yellow reads as a glow over the warm-black surface
+     rather than a flat overlay. Keeps the same hue as the light override
+     so the highlight feels like the same "marker" across themes. */
+  --note-active-bg: oklch(0.86 0.17 100 / 0.45);
+  /* Dark-theme entry-row flash: stays opaque and bright so the row clearly
+     glows against warm-black. Ring is a saturated yellow that reads as a
+     warm outline rather than disappearing into the dark surround. */
+  --note-flash-bg: oklch(0.85 0.18 100 / 0.9);
+  --note-flash-ring: oklch(0.78 0.2 95);
+}
+
+/*
+  ----- Tier 3: component tokens -----
+
+  Each token names a specific surface that needs to diverge from its semantic
+  default in at least one theme (now or expected later). Theme-independent
+  defaults live here; per-theme overrides go in `[data-theme="<id>"]` blocks
+  above when a theme needs to retune the surface. Adding a new theme means
+  overriding only the tokens that change shape; the rest inherit for free.
+
+  Stick to `color-mix(in oklch, var(--…), transparent)` rather than baking new
+  raw OKLCH literals — that way the component token tracks the theme's
+  semantic family automatically, and the lint rule `local/no-raw-colors`
+  keeps the wider codebase free of one-off literals.
+*/
+:root {
+  /*
+    Modal/dialog backdrop. `color-mix` of the theme's `--foreground` keeps
+    overlays warm-toned (no pure black on dark themes) and lets them adapt
+    automatically when the theme switches.
+  */
+  --overlay: color-mix(in oklch, var(--foreground) 10%, transparent);
+  /*
+    Active-note highlight — a translucent felt-tip-highlighter yellow shown
+    on the body's inline `.note-ref` underline when its note is hovered or
+    its popover is open (the `.note-ref.note-active` rule). Theme-independent
+    default — both `[data-theme="light"]` and `[data-theme="dark"]` override
+    below with surface-tuned alphas so the yellow reads punchy over inline
+    text without overpowering it. Hue 100 sits in the lemon range; tune hue
+    (95–105), chroma, lightness, or alpha here.
+  */
+  --note-active-bg: oklch(0.93 0.18 100 / 0.55);
+  /*
+    Entry-row flash — separate token from the inline highlight because the
+    row is a much LARGER surface (full-width band, not a few characters), and
+    the same translucent yellow that reads as a clear highlight under inline
+    text gets visually lost as a pale pastel tint over a full row. This
+    version is more opaque so the flash actually registers as "look here"
+    when the keyframes drive it. The ring (`--note-flash-ring`) is a darker
+    saturated yellow used as an inset box-shadow during peaks — even if a
+    user's display flattens the bg shift, the ring punches through. Tune
+    both per theme below.
+  */
+  --note-flash-bg: oklch(0.93 0.2 100 / 0.92);
+  --note-flash-ring: oklch(0.75 0.2 100);
+  /*
+    Custom-colour picker handle shadows. Foreground-derived so the rim of the
+    handle stays visible on every theme's bg.
+  */
+  --picker-handle-shadow: color-mix(
+    in oklch,
+    var(--foreground) 50%,
+    transparent
+  );
+  /*
+    Popover box-shadow — soft drop tying the popover to the surface below.
+  */
+  --popover-shadow: color-mix(in oklch, var(--foreground) 12%, transparent);
+  /*
+    Remote caret label foreground. Labels sit on the user's coloured cursor
+    chip; the cursor itself is always picked for contrast against the page bg
+    so the label text uses the OPPOSITE of `--foreground` to clear contrast
+    against the chip.
+  */
+  --remote-caret-label-fg: var(--primary-foreground);
 }
 
 @layer base {
@@ -194,9 +395,24 @@
   }
   body {
     @apply bg-background text-foreground;
+    /*
+      Anchor the default font-size to a named token so any text without an
+      explicit `text-*` class still flows through the semantic scale. Matches
+      the browser default (16px) today — the point is to remove the implicit
+      ghost-baseline, not to change the visual.
+    */
+    font-size: var(--text-body);
   }
   html {
     @apply font-sans;
+    /*
+      Opt OUT of mobile browsers silently inflating text on rotation/zoom (the
+      default behavior can break responsive layouts that already use rem). We
+      MUST keep this `100%` and not `none` — `none` would also block the user's
+      pinch-to-zoom, a WCAG 1.4.4 violation.
+    */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
   /*
     Default the cursor for everything clickable. Lives in @layer base so any
@@ -238,12 +454,12 @@
 }
 
 /*
-  Tiptap / ProseMirror editor content. Styled with semantic tokens so the
+  ProseMirror editor content. Styled with semantic tokens so the
   word-processor reads consistently in light and dark.
 */
 @layer base {
   .ProseMirror {
-    @apply min-h-full text-base leading-relaxed whitespace-pre-wrap;
+    @apply min-h-full text-body leading-relaxed whitespace-pre-wrap;
     /* `break-spaces` is what prosemirror-view ships internally — lets
        trailing spaces wrap (nicer than `pre-wrap` for prose). The
        `whitespace-pre-wrap` above is the fallback / cascade base; this
@@ -254,17 +470,36 @@
   .ProseMirror:focus {
     @apply outline-none;
   }
+  /* Every block node-view sets its outer `contentEditable=false` and
+     re-opts its `contentDOM` back in with `contentEditable=true` (see
+     list-row-view, callout-view, collapsible-view, study-block-view,
+     notes-index-view, note-entry-view). Per HTML spec the nearest CE=true
+     ancestor of the caret becomes the *editing host* — so each of those
+     contentDOM elements becomes its own focused element when the caret
+     lands inside, and browsers draw the default `:focus` outline on it.
+     We don't draw input-field borders anywhere in the editor (it's meant
+     to read as one document, not segmented inputs) — kill that outline
+     everywhere it could appear via this mechanism. */
+  .ProseMirror .list-row-content:focus,
+  .ProseMirror .callout-body:focus,
+  .ProseMirror .collapsible-content:focus,
+  .ProseMirror .study-block-body:focus,
+  .ProseMirror .notes-index-body:focus,
+  .ProseMirror .note-entry-body:focus,
+  .ProseMirror [contenteditable="true"]:focus {
+    @apply outline-none;
+  }
   .ProseMirror > * + * {
     @apply mt-3;
   }
   .ProseMirror h1 {
-    @apply mt-6 mb-3 text-3xl font-bold tracking-tight;
+    @apply mt-6 mb-3 text-page-title font-bold tracking-tight;
   }
   .ProseMirror h2 {
-    @apply mt-5 mb-2 text-2xl font-semibold tracking-tight;
+    @apply mt-5 mb-2 text-title font-semibold tracking-tight;
   }
   .ProseMirror h3 {
-    @apply mt-4 mb-2 text-xl font-semibold;
+    @apply mt-4 mb-2 text-heading font-semibold;
   }
   /*
     Flat-schema list rows. A single `list_row` node carries `listType` /
@@ -540,7 +775,7 @@
     margin-top: 0.125rem;
     padding: 0.125rem 0;
     color: var(--muted-foreground);
-    font-size: 0.875rem;
+    font-size: var(--text-ui);
     cursor: text;
     user-select: none;
   }
@@ -565,7 +800,7 @@
   }
   .ProseMirror .collapsible-toggle {
     @apply flex h-5 w-5 shrink-0 items-center justify-center rounded-sm leading-none text-muted-foreground select-none hover:bg-muted;
-    font-size: 1.1rem;
+    font-size: var(--text-subheading);
     grid-column: 1;
     cursor: pointer;
   }
@@ -620,7 +855,7 @@
     margin-top: 0.125rem;
     padding: 0.125rem 0;
     color: var(--muted-foreground);
-    font-size: 0.875rem;
+    font-size: var(--text-ui);
     cursor: text;
     user-select: none;
   }
@@ -640,7 +875,7 @@
     margin-top: 0.125rem;
     padding: 0.125rem 0;
     color: var(--muted-foreground);
-    font-size: 0.875rem;
+    font-size: var(--text-ui);
     cursor: text;
     user-select: none;
   }
@@ -649,7 +884,7 @@
   }
   /* Tables (opt-in). Fixed layout so columns share width and don't overflow. */
   .ProseMirror table {
-    @apply my-3 w-full border-collapse text-sm;
+    @apply my-3 w-full border-collapse text-ui;
     table-layout: fixed;
   }
   .ProseMirror th,
@@ -839,7 +1074,7 @@
      as a divider-separated row (verse ref | text). The anchor mark + inline icon
      mark the text a note is attached to. */
   .ProseMirror .notes-index-title {
-    @apply text-sm font-semibold;
+    @apply text-ui font-semibold;
   }
   /* The body column owns the entries' left edge directly — the row gutter (drag
      handle + verse ref) sits flush against the wrapper's left side instead of
@@ -861,7 +1096,7 @@
      so the speech-bubble icon visually echoes the inline note-anchor icon
      (note-anchors.ts) users click in block text to add a note. */
   .ProseMirror .notes-index-empty {
-    @apply flex items-center gap-2 py-2 text-xs text-muted-foreground;
+    @apply flex items-center gap-2 py-2 text-caption text-muted-foreground;
     padding-left: 0.75rem;
   }
   /* Explicit dimensions match the inline note-anchor icon pattern above —
@@ -896,7 +1131,7 @@
        notes-index-view.ts: clicking here drops the caret on the matching body
        line). The drag handle is absolute-positioned inside this column so the
        "dead" space to its left is still part of the column's hit area. */
-    @apply text-xs font-medium text-muted-foreground;
+    @apply text-caption font-medium text-muted-foreground;
     position: relative;
     cursor: text;
     text-align: right;
@@ -907,6 +1142,31 @@
        ref text never slides under the handle. */
     padding-left: 1.25rem;
     min-height: 1rem;
+  }
+  /* The verse-ref pill is the entry → body jump target. Renders as a button so
+     the global button cursor / a11y semantics apply, but visually inherits the
+     gutter column's text-caption styling — no border, no background, no padding
+     drift. The neutral "Note" fallback (when there's no verseRef) is italicized
+     to flag that it's a non-scripture anchor. See NoteEntryView. */
+  .ProseMirror .note-entry-ref-pill {
+    @apply inline text-inherit;
+    background: transparent;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    font: inherit;
+    color: inherit;
+    text-align: right;
+  }
+  .ProseMirror .note-entry-ref-pill:hover {
+    color: var(--primary);
+  }
+  .ProseMirror .note-entry-ref-pill:focus-visible {
+    @apply rounded-sm outline-2 outline-offset-2;
+    outline-color: var(--ring);
+  }
+  .ProseMirror .note-entry-ref-pill[data-has-verse-ref="false"] {
+    font-style: italic;
   }
   /* Drag handle for reordering a note row — chrome from .drag-handle; this rule
      owns the row-anchored position and the hover-only visibility override. */
@@ -932,6 +1192,16 @@
   .ProseMirror .note-entry-body > * + * {
     @apply mt-1;
   }
+  /* Inline-row flash colour tokens live in :root + per-theme overrides above
+     (`--note-flash-bg`, `--note-flash-ring`). `flashNoteEntry` in
+     notes-index-view.ts writes the row's background, inset ring, and
+     border-radius INLINE (no class, no keyframes) for maximum compositor
+     reliability — CSS animations can paint to a layer that's invisible to
+     screenshots and, more concerningly, sometimes to the user (HMR-cached
+     stylesheets, monitor calibration). The inline-style approach driving a
+     CSS transition on the fade-out is bulletproof: nothing in the cascade
+     can mask it, and a stale globals.css can't break it as long as the
+     tokens above resolve. */
   .ProseMirror .note-ref {
     border-bottom: 2px dotted var(--primary);
   }
@@ -939,14 +1209,17 @@
      is open (toggled in note-highlight.ts). */
   .ProseMirror .note-ref.note-active {
     border-radius: 2px;
-    background-color: rgb(250 224 120 / 0.6);
+    background-color: var(--note-active-bg);
   }
   .ProseMirror .note-anchor-icon {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 0.95em;
-    height: 0.95em;
+    /* Fixed size (rem, not em) so the icon stays consistent inside H1s/H2s/
+       callout titles. CSS `zoom` on the editor wrapper still magnifies rem,
+       so the editor zoom control continues to scale this. */
+    width: 1rem;
+    height: 1rem;
     margin-inline-start: 1px;
     vertical-align: super;
     color: var(--muted-foreground);
@@ -959,8 +1232,65 @@
     width: 100%;
     height: 100%;
   }
+  /*
+    Auto-detected scripture cross-reference chip — styled to look like a
+    pill, not a highlight.
+
+    Only rendered on a COMMITTED mark — while the user is still typing the
+    reference, the mark exists silently on the text with no class/data-attrs,
+    so the pill APPEARS only once the user has clearly moved on (typed a
+    space, clicked away). When the user clicks back into a committed pill to
+    edit a digit, the chip stays `committed: true` so the pill never flickers
+    off mid-edit.
+
+    The pill uses fully-rounded corners, a touch of horizontal padding, a
+    slightly bolder weight, and a 1px inset ring (via box-shadow, which
+    doesn't affect layout). The horizontal padding does mean surrounding
+    text shifts a few pixels right at the moment the pill commits — that's
+    a one-time event the user already triggered by typing a space, so it
+    feels like part of the commit rather than a glitch.
+
+    Single click opens the preview popover (cross-ref-detect's mousedown
+    handler keeps the caret put — chip behaves like a button, not a
+    hyperlink). Double click opens Bible Gateway in ESV.
+  */
+  .ProseMirror .cross-ref-chip {
+    background-color: var(--accent);
+    color: var(--accent-foreground);
+    /* Pill: fully-rounded ends + small horizontal padding. */
+    border-radius: 9999px;
+    padding: 0.05em 0.45em;
+    /* Slightly bolder so the pill reads as a chip in the middle of prose. */
+    font-weight: 500;
+    cursor: pointer;
+    /* Slim line-height so the pill doesn't expand the surrounding line. */
+    line-height: 1.4;
+    /* Don't break a reference across lines. */
+    white-space: nowrap;
+    /* Inset 1px ring in a slightly darker accent gives the pill definition
+       without touching layout. `color-mix` derives the ring tint from the
+       active accent so it tracks theme automatically. */
+    box-shadow: inset 0 0 0 1px
+      color-mix(in oklch, var(--accent) 70%, var(--foreground) 30%);
+    /* Round the box-shadow ring on both ends even if the pill ever wraps. */
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+  }
+  .ProseMirror .cross-ref-chip:hover {
+    filter: brightness(0.96);
+  }
+  .dark .ProseMirror .cross-ref-chip:hover {
+    filter: brightness(1.08);
+  }
   .ProseMirror a {
     @apply text-primary underline;
+  }
+  /* While Cmd/Ctrl is held the link's click target switches from "no-op"
+     to "open in new tab" — surface that with a pointer cursor so the user
+     knows the click will land. Toggled by the modifier tracker in
+     LinkPreviewCardPortal via a single data-attr on <body>. */
+  body[data-mod-key-down="true"] .ProseMirror a {
+    cursor: pointer;
   }
   .ProseMirror u {
     @apply underline;
@@ -1042,7 +1372,7 @@
     user-select: none;
   }
   .ProseMirror code {
-    @apply rounded bg-muted px-1 py-0.5 font-mono text-sm;
+    @apply rounded bg-muted px-1 py-0.5 font-mono text-ui;
   }
   /* Placeholder text for an empty document.
      `[data-empty-overlay]` (set by `DocumentEditor` on the mount wrapper when
@@ -1073,10 +1403,10 @@
     white-space: nowrap;
     border-radius: 4px;
     padding: 0 4px;
-    font-size: 0.7rem;
+    font-size: var(--text-micro);
     line-height: 1.4;
     font-weight: 500;
-    color: #fff;
+    color: var(--remote-caret-label-fg);
     background: var(--remote-color, var(--primary));
     pointer-events: none;
     user-select: none;
@@ -1138,7 +1468,7 @@
     @apply flex items-center gap-2;
   }
   .study-block-title {
-    @apply min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none;
+    @apply min-w-0 flex-1 bg-transparent text-ui font-semibold outline-none;
     /* Used on both <input> and <textarea> (the editor and the blocks dialog).
        For textarea: size-to-content + no manual resize handle + no scrollbar,
        so a long title wraps and grows vertically instead of clipping. */
@@ -1147,7 +1477,7 @@
     field-sizing: content;
   }
   .study-block-subtitle {
-    @apply mt-1 text-xs text-muted-foreground;
+    @apply mt-1 text-caption text-muted-foreground;
     /* Mirrors .study-block-title: when this class is used on a textarea (the
        blocks dialog's always-editable subtitle), the field grows with wrapped
        content. No-op on the live editor's read-only <p>. */
@@ -1201,7 +1531,7 @@
     field-sizing: content;
   }
   .study-block-action-title {
-    @apply text-base font-semibold;
+    @apply text-body font-semibold;
   }
   .study-block-action-title::placeholder,
   .study-block-action-subtitle::placeholder {
@@ -1211,7 +1541,7 @@
     opacity: 0.55;
   }
   .study-block-action-subtitle {
-    @apply text-sm;
+    @apply text-ui;
   }
   /* The body still exists structurally (block+ content rule unchanged) so
      ProseMirror has a valid contentDOM mount point — hide it completely. */
@@ -1250,10 +1580,10 @@
     @apply rounded-lg border-l-4 border-primary bg-muted/40 py-2 pr-3 pl-4 font-serif;
   }
   .scripture-ref {
-    @apply mb-1 flex items-center justify-between font-sans text-xs font-semibold tracking-wide text-muted-foreground uppercase;
+    @apply mb-1 flex items-center justify-between font-sans text-caption font-semibold tracking-wide text-muted-foreground uppercase;
   }
   .scripture-remove {
-    @apply rounded px-1.5 text-base leading-none text-muted-foreground hover:text-destructive;
+    @apply rounded px-1.5 text-body leading-none text-muted-foreground hover:text-destructive;
   }
   .scripture-para {
     @apply leading-relaxed;
@@ -1293,6 +1623,308 @@
    the moment a co-member panel is added. */
 [data-study-dock][data-single-panel] .dv-tabs-and-actions-container {
   display: none;
+}
+
+/* Shake nudge for the custom-colour picker's hex input when the user pastes
+   an invalid or low-contrast value — a non-blocking signal that the field
+   refused the update without yanking focus. */
+@keyframes shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-4px);
+  }
+  40% {
+    transform: translateX(4px);
+  }
+  60% {
+    transform: translateX(-2px);
+  }
+  80% {
+    transform: translateX(2px);
+  }
+}
+
+/* ----------------------------------------------------------------------------
+   Study dock tab chrome — Chrome-style tabs.
+
+   Dockview's vendor strip is a flat VS Code-ish bar; we rebrand it to the
+   warm-toned editor palette and reshape the active tab into the classic
+   Chrome silhouette so the dock reads as part of the study page instead of
+   a foreign widget pinned on top of it.
+
+   Geometry of the active tab:
+     - Strip is `--muted`. Active tab is `--background` (same as the editor
+       body below), so the tab visually anchors to the body.
+     - Rounded top corners (8px). Bottom corners flare outward via two
+       absolutely-positioned pseudos, painting a quarter-circle of `--background`
+       just outside each bottom corner with a radial-gradient curve facing
+       AWAY from the tab. The strip colour peeks through the curve, producing
+       the Chrome "swoop" where the tab widens at the bottom.
+
+   Layout-flow gotcha: those bottom-corner pseudos are positioned at
+   `left: -9px` / `right: -9px` of the active tab. Dockview's tabs-container
+   has `overflow: hidden`, which would clip the flares AND, more annoyingly,
+   bumps the container's `scrollWidth` past its visible width, triggering
+   dockview's horizontal scroll detection (the strip would scroll left/right
+   even though the tabs themselves fit). The `padding: 0 9px` on the tabs
+   container reserves space inside it for the pseudos to render without
+   triggering overflow.
+
+   Selectors stay scoped to `[data-study-dock]` so any other dockview
+   consumer (we have none today) keeps the vendor defaults, and use class
+   hooks dockview promises as a public theming surface (`.dv-tab`,
+   `.dv-active-tab`, `.dv-inactive-tab`, `.dv-default-tab-action`,
+   `.dv-tabs-and-actions-container`).
+   -------------------------------------------------------------------------- */
+/*
+  Dockview's `.dockview-theme-light` class is applied at the component
+  level (we pass `theme={themeLight}` in study-dockview.tsx, see the
+  comment there) because dockview's own themes are an opinionated bundle
+  we don't want to inherit wholesale. Instead, EVERY `--dv-*` variable
+  that drives a colour gets re-pointed here to one of our semantic /
+  component tokens, so the dock follows whatever theme `<html data-theme>`
+  is on.
+
+  These overrides land ON the dockview root itself (the element carrying
+  `.dockview-theme-light`) instead of just on our `[data-study-dock]`
+  wrapper, because vendor `.dockview-theme-light` defines the same variables
+  on the dockview root. Inherited values are shadowed by any later
+  definition on a closer ancestor — so an `[data-study-dock] { --dv-...: foo }`
+  declaration loses to the vendor's `.dockview-theme-light { --dv-...: white }`
+  on the inner element. Co-locating our overrides ON the dockview root is
+  the only way to win without `!important`.
+
+  Adding overrides for new vendor variables when dockview upgrades is the
+  maintenance contract — anything left unset shows through as vendor white
+  (the bug that produced a white editor body + a white active tab in dark
+  mode).
+*/
+[data-study-dock] .dockview-theme-light {
+  /* Panel content body. THIS is what shows behind every panel's children
+     — the MinePanel's editor, the BlocksDockPanel's blocks doc, etc.
+     Without this override the panel body stayed vendor-white even with our
+     `<main bg-editor-surface>` chrome behind it (the panel covers main). */
+  --dv-group-view-background-color: var(--editor-surface);
+  /* Strip background — the muted gray ribbon behind the tabs. */
+  --dv-tabs-and-actions-container-background-color: var(--muted);
+  /*
+    Dockview's "visiblepanel" / "hiddenpanel" naming refers to the panel
+    the tab represents, NOT the tab's own visibility:
+      - visiblepanel-tab = ACTIVE tab (its panel is the one being shown)
+      - hiddenpanel-tab  = INACTIVE tab (its panel is hidden behind the active)
+    The "activegroup" / "inactivegroup" prefix is for multi-group layouts.
+    All four variables drive the same `background-color` property in the
+    vendor's `.dv-groupview.{active,inactive}-group ... .dv-tab.dv-{active,
+    inactive}-tab` rules (specificity 0,5,0 — we can't beat them with our
+    own selector, so we set the variables instead).
+
+    Active tab (visiblepanel) flushes with the editor body so the tab and
+    its content read as one continuous surface. Inactive tabs (hiddenpanel)
+    stay transparent so the `--muted` tab strip shows through, giving a
+    clear visual distinction between "this tab's panel is showing" and
+    "this tab's panel is behind another" — without the inactive tab
+    competing for attention with its own opaque fill.
+  */
+  --dv-activegroup-visiblepanel-tab-background-color: var(--editor-surface);
+  --dv-activegroup-hiddenpanel-tab-background-color: transparent;
+  --dv-inactivegroup-visiblepanel-tab-background-color: var(--editor-surface);
+  --dv-inactivegroup-hiddenpanel-tab-background-color: transparent;
+  --dv-activegroup-visiblepanel-tab-color: var(--foreground);
+  --dv-activegroup-hiddenpanel-tab-color: var(--muted-foreground);
+  --dv-inactivegroup-visiblepanel-tab-color: var(--foreground);
+  --dv-inactivegroup-hiddenpanel-tab-color: var(--muted-foreground);
+  /* Vendor's "divider between tabs" line — fold it into our border token so
+     it isn't a stark white slice between tabs. */
+  --dv-tab-divider-color: var(--border);
+  /* Misc structural lines / chrome the vendor leaves at light defaults. */
+  --dv-separator-border: var(--border);
+  --dv-paneview-header-border-color: var(--border);
+  --dv-paneview-active-outline-color: var(--ring);
+  --dv-drag-over-background-color: color-mix(
+    in oklch,
+    var(--primary) 30%,
+    transparent
+  );
+  --dv-drag-over-border-color: var(--primary);
+}
+
+/* Layout-only vendor tokens (no theme-coupled colours) live on the wider
+   wrapper since they don't compete with `.dockview-theme-light`'s defaults. */
+[data-study-dock] {
+  /* Tighter than the vendor 35px so the tab chrome reads as a single line of
+     toolbar typography. */
+  --dv-tabs-and-actions-container-height: 38px;
+  /* Tabs touch each other — separation comes from the active tab's flared
+     bottom corners. */
+  --dv-tab-margin: 0;
+}
+
+/* Vendor's icon-hover wash (used by the close `×` etc.) — must be redefined
+   ON the dockview root so it beats the `.dockview-theme-light` vendor
+   value, same reason as the colour overrides above. */
+[data-study-dock] .dockview-theme-light {
+  --dv-icon-hover-background-color: color-mix(
+    in oklch,
+    var(--accent) 70%,
+    transparent
+  );
+}
+
+/* The strip. No bottom border — the active tab's `--background` connects
+   directly to the editor body, and a hairline would interrupt that. */
+[data-study-dock] .dv-tabs-and-actions-container {
+  border-bottom: none;
+}
+
+/* Reserve 9px inside the tabs container on each side so the active tab's
+   bottom-corner pseudos (at `left: -9px` / `right: -9px`) have room to render
+   without pushing `scrollWidth` past visible width and triggering dockview's
+   horizontal scroll. */
+[data-study-dock] .dv-tabs-container {
+  padding: 0 9px;
+}
+
+/* Tabs: rounded top corners. The `transition` keeps hover/active swaps
+   feeling smooth rather than snapping. */
+[data-study-dock] .dv-tab {
+  padding: 0 0.875rem;
+  border-radius: 8px 8px 0 0;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+/* Vendor's `.dv-tab:not(:first-child)::before` is a 1px vertical divider
+   between tabs. We don't use it (tabs are differentiated by the active flare,
+   not strip dividers), and on the active tab we repurpose `::before` for the
+   left flare — so neutralise the vendor sliver for all tabs except the
+   active one. */
+[data-study-dock]
+  .dv-tabs-container.dv-horizontal
+  .dv-tab:not(.dv-active-tab):not(:first-child)::before {
+  height: 0;
+  background-color: transparent;
+}
+
+/* Dockview adds a focus ring via `:focus-within::after` (an outline using
+   `--dv-tab-divider-color`, which we've folded into `--border`). That reads
+   as noise next to the active tab's flare; the flare + background already
+   make selection obvious. */
+[data-study-dock] .dv-tab:focus-within::after,
+[data-study-dock] .dv-tab:focus::after {
+  outline: none !important;
+}
+
+/* Active tab. Sits on `--editor-surface` (same colour as the panel body
+   underneath, see `--dv-group-view-background-color` above) so the tab
+   reads as continuous with the body. `--editor-surface` is the right
+   token here, NOT `--background`: for themes that retint the editor body
+   (e.g. a future sepia paper tint) the tab follows the body, not the
+   surrounding chrome. `z-index: 1` keeps the flare pseudos above
+   adjacent inactive tabs. */
+[data-study-dock] .dv-tab.dv-active-tab {
+  background-color: var(--editor-surface);
+  color: var(--foreground);
+  z-index: 1;
+}
+
+/* Active tab BOTTOM-LEFT flare. The 9×9 pseudo sits just outside the tab's
+   bottom-left corner; its radial-gradient is centred at the pseudo's
+   TOP-LEFT, which places `--editor-surface` in the bottom-right portion
+   (continuing the tab's silhouette outward at the strip's bottom) and lets
+   the strip peek through the top-left curve facing away from the tab.
+   Must match the active tab's `background-color` (also `--editor-surface`)
+   so the flare visually connects to the body underneath.
+
+   `!important` is needed on `background` to beat variant-style cascade and
+   on `height`/`width` because dockview's horizontal-only sibling selector
+   on `::before` has higher specificity than this rule via its extra
+   `.dv-horizontal` + `:not()` qualifiers. */
+[data-study-dock] .dv-tab.dv-active-tab::before {
+  content: "";
+  position: absolute;
+  top: auto;
+  right: auto;
+  left: -9px;
+  bottom: 0;
+  width: 9px !important;
+  height: 9px !important;
+  border-radius: 0;
+  background: radial-gradient(
+    circle at top left,
+    transparent 9px,
+    var(--editor-surface) 9.5px
+  ) !important;
+  pointer-events: none;
+}
+
+/* Active tab BOTTOM-RIGHT flare — mirror (centre at the pseudo's TOP-RIGHT).
+   `top: auto; left: auto` are deliberate. Dockview's
+   `.dv-tab:focus-within::after` rule sets `top: 0; left: 0; width: 100%;
+   height: 100%` to paint a focus outline; without the explicit `auto`s here,
+   those values cascade in whenever the active tab has focus-within (which
+   it does after every click), and CSS absolute-position resolution picks
+   `top`/`left` over `bottom`/`right` when both pairs are present with an
+   explicit `width`/`height` — stamping this pseudo at the top-left of the
+   tab instead of the bottom-right and silently killing the right flare. */
+[data-study-dock] .dv-tab.dv-active-tab::after {
+  content: "";
+  position: absolute;
+  top: auto;
+  left: auto;
+  bottom: 0;
+  right: -9px;
+  width: 9px;
+  height: 9px;
+  background: radial-gradient(
+    circle at top right,
+    transparent 9px,
+    var(--editor-surface) 9.5px
+  );
+  pointer-events: none;
+}
+
+/* Inactive tab hover: subtle wash toward the editor surface (same target
+   as the active tab) so hovering visually previews "this will become the
+   active tab". Mixed against transparent so the muted strip still tints
+   it down — fully opaque would read as "this is the active tab now". */
+[data-study-dock] .dv-tab.dv-inactive-tab:hover {
+  background-color: color-mix(in oklch, var(--editor-surface) 55%, transparent);
+  color: var(--foreground);
+}
+
+/* Close `×` chip. Slightly rounder than the vendor 2px so it matches the
+   tab corner radius family. */
+[data-study-dock] .dv-tab .dv-default-tab .dv-default-tab-action {
+  border-radius: 6px;
+}
+
+/* The void area to the right of the tabs (drag target) — keep it
+   transparent so the strip's muted bg shows uniformly. (Vendor inherits
+   from background.) */
+[data-study-dock] .dv-tabs-and-actions-container .dv-void-container {
+  background-color: transparent;
+}
+
+/* Suppress dockview's vendor `overflow: auto` on `.dv-view`. Every panel
+   component (`MinePanel`, `PersonPanel`, `BlocksDockPanel`) wraps its
+   content in its own `h-full overflow-auto` div that handles scrolling
+   correctly. The vendor's outer overflow handler creates a double
+   scrollbar (and a chunk of blank space below the panel) after closing
+   a tab from a merged group: the layout reflow leaves an intermediate
+   container without a definite height, the inner `h-full` collapses, the
+   MinePanel's content renders at natural height (~5000px), and the outer
+   `.dv-view` scroll bar appears around the inner one. Clipping at the
+   `.dv-view` boundary lets the inner panel own scrolling in every layout.
+
+   `!important` is needed because the vendor rule
+   `.dv-split-view-container .dv-view-container .dv-view` has 3-class
+   specificity vs our 2 (attribute + class). */
+[data-study-dock] .dv-view {
+  overflow: hidden !important;
 }
 
 /* Version-history red/green diff highlights for the SectionHistoryPanel's
@@ -1354,4 +1986,261 @@
 }
 .ProseMirror .history-diff-added--block > :last-child {
   margin-bottom: 0;
+}
+
+/* ============================================================================
+   Image NodeView — block image with non-destructive crop/rotate/flip,
+   side resize handles, and a floating selection toolbar. See
+   src/lib/editor/node-views/image-view.tsx for the DOM shape.
+   ============================================================================ */
+
+.ProseMirror figure[data-image] {
+  display: block;
+  position: relative;
+  margin: 1rem 0;
+  /* Width is set inline on the inner .pm-image-frame; alignment positions
+     the frame within the editor column. */
+}
+.ProseMirror figure[data-image][data-align="left"] .pm-image-frame {
+  margin-left: 0;
+  margin-right: auto;
+}
+.ProseMirror figure[data-image][data-align="center"] .pm-image-frame {
+  margin-left: auto;
+  margin-right: auto;
+}
+.ProseMirror figure[data-image][data-align="full"] .pm-image-frame {
+  width: 100% !important;
+  margin-left: 0;
+  margin-right: 0;
+}
+
+.ProseMirror .pm-image-frame {
+  position: relative;
+  overflow: hidden;
+  border-radius: 4px;
+  background-color: color-mix(in oklch, var(--muted) 50%, transparent);
+  /* Width comes from inline style (`width: N%`). */
+}
+
+/* Natural-fit mode (width attr = 0): the image renders at its intrinsic
+   pixel width via the `--pm-image-natural-w` CSS variable set on the
+   frame, capped responsively by the column (max-width 100%) and a
+   300px max-height. The browser picks the smallest of the three. */
+.ProseMirror .pm-image-frame[data-natural-fit] {
+  width: var(--pm-image-natural-w, auto);
+  max-width: 100%;
+  max-height: 300px;
+}
+
+.ProseMirror .pm-image-img {
+  display: block;
+  position: absolute;
+  pointer-events: none;
+  /* Override Tailwind preflight's `img { max-width: 100% }`. paintTransforms
+     sets width/height as percentages relative to the frame, and crops can
+     push the rendered image well past 100% in one or both axes (e.g. a
+     33%-wide horizontal crop scales the image to 300%) — clamping to 100%
+     re-stretches the full image into the cropped frame and looks squished. */
+  max-width: none;
+  max-height: none;
+}
+
+.ProseMirror figure[data-image][data-selected] .pm-image-frame {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* Status placeholders -------------------------------------------------- */
+.ProseMirror figure[data-image][data-status="uploading"] .pm-image-frame {
+  min-height: 8rem;
+  animation: pm-image-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes pm-image-shimmer {
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.ProseMirror figure[data-image][data-status="broken"] .pm-image-frame {
+  min-height: 5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ProseMirror figure[data-image][data-status="broken"] .pm-image-frame::after {
+  content: "Image no longer available";
+  color: var(--muted-foreground);
+  font-size: var(--text-caption);
+}
+
+/* Selection toolbar is rendered React-side as a Radix popover anchored to
+   the frame — see ImageSelectionToolbar in image-editor-integration.tsx.
+   No CSS needed here. */
+
+/* Resize handles ------------------------------------------------------- */
+/* Google-Docs style: 8 uniform solid-primary squares with a thin
+   background-coloured border for contrast against the image, centered on
+   the 8 grip points (4 corners + 4 edge midpoints). The cursor
+   distinguishes their behaviour; the look is identical. */
+.ProseMirror .pm-image-handle {
+  position: absolute;
+  pointer-events: auto;
+  width: 10px;
+  height: 10px;
+  background-color: var(--primary);
+  border: 1.5px solid var(--background);
+  border-radius: 1px;
+  box-shadow: 0 0 0 0.5px
+    color-mix(in oklch, var(--foreground) 30%, transparent);
+  z-index: 3;
+}
+
+/* Rotation handle — circle on a stem above the image (Google Docs). Drag
+   to rotate; the NodeView snaps to the nearest 90° on release unless
+   Shift was held. The stem is a CSS pseudo-element to avoid a second DOM
+   node. */
+.ProseMirror .pm-image-rotate-handle {
+  position: absolute;
+  pointer-events: auto;
+  left: 50%;
+  top: -28px;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+  background-color: var(--primary);
+  border: 1.5px solid var(--background);
+  border-radius: 50%;
+  box-shadow: 0 0 0 0.5px
+    color-mix(in oklch, var(--foreground) 30%, transparent);
+  cursor: grab;
+  z-index: 4;
+}
+.ProseMirror .pm-image-rotate-handle::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  width: 1.5px;
+  height: 16px;
+  margin-left: -0.75px;
+  background-color: var(--primary);
+}
+.ProseMirror .pm-image-rotate-handle:active {
+  cursor: grabbing;
+}
+@media (pointer: coarse) {
+  .ProseMirror .pm-image-rotate-handle {
+    width: 24px;
+    height: 24px;
+    margin-left: -12px;
+    top: -44px;
+  }
+  .ProseMirror .pm-image-rotate-handle::before {
+    height: 28px;
+  }
+}
+
+/* Edge midpoints — sides stretch one axis. */
+.ProseMirror .pm-image-handle-e,
+.ProseMirror .pm-image-handle-w {
+  top: 50%;
+  transform: translateY(-50%);
+  cursor: ew-resize;
+}
+.ProseMirror .pm-image-handle-w {
+  left: -5px;
+}
+.ProseMirror .pm-image-handle-e {
+  right: -5px;
+}
+.ProseMirror .pm-image-handle-n,
+.ProseMirror .pm-image-handle-s {
+  left: 50%;
+  transform: translateX(-50%);
+  cursor: ns-resize;
+}
+.ProseMirror .pm-image-handle-n {
+  top: -5px;
+}
+.ProseMirror .pm-image-handle-s {
+  bottom: -5px;
+}
+
+/* Corners — preserve aspect ratio when dragged. */
+.ProseMirror .pm-image-handle-nw {
+  top: -5px;
+  left: -5px;
+  cursor: nwse-resize;
+}
+.ProseMirror .pm-image-handle-ne {
+  top: -5px;
+  right: -5px;
+  cursor: nesw-resize;
+}
+.ProseMirror .pm-image-handle-sw {
+  bottom: -5px;
+  left: -5px;
+  cursor: nesw-resize;
+}
+.ProseMirror .pm-image-handle-se {
+  bottom: -5px;
+  right: -5px;
+  cursor: nwse-resize;
+}
+
+/* Coarse pointers: enlarge every handle uniformly for finger use. */
+@media (pointer: coarse) {
+  .ProseMirror .pm-image-handle {
+    width: 18px;
+    height: 18px;
+    border-width: 2px;
+  }
+  .ProseMirror .pm-image-handle-w {
+    left: -9px;
+  }
+  .ProseMirror .pm-image-handle-e {
+    right: -9px;
+  }
+  .ProseMirror .pm-image-handle-n {
+    top: -9px;
+  }
+  .ProseMirror .pm-image-handle-s {
+    bottom: -9px;
+  }
+  .ProseMirror .pm-image-handle-nw {
+    top: -9px;
+    left: -9px;
+  }
+  .ProseMirror .pm-image-handle-ne {
+    top: -9px;
+    right: -9px;
+  }
+  .ProseMirror .pm-image-handle-sw {
+    bottom: -9px;
+    left: -9px;
+  }
+  .ProseMirror .pm-image-handle-se {
+    bottom: -9px;
+    right: -9px;
+  }
+}
+
+/*
+  Cross-reference preview popover body — 7-line clamp.
+
+  Canonical four-property recipe. NOTE: this element MUST NOT have its own
+  padding — `-webkit-line-clamp` counts padding as visual rows and cuts the
+  last line mid-character. Put padding on a wrapper element instead.
+*/
+@layer utilities {
+  .cross-ref-popover-body {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 7;
+    overflow: hidden;
+  }
 }

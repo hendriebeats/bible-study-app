@@ -12,6 +12,10 @@ import { indentSelected, outdentSelected } from "../commands";
 import type { EditorTools } from "../editor-tools";
 import { marks, nodes } from "../schema";
 import { collapsibleBackspace, collapsibleEnter } from "./collapsible-keys";
+import {
+  LINK_POPOVER_OPEN_EVENT,
+  type LinkPopoverOpenDetail,
+} from "./link-click";
 import { listRowEnter } from "./list-row-keys";
 import { smartBackspace } from "./smart-backspace";
 import {
@@ -52,6 +56,20 @@ export function buildKeymaps(tools: EditorTools): Plugin[] {
   // browser never inserts a literal tab character.
   const consumeKey: Command = () => true;
 
+  // Mod-K: open the link popover anchored to the current selection / caret.
+  // The bridge component (mounted by EditorProvider's consumer tree) listens
+  // for this event and calls into context. We dispatch from the keymap so
+  // the editor doesn't need a direct React-context channel.
+  const openLinkPopover: Command = (_state, _dispatch, view) => {
+    if (!view?.editable) return false;
+    window.dispatchEvent(
+      new CustomEvent<LinkPopoverOpenDetail>(LINK_POPOVER_OPEN_EVENT, {
+        detail: { view },
+      }),
+    );
+    return true;
+  };
+
   const bindings: Record<string, Command> = {
     "Mod-z": verseUndo,
     "Mod-y": verseRedo,
@@ -59,6 +77,7 @@ export function buildKeymaps(tools: EditorTools): Plugin[] {
     "Mod-b": toggleMark(marks.strong),
     "Mod-i": toggleMark(marks.em),
     "Mod-u": toggleMark(marks.underline),
+    "Mod-k": openLinkPopover,
     "Shift-Enter": insertHardBreak,
     "Mod-Enter": insertHardBreak,
     // Keep a verse marker attached to its verse on Enter, then handle the

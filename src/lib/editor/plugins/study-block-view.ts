@@ -6,6 +6,7 @@ import type {
 } from "prosemirror-view";
 
 import { type BlockTone, normalizeTone } from "../block-tones";
+import { placeCaretInRect } from "./node-view-utils";
 
 interface StudyBlockAttrs {
   title: string;
@@ -182,6 +183,13 @@ export class StudyBlockView implements NodeView {
       bodyShell.setAttribute("aria-hidden", "true");
       section.appendChild(bodyShell);
 
+      // Lock the outer section out of contenteditable: there's no editable
+      // body for action variants, so the only typing surface is the title /
+      // subtitle inputs (real <textarea>s) which manage their own caret.
+      // The hidden body shell still needs CE=true so PM keeps a valid mount.
+      section.contentEditable = "false";
+      bodyShell.contentEditable = "true";
+
       this.dom = section;
       this.contentDOM = bodyShell;
       this.titleInput = titleInput;
@@ -245,12 +253,39 @@ export class StudyBlockView implements NodeView {
     layout.appendChild(body);
     section.appendChild(layout);
 
+    // Lock the outer section out of contenteditable so a caret can't park
+    // in the header column, the layout's bleed area around the body, or
+    // anywhere else outside `body` / the textarea inputs. Body is
+    // re-opted-in so PM keeps editing the block's `block+` content.
+    section.contentEditable = "false";
+    body.contentEditable = "true";
+
     this.dom = section;
     this.contentDOM = body;
     this.titleInput = titleInput;
     this.subtitleEl = subtitleEl;
     this.subtitleInput = null;
     this.chrome = header;
+
+    // Click in the section's chrome (outside the body / chrome controls)
+    // → project into the body's rect, resolve the nearest caret position.
+    section.addEventListener("mousedown", (event) => {
+      if (!(event.target instanceof globalThis.Node)) return;
+      if (this.contentDOM.contains(event.target)) return;
+      if (this.chrome.contains(event.target)) return;
+      event.preventDefault();
+      const myPos = this.getPos();
+      placeCaretInRect(
+        this.view,
+        this.contentDOM,
+        event.clientX,
+        event.clientY,
+        (clickedAbove) => {
+          if (myPos == null) return null;
+          return clickedAbove ? myPos + 1 : myPos + this.node.nodeSize - 1;
+        },
+      );
+    });
   }
 
   /**
@@ -332,7 +367,14 @@ export class StudyBlockView implements NodeView {
 
   stopEvent(event: Event): boolean {
     const target = event.target;
-    return target instanceof HTMLElement && this.chrome.contains(target);
+    if (!(target instanceof HTMLElement)) return false;
+    if (this.chrome.contains(target)) return true;
+    // Mousedown anywhere in the outer section's chrome (outside body / chrome
+    // controls) is owned by the gutter redirect attached in the constructor.
+    if (event.type === "mousedown" && !this.contentDOM.contains(target)) {
+      return true;
+    }
+    return false;
   }
 
   ignoreMutation(mutation: ViewMutationRecord): boolean {

@@ -48,7 +48,7 @@ export function StudiesList({
           onChange={(event) => {
             setGenreId(event.target.value);
           }}
-          className="h-9 rounded-md border bg-background px-2 text-sm sm:w-48"
+          className="h-9 rounded-md border bg-background px-2 text-ui sm:w-48"
         >
           <option value="all">All types</option>
           {genres.map((genre) => (
@@ -60,7 +60,7 @@ export function StudiesList({
       </div>
 
       {filtered.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-border/60 p-8 text-center text-sm text-muted-foreground">
+        <p className="rounded-lg border border-dashed border-border/60 p-8 text-center text-ui text-muted-foreground">
           No studies match your search.
         </p>
       ) : (

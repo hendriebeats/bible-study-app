@@ -30,6 +30,10 @@ import {
 } from "@/lib/editor/editor-tools";
 import { buildInputRules } from "@/lib/editor/plugins/input-rules";
 import { buildKeymaps } from "@/lib/editor/plugins/keymap";
+import { crossRefDetect } from "@/lib/editor/plugins/cross-ref-detect";
+import { linkClickPlugin } from "@/lib/editor/plugins/link-click";
+import { linkPastePlugin } from "@/lib/editor/plugins/link-paste";
+import { linkPreviewPlugin } from "@/lib/editor/plugins/link-preview";
 import { placeholder as placeholderPlugin } from "@/lib/editor/plugins/placeholder";
 import { slashMenu } from "@/lib/editor/plugins/slash-menu";
 import { TableViewWithHandles } from "@/lib/editor/plugins/table-view";
@@ -68,6 +72,12 @@ function hostPlugins(placeholderText: string, tools: EditorTools): Plugin[] {
     columnResizing({ View: TableViewWithHandles }),
     tableEditing(),
     placeholderPlugin(placeholderText),
+    // Cross-reference auto-detect + interactivity on persisted chips. Gated
+    // by the user's tool flag inside the plugin itself.
+    crossRefDetect(tools),
+    linkPastePlugin(),
+    linkClickPlugin(),
+    linkPreviewPlugin(),
   ];
 }
 
@@ -89,6 +99,10 @@ function dialogPlugins(placeholderText: string, tools: EditorTools): Plugin[] {
     columnResizing({ View: TableViewWithHandles }),
     tableEditing(),
     placeholderPlugin(placeholderText),
+    crossRefDetect(tools),
+    linkPastePlugin(),
+    linkClickPlugin(),
+    linkPreviewPlugin(),
   ];
 }
 
@@ -276,7 +290,7 @@ export function DefaultContentEditor({
           ))}
         </div>
       ) : null}
-      <div ref={mountRef} className="px-3 py-2 text-sm" />
+      <div ref={mountRef} className="px-3 py-2 text-ui" />
     </div>
   );
 }

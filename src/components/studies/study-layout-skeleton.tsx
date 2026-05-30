@@ -53,10 +53,10 @@ export function StudyLayoutSkeleton() {
           </aside>
         </div>
 
-        {/* Main — empty white area; the persistent overlay's body skeleton
-            covers it during cold load. `bg-white` matches the editor's body
-            in the loaded state. */}
-        <main className="flex min-h-0 min-w-0 flex-1 bg-white" />
+        {/* Main — empty editor-surface area; the persistent overlay's body
+            skeleton covers it during cold load. `bg-editor-surface` matches
+            the editor's body in the loaded state and adapts per theme. */}
+        <main className="flex min-h-0 min-w-0 flex-1 bg-editor-surface" />
       </div>
     </div>
   );

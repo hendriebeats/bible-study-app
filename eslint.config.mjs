@@ -22,6 +22,16 @@ const eslintConfig = defineConfig([
       "local/no-await-in-layout": "error",
       "local/no-router-refresh": "error",
       "local/no-eager-heavy-import": "error",
+      // Font-size standardization. Paired with `scripts/check-css-font-size.mjs`
+      // (raw CSS) so every surface a font-size can hide on is covered.
+      "local/no-inline-font-size": "error",
+      "local/no-default-text-size": "error",
+      // Colour-system enforcement (see plan
+      // .claude/plans/i-want-to-moonlit-sutherland.md). Bans raw CSS colour
+      // literals everywhere except the 4 allow-listed colour-authority files.
+      // No per-line escape on purpose — pairs with the branded `OklchColor`
+      // type so neither plain strings nor literals can sneak into inline styles.
+      "local/no-raw-colors": "error",
     },
   },
 
@@ -96,6 +106,40 @@ const eslintConfig = defineConfig([
       "better-tailwindcss/no-restricted-classes": "off",
       "better-tailwindcss/no-unknown-classes": "off",
       "better-tailwindcss/no-conflicting-classes": "off",
+      // shadcn primitives ship with default Tailwind text-sm / text-xs in
+      // their base styles. Don't fight the registry.
+      "local/no-default-text-size": "off",
+      // shadcn primitives may ship with raw `rgb()` / `rgba()` strings in
+      // their generated styles (e.g. animation shadows, focus rings); we
+      // override them via `className=` overrides where it matters.
+      "local/no-raw-colors": "off",
+    },
+  },
+
+  // Supabase Edge Functions run on Deno, not Node. They live under their own
+  // tsconfig (supabase/functions/tsconfig.json) with a `deno.d.ts` shim for
+  // the `Deno` global and URL-import wildcards — that lets the type-aware
+  // ESLint rules (no-floating-promises, no-unsafe-*) still run on them
+  // without the root projectService throwing "file not found".
+  {
+    files: ["supabase/functions/**/*.ts"],
+    languageOptions: {
+      parserOptions: {
+        projectService: false,
+        project: "./supabase/functions/tsconfig.json",
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+    rules: {
+      // The function code is hand-written for Deno; the local rule set
+      // assumes src/** Next.js patterns and doesn't apply here.
+      "local/no-sequential-db-await": "off",
+      "local/no-await-in-layout": "off",
+      "local/no-router-refresh": "off",
+      "local/no-eager-heavy-import": "off",
+      "local/no-inline-font-size": "off",
+      "local/no-default-text-size": "off",
+      "local/no-raw-colors": "off",
     },
   },
 

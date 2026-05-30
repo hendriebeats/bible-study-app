@@ -14,6 +14,7 @@ import { markNotificationsRead } from "@/app/organizations/actions";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import type { MyInvitation } from "@/lib/db/groups";
+import { relativeTime } from "@/lib/relative-time";
 import type { AppNotification, Study } from "@/lib/db/types";
 
 /** Shared "use an existing study or seed a new one from the template" picker. */
@@ -33,7 +34,7 @@ function AttachChooser({
 
   return (
     <div className="mt-2 grid gap-2">
-      <label className="flex items-start gap-2 rounded-md border p-2 text-sm">
+      <label className="flex items-start gap-2 rounded-md border p-2 text-ui">
         <input
           type="radio"
           checked={mode === "new"}
@@ -46,7 +47,7 @@ function AttachChooser({
       </label>
 
       {studies.length > 0 ? (
-        <label className="flex items-start gap-2 rounded-md border p-2 text-sm">
+        <label className="flex items-start gap-2 rounded-md border p-2 text-ui">
           <input
             type="radio"
             checked={mode === "existing"}
@@ -64,11 +65,16 @@ function AttachChooser({
                 setStudyId(event.target.value);
                 setMode("existing");
               }}
-              className="mt-1 w-full rounded-md border bg-background px-2 py-1 text-sm"
+              suppressHydrationWarning
+              className="mt-1 w-full rounded-md border bg-background px-2 py-1 text-ui"
             >
               {studies.map((study) => (
+                // Native `<option>` is plain text, so the dashboard's
+                // two-line layout collapses to "Title · edited X ago" here.
+                // `suppressHydrationWarning` on the select silences the
+                // expected SSR/CSR drift from `relativeTime` (Date.now()).
                 <option key={study.id} value={study.id}>
-                  {study.title}
+                  {study.title} · edited {relativeTime(study.updated_at)}
                 </option>
               ))}
             </select>
@@ -113,7 +119,7 @@ function LooseGroupItem({
 
   return (
     <div className="rounded-lg border p-3">
-      <p className="text-sm">
+      <p className="text-ui">
         <span className="font-medium">{group.name}</span> has no study attached
         yet.
       </p>
@@ -176,7 +182,7 @@ function InvitationItem({
 
   return (
     <div className="rounded-lg border p-3">
-      <p className="text-sm">
+      <p className="text-ui">
         You&rsquo;re invited to join{" "}
         <span className="font-medium">{invitation.groupName}</span>.
       </p>
@@ -227,13 +233,13 @@ function NotificationItem({
 }) {
   const body = (
     <div className="rounded-lg border p-3">
-      <p className="text-sm font-medium">{notification.title}</p>
+      <p className="text-ui font-medium">{notification.title}</p>
       {notification.body ? (
-        <p className="mt-0.5 line-clamp-3 text-sm text-muted-foreground">
+        <p className="mt-0.5 line-clamp-3 text-ui text-muted-foreground">
           {notification.body}
         </p>
       ) : null}
-      <p className="mt-1 text-xs text-muted-foreground">
+      <p className="mt-1 text-caption text-muted-foreground">
         {new Date(notification.created_at).toLocaleDateString()}
       </p>
     </div>
@@ -312,7 +318,7 @@ export function AppHeaderNotifications({
       >
         <Bell className="size-4" />
         {count > 0 ? (
-          <span className="absolute -top-0.5 -right-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-xs font-medium text-primary-foreground">
+          <span className="absolute -top-0.5 -right-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-caption font-medium text-primary-foreground">
             {count}
           </span>
         ) : null}
@@ -346,7 +352,7 @@ export function AppHeaderNotifications({
             <Separator />
             <div className="flex-1 space-y-3 overflow-auto p-3">
               {count === 0 && notifications.length === 0 ? (
-                <p className="p-2 text-sm text-muted-foreground">
+                <p className="p-2 text-caption text-muted-foreground">
                   You&rsquo;re all caught up.
                 </p>
               ) : (
@@ -360,11 +366,11 @@ export function AppHeaderNotifications({
                         setOpen(false);
                       }}
                     >
-                      <p className="text-sm">
+                      <p className="text-ui">
                         <span className="font-medium">{org.name}</span> is
                         awaiting verification.
                       </p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
+                      <p className="mt-0.5 text-caption text-muted-foreground">
                         Review request →
                       </p>
                     </Link>

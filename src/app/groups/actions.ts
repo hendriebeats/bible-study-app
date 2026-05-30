@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import { getGroupInfo } from "@/lib/db/groups";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import type { StudyGroupInfo } from "@/lib/db/types";
+import type { Invitation, StudyGroupInfo } from "@/lib/db/types";
 import { getSiteURL } from "@/lib/url";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
@@ -41,6 +41,25 @@ export async function createGroup(name: string): Promise<void> {
   revalidatePath("/groups");
   // The group detail route is retired — land on the list with the info popup open.
   redirect(`/groups?group=${data}`);
+}
+
+/**
+ * In-place variant: create the group and return its id. The Share-button flow
+ * stays on the current study, then opens the group-info dialog client-side
+ * instead of redirecting away.
+ */
+export async function createGroupNoRedirect(
+  name: string,
+): Promise<{ ok: true; groupId: string } | { ok: false; error: string }> {
+  const { supabase } = await requireUser();
+  const { data, error } = await supabase.rpc("create_group_study", {
+    _name: name,
+  });
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+  revalidatePath("/groups");
+  return { ok: true, groupId: data };
 }
 
 export async function renameGroup(
@@ -116,6 +135,79 @@ export async function createInvitation(
 
   revalidatePath("/groups");
   return { link, emailed };
+}
+
+export interface BatchInviteInput {
+  email: string;
+  role: "owner" | "member";
+}
+
+export interface BatchInviteRow {
+  /** The freshly-inserted invitation row — returned so the UI can append it
+   * to the unified people list without a refetch. */
+  invitation: Invitation;
+  link: string;
+  emailed: boolean;
+}
+
+/**
+ * Batch-create invitations: one row in, one row out, preserving order. Stops
+ * at the first hard error so the UI doesn't have to reason about partial DB
+ * state; email-send failures are not hard errors (they just set `emailed:
+ * false` and the link is still useful). Used by the in-study Share dialog
+ * (where the user can stack up several rows before sending) and by the
+ * refactored in-group invite panel.
+ */
+export async function createInvitations(
+  groupId: string,
+  invites: BatchInviteInput[],
+): Promise<
+  { ok: true; results: BatchInviteRow[] } | { ok: false; error: string }
+> {
+  const { supabase, userId } = await requireUser();
+  const results: BatchInviteRow[] = [];
+  for (const invite of invites) {
+    const token = (crypto.randomUUID() + crypto.randomUUID()).replace(/-/g, "");
+    const cleanEmail = invite.email.trim() === "" ? null : invite.email.trim();
+
+    const { data: inserted, error } = await supabase
+      .from("invitations")
+      .insert({
+        group_study_id: groupId,
+        email: cleanEmail,
+        token,
+        inviter_id: userId,
+        role: invite.role,
+      })
+      .select("id, email, token, role, status, expires_at, created_at")
+      .single();
+    if (error) {
+      return { ok: false, error: error.message };
+    }
+
+    const link = `${getSiteURL()}/groups/accept?token=${token}`;
+    let emailed = false;
+    if (cleanEmail) {
+      try {
+        const admin = createAdminClient();
+        const next = encodeURIComponent(`/groups/accept?token=${token}`);
+        const { error: inviteError } = await admin.auth.admin.inviteUserByEmail(
+          cleanEmail,
+          {
+            redirectTo: `${getSiteURL()}/auth/confirm?next=${next}`,
+          },
+        );
+        emailed = inviteError === null;
+      } catch {
+        emailed = false;
+      }
+    }
+
+    results.push({ invitation: inserted, link, emailed });
+  }
+
+  revalidatePath("/groups");
+  return { ok: true, results };
 }
 
 /**
@@ -226,6 +318,31 @@ export async function attachStudyToGroup(
   revalidatePath("/groups");
   // Drop the user straight into the study they just attached/seeded.
   redirect(`/studies/${attachedStudyId}`);
+}
+
+/**
+ * In-place variant of {@link attachStudyToGroup} for the Share menu: attaches
+ * the given (non-null) study to the group and returns the result instead of
+ * redirecting, so the caller can open the group-info dialog without unmounting
+ * the study page. `studyId` is required here — seeding (the null path) goes
+ * through the redirecting variant from the bell notification flow.
+ */
+export async function attachStudyToGroupNoRedirect(
+  groupId: string,
+  studyId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { supabase } = await requireUser();
+  const { error } = await supabase.rpc("attach_study_to_group", {
+    _group_study_id: groupId,
+    _study_id: studyId,
+  });
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+  revalidatePath("/dashboard");
+  revalidatePath("/groups");
+  revalidatePath(`/studies/${studyId}`, "layout");
+  return { ok: true };
 }
 
 /** Decline a pending invitation addressed to the current user. */

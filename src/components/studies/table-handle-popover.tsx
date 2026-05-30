@@ -18,12 +18,11 @@ import {
   Trash2,
 } from "lucide-react";
 import type { Command } from "prosemirror-state";
-import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useState } from "react";
 
 import { useEditorContext } from "@/components/studies/editor-context";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { placeNearAnchor } from "@/lib/editor/floating-position";
+import { PopoverContent, VirtualAnchorPopover } from "@/components/ui/popover";
 import {
   TABLE_HANDLE_EVENT,
   type TableHandleEventDetail,
@@ -43,12 +42,6 @@ import {
 } from "@/lib/editor/table-commands";
 
 const POPOVER_WIDTH = 220;
-/**
- * Rough heights so `placeNearAnchor` can decide above-vs-below. The popover
- * sizes to content; this is just the viewport-clamp hint.
- */
-const POPOVER_HEIGHT_ROW = 260;
-const POPOVER_HEIGHT_COL = 280;
 
 /**
  * Top-level mount that listens for `TABLE_HANDLE_EVENT` (fired by
@@ -60,12 +53,15 @@ const POPOVER_HEIGHT_COL = 280;
  * tree (body editor + blocks dialog). Dispatches commands through the active
  * editor view via `runCommand` so it works regardless of which surface is
  * focused.
+ *
+ * Built on {@link VirtualAnchorPopover}: Radix handles flip / shift /
+ * shrink-to-fit-viewport plus outside-click + Escape dismissal, so this
+ * component only worries about the event plumbing and the menu body.
  */
 export function TableHandlePopover() {
   const ctx = useEditorContext();
   const [detail, setDetail] = useState<TableHandleEventDetail | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const rootRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const onOpen = (event: Event) => {
@@ -77,40 +73,6 @@ export function TableHandlePopover() {
       window.removeEventListener(TABLE_HANDLE_EVENT, onOpen);
     };
   }, []);
-
-  // Outside-click + Escape dismissal — same pattern as CalloutColorPopover /
-  // BlockMenu. The confirm dialog stops propagation of its own events so a
-  // click inside it doesn't also collapse the popover.
-  useEffect(() => {
-    if (!detail) return;
-    const onPointerDown = (event: PointerEvent) => {
-      const t = event.target;
-      if (
-        rootRef.current &&
-        t instanceof Node &&
-        !rootRef.current.contains(t)
-      ) {
-        if (!confirmDelete) {
-          setDetail(null);
-        }
-      }
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        if (confirmDelete) {
-          setConfirmDelete(false);
-        } else {
-          setDetail(null);
-        }
-      }
-    };
-    document.addEventListener("pointerdown", onPointerDown, true);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown, true);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [detail, confirmDelete]);
 
   if (!detail || !ctx) {
     return null;
@@ -124,52 +86,73 @@ export function TableHandlePopover() {
     setDetail(null);
   };
 
-  const height =
-    detail.kind === "row" ? POPOVER_HEIGHT_ROW : POPOVER_HEIGHT_COL;
-  const placement = placeNearAnchor(
-    detail.anchorRect,
-    { width: POPOVER_WIDTH, height },
-    { preferred: "below", align: "start", gap: 6 },
-  );
+  const anchor = detail.anchorRect;
+  const rect = {
+    x: anchor.left,
+    y: anchor.top,
+    width: anchor.right - anchor.left,
+    height: anchor.bottom - anchor.top,
+  };
 
-  return createPortal(
+  return (
     <>
-      <div
-        ref={rootRef}
-        role="menu"
-        aria-label={detail.kind === "row" ? "Row options" : "Column options"}
-        // `mousedown.preventDefault` matches BlockMenu — without it, clicks in
-        // the popover would steal focus from the editor and the dispatched
-        // command would lose its selection target.
-        onMouseDown={(event) => {
-          event.preventDefault();
-        }}
-        className="z-50 max-h-80 overflow-auto rounded-lg border bg-popover p-1 shadow-md ring-1 ring-foreground/10"
-        style={{
-          position: "fixed",
-          left: placement.left,
-          top: placement.top,
-          width: POPOVER_WIDTH,
+      <VirtualAnchorPopover
+        rect={rect}
+        open
+        onOpenChange={(next) => {
+          // Don't let an outside-click / Escape dismiss while the confirm
+          // dialog is open — the dialog owns those interactions.
+          if (!next && !confirmDelete) {
+            setDetail(null);
+          }
         }}
       >
-        {detail.kind === "row" ? (
-          <RowMenu
-            detail={detail}
-            run={run}
-            onDeleteTable={() => {
-              setConfirmDelete(true);
-            }}
-          />
-        ) : (
-          <ColMenu
-            detail={detail}
-            run={run}
-            onDeleteTable={() => {
-              setConfirmDelete(true);
-            }}
-          />
-        )}
-      </div>
+        <PopoverContent
+          role="menu"
+          aria-label={detail.kind === "row" ? "Row options" : "Column options"}
+          side="bottom"
+          align="start"
+          sideOffset={6}
+          // Match BlockMenu: width is fixed at `POPOVER_WIDTH` so the menu's
+          // layout is stable; the wrapper's
+          // max-h-(--radix-popover-content-available-height) caps height and
+          // scrolls inside on cramped viewports.
+          className="p-1"
+          style={{ width: POPOVER_WIDTH }}
+          // Keep ProseMirror selection alive when clicking a menu item —
+          // without this the editor loses focus before `runCommand` fires.
+          onMouseDown={(event) => {
+            event.preventDefault();
+          }}
+          onInteractOutside={(event) => {
+            if (confirmDelete) event.preventDefault();
+          }}
+          onEscapeKeyDown={(event) => {
+            if (confirmDelete) {
+              event.preventDefault();
+              setConfirmDelete(false);
+            }
+          }}
+        >
+          {detail.kind === "row" ? (
+            <RowMenu
+              detail={detail}
+              run={run}
+              onDeleteTable={() => {
+                setConfirmDelete(true);
+              }}
+            />
+          ) : (
+            <ColMenu
+              detail={detail}
+              run={run}
+              onDeleteTable={() => {
+                setConfirmDelete(true);
+              }}
+            />
+          )}
+        </PopoverContent>
+      </VirtualAnchorPopover>
       <ConfirmDialog
         open={confirmDelete}
         onOpenChange={setConfirmDelete}
@@ -182,8 +165,7 @@ export function TableHandlePopover() {
           run(deleteTableSafe);
         }}
       />
-    </>,
-    document.body,
+    </>
   );
 }
 
@@ -338,7 +320,7 @@ function ColMenu({
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="px-2 py-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
+    <p className="px-2 py-1 text-caption font-medium tracking-wide text-muted-foreground uppercase">
       {children}
     </p>
   );
@@ -362,7 +344,7 @@ function MenuItem({
   disabled?: boolean;
 }) {
   const baseClass =
-    "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent";
+    "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-ui disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent";
   const tone = destructive
     ? "text-destructive hover:bg-destructive/10"
     : "text-foreground/80 hover:bg-muted hover:text-foreground";
@@ -410,7 +392,7 @@ function AlignSegmented({
   ];
   return (
     <div className="mt-1 flex items-center gap-1 px-2 py-1">
-      <span className="mr-auto text-xs text-muted-foreground">Align</span>
+      <span className="mr-auto text-caption text-muted-foreground">Align</span>
       {items.map(({ value, icon: Icon, label }) => {
         const active = current === value;
         return (

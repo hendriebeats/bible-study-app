@@ -16,8 +16,9 @@ function daysLeft(deletedAt: string): number {
   return Math.max(0, Math.ceil(remaining / DAY_MS));
 }
 
-/** Human label for the auto-archive countdown ("1 day left", not "1 days"). */
-function daysLeftLabel(deletedAt: string): string {
+/** Human label for the auto-archive countdown ("1 day left", not "1 days").
+ * Exported so the full-screen `<SectionTrashPanel>` can reuse the same copy. */
+export function daysLeftLabel(deletedAt: string): string {
   const days = daysLeft(deletedAt);
   if (days === 0) {
     return "Archiving soon";
@@ -111,7 +112,7 @@ export function TrashDrawer({
         <Separator />
         <div className="flex-1 overflow-auto p-2">
           {items.length === 0 ? (
-            <p className="p-2 text-sm text-muted-foreground">
+            <p className="p-2 text-caption text-muted-foreground">
               Nothing here. Deleted {kind === "study" ? "studies" : "sections"}{" "}
               stay restorable for 30 days.
             </p>
@@ -123,8 +124,8 @@ export function TrashDrawer({
                   className="flex items-center justify-between gap-2 rounded-md px-2 py-2 hover:bg-accent"
                 >
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{item.title}</p>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="truncate text-ui font-medium">{item.title}</p>
+                    <p className="text-caption text-muted-foreground">
                       {daysLeftLabel(item.deleted_at)}
                     </p>
                   </div>
@@ -152,8 +153,8 @@ export function TrashDrawer({
 
 /**
  * Self-contained Trash entry: a ghost button that opens {@link TrashDrawer}.
- * Used on the dashboard (kind="study"). Per-study trash now launches from the
- * study top-bar ⋮ menu instead — see `study-overflow-menu.tsx`.
+ * Used on the dashboard (kind="study"). Per-study trash launches directly from
+ * the study sidebar footer instead — see `study-sidebar.tsx`.
  */
 export function TrashButton(props: TrashCoreProps) {
   const [open, setOpen] = useState(false);

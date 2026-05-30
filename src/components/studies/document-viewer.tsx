@@ -9,6 +9,7 @@ import { fetchDocumentHead } from "@/app/studies/actions";
 import { PresenceAvatars } from "@/components/studies/presence-avatars";
 import type { StudyDocument } from "@/lib/db/types";
 import { buildNodeViews } from "@/lib/editor/node-views";
+import { crossRefDetect } from "@/lib/editor/plugins/cross-ref-detect";
 import { noteAnchors } from "@/lib/editor/plugins/note-anchors";
 import {
   remoteCursor,
@@ -26,10 +27,33 @@ function viewerDoc(content: PMDocJSON) {
   return doc.childCount > 0 ? doc : (schema.topNodeType.createAndFill() ?? doc);
 }
 
+/**
+ * `crossRefAutoDetect: false` keeps the detector inert (no appendTransaction)
+ * but still installs the click/dblclick handlers so persisted chips remain
+ * interactive in this read-only view.
+ */
+const READ_ONLY_TOOLS = {
+  headings: false,
+  strikethrough: false,
+  links: false,
+  collapsibles: false,
+  callouts: false,
+  tables: false,
+  images: false,
+  mediaEmbeds: false,
+  crossRefAutoDetect: false,
+  customColor: false,
+};
+
 function viewerState(content: PMDocJSON): EditorState {
   return EditorState.create({
     doc: viewerDoc(content),
-    plugins: [remoteCursor(), verseLabel(), noteAnchors()],
+    plugins: [
+      remoteCursor(),
+      verseLabel(),
+      noteAnchors(),
+      crossRefDetect(READ_ONLY_TOOLS),
+    ],
   });
 }
 
@@ -166,7 +190,7 @@ export function DocumentViewer({
           className={
             hideLabel
               ? "sr-only"
-              : "text-sm font-semibold text-muted-foreground"
+              : "text-ui font-semibold text-muted-foreground"
           }
         >
           {label}

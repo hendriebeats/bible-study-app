@@ -12,6 +12,7 @@ import {
   CALLOUT_COLOR_EVENT,
   type CalloutColorEventDetail,
 } from "./callout-color-events";
+import { placeCaretInRect } from "./node-view-utils";
 
 /**
  * Map legacy named-variant values (pre-redesign — `note` / `insight` /
@@ -132,10 +133,40 @@ export class CalloutView implements NodeView {
     aside.appendChild(emptyHint);
     aside.appendChild(chip);
 
+    // Lock the outer wrapper out of the browser's contenteditable area:
+    // without this the caret can sit in the chip's padding, the empty-hint
+    // strip, or in the bleed area around the body, all of which would let
+    // the browser drop an orphan text node that PM's `ignoreMutation`
+    // silently swallows (and the next drag-reorder discards). The body is
+    // re-opted-in to editing immediately below.
+    aside.contentEditable = "false";
+    body.contentEditable = "true";
+
     this.dom = aside;
     this.contentDOM = body;
     this.chip = chip;
     this.emptyHint = emptyHint;
+
+    // Click in the outer chrome (anywhere outside the body / chip / hint)
+    // → project into the body's rect, resolve the nearest caret position.
+    aside.addEventListener("mousedown", (event) => {
+      if (!(event.target instanceof globalThis.Node)) return;
+      if (this.contentDOM.contains(event.target)) return;
+      if (this.chip.contains(event.target)) return;
+      if (this.emptyHint.contains(event.target)) return;
+      event.preventDefault();
+      const myPos = this.getPos();
+      placeCaretInRect(
+        this.view,
+        this.contentDOM,
+        event.clientX,
+        event.clientY,
+        (clickedAbove) => {
+          if (myPos == null) return null;
+          return clickedAbove ? myPos + 1 : myPos + this.node.nodeSize - 1;
+        },
+      );
+    });
   }
 
   /**
@@ -203,7 +234,15 @@ export class CalloutView implements NodeView {
   stopEvent(event: Event): boolean {
     const target = event.target;
     if (!(target instanceof Node)) return false;
-    return this.chip.contains(target) || this.emptyHint.contains(target);
+    if (this.chip.contains(target) || this.emptyHint.contains(target)) {
+      return true;
+    }
+    // Mousedown in the outer chrome (the padding around the body) is owned
+    // by the gutter redirect attached in the constructor — keep PM out of it.
+    if (event.type === "mousedown" && !this.contentDOM.contains(target)) {
+      return true;
+    }
+    return false;
   }
 
   ignoreMutation(mutation: ViewMutationRecord): boolean {

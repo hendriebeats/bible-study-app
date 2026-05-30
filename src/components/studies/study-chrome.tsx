@@ -6,7 +6,6 @@ import { type ReactNode, useCallback, useMemo, useState } from "react";
 
 import { StudySidebar } from "@/components/studies/study-sidebar";
 import { StudyChromeContext } from "@/components/studies/study-chrome-context";
-import { StudyOverflowMenu } from "@/components/studies/study-overflow-menu";
 import type { StudyChromeValue } from "@/components/studies/study-chrome-context";
 import { StudyTitleControl } from "@/components/studies/study-title-control";
 import { Button } from "@/components/ui/button";
@@ -128,14 +127,7 @@ export function StudyChrome({
             />
           </div>
 
-          <div className="flex shrink-0 items-center gap-1">
-            <StudyOverflowMenu
-              isOwner={isOwner}
-              trashedSections={trashedSections}
-              studyId={study.id}
-            />
-            {actions}
-          </div>
+          <div className="flex shrink-0 items-center gap-1">{actions}</div>
         </header>
 
         {/*
@@ -157,7 +149,7 @@ export function StudyChrome({
         />
 
         {isTemplate ? (
-          <div className="flex items-center gap-3 border-b border-primary/30 bg-primary/10 px-4 py-2 text-sm">
+          <div className="flex items-center gap-3 border-b border-primary/30 bg-primary/10 px-4 py-2 text-ui">
             <Layers className="size-4 shrink-0 text-primary" />
             <span className="min-w-0 flex-1">
               You&rsquo;re editing the{" "}
@@ -185,6 +177,7 @@ export function StudyChrome({
               study={study}
               sections={sections}
               isOwner={isOwner}
+              trashedSections={trashedSections}
               genres={genres}
               onCollapse={toggleSidebar}
             />
@@ -192,9 +185,12 @@ export function StudyChrome({
 
           {/* Definite-height flex parent (not overflow-auto) so the workspace
               dock can size itself; per-panel scrolling lives on the panels.
-              `bg-white` matches the persistent `<StudiesLoadingOverlay>`'s
-              body region so the fade-out reveals the same color underneath
-              (no warm-cream-to-white snap when the overlay clears).
+              `bg-editor-surface` (Tier 3 component token) matches the
+              persistent `<StudiesLoadingOverlay>`'s body region so the
+              fade-out reveals the same colour underneath (no snap when the
+              overlay clears). The token defaults to `--surface` so light/dark
+              already work; a future sepia theme can retint the editor body
+              independently of the surrounding chrome.
 
               The inner wrapper carries the editor zoom: CSS `zoom` is true
               browser-style magnification (reflows layout, scales everything
@@ -206,7 +202,7 @@ export function StudyChrome({
               scales together. ProseMirror's coordinate APIs are zoom-aware
               (getBoundingClientRect), so the selection bubble + slash menu
               still position correctly. */}
-          <main className="flex min-h-0 min-w-0 flex-1 bg-white">
+          <main className="flex min-h-0 min-w-0 flex-1 bg-editor-surface">
             <div
               className="flex min-h-0 min-w-0 flex-1"
               style={{ zoom: editorZoom }}

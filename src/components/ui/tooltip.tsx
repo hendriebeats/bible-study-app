@@ -43,6 +43,7 @@ function TooltipContent({
   className,
   sideOffset = 6,
   children,
+  style,
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Content>) {
   return (
@@ -54,6 +55,13 @@ function TooltipContent({
           "z-50 origin-(--radix-tooltip-content-transform-origin) rounded-md bg-foreground px-2 py-1 text-xs text-background shadow-md data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           className,
         )}
+        // Tooltips should always render above other floating UI. The selection
+        // bubble sits at zIndex 60 (above the blocks dialog overlay); without
+        // this override the tooltip's Tailwind `z-50` would tuck *behind* the
+        // bubble whenever the user hovers a control inside it. Inline style
+        // (not an arbitrary `z-[…]` class) so the project's
+        // no-arbitrary-classes lint stays happy.
+        style={{ zIndex: 100, ...style }}
         {...props}
       >
         {children}

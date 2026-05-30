@@ -20,6 +20,7 @@ import {
   getStudyTemplateBlocksDoc,
 } from "@/app/studies/actions";
 import { useEditorContext } from "@/components/studies/editor-context";
+import { ImageEditorIntegration } from "@/components/studies/image-editor-integration";
 import { PresenceAvatars } from "@/components/studies/presence-avatars";
 import { StudyBlocksDialog } from "@/components/studies/study-blocks-dialog";
 import { Button } from "@/components/ui/button";
@@ -35,8 +36,14 @@ import { buildNodeViews } from "@/lib/editor/node-views";
 import { buildInputRules } from "@/lib/editor/plugins/input-rules";
 import { buildKeymaps } from "@/lib/editor/plugins/keymap";
 import { blockHandle } from "@/lib/editor/plugins/block-handle";
+import { crossRefDetect } from "@/lib/editor/plugins/cross-ref-detect";
 import { blocksSelectionGuard } from "@/lib/editor/plugins/blocks-selection-guard";
 import { blocksStructureGuard } from "@/lib/editor/plugins/blocks-structure-guard";
+import { trashRemovedImages } from "@/lib/editor/image-trash";
+import { imagePastePlugin } from "@/lib/editor/plugins/image-paste";
+import { linkClickPlugin } from "@/lib/editor/plugins/link-click";
+import { linkPastePlugin } from "@/lib/editor/plugins/link-paste";
+import { linkPreviewPlugin } from "@/lib/editor/plugins/link-preview";
 import { noteAnchors } from "@/lib/editor/plugins/note-anchors";
 import { notesIndexGuard } from "@/lib/editor/plugins/notes-index-guard";
 import { placeholder as placeholderPlugin } from "@/lib/editor/plugins/placeholder";
@@ -55,6 +62,7 @@ import {
 import { computeDropInstruction } from "@/lib/editor/plugins/block-handle";
 import { selectionShadowPlugin } from "@/lib/editor/plugins/selection-shadow";
 import { TableViewWithHandles } from "@/lib/editor/plugins/table-view";
+import { themedColors } from "@/lib/editor/plugins/themed-colors";
 import { verseGuard } from "@/lib/editor/plugins/verse-guard";
 import { verseLabel } from "@/lib/editor/plugins/verse-label";
 import { nodes, schema } from "@/lib/editor/schema";
@@ -96,6 +104,7 @@ function createPlugins(
   placeholderText: string,
   role: EditorRole,
   tools: EditorTools,
+  imageContext?: { studyId: string; userId: string } | null,
 ) {
   const plugins = [
     // Highest priority: section-wide Cmd-Z/Cmd-Y across both editors, falling
@@ -120,6 +129,11 @@ function createPlugins(
     // Keep the pinned notes index from being deleted (no-op in the body editor).
     notesIndexGuard(),
     placeholderPlugin(placeholderText),
+    // Auto-detect scripture references typed in prose, wrap them in a chip
+    // mark, and rewrite the typed form to the canonical name on commit.
+    // Inert (just renders pre-existing chips) when the user's
+    // `crossRefAutoDetect` tool is off.
+    crossRefDetect(tools),
     // Paint a fallback highlight on the selection while the editor is blurred
     // so the user can see what their next toolbar action will affect.
     selectionShadowPlugin(),
@@ -127,7 +141,29 @@ function createPlugins(
     // drop-indicator widget). The pointer driver in block-handle.ts pokes
     // it via meta transactions on pointermove / pointerup.
     blockDragPlugin(),
+    // Link UX: smart paste (URL on selection → wrap; URL on caret → insert
+    // + fetch title), click-to-edit (with Cmd-click to follow), and the
+    // shared hover preview detector. Always on — Links are no longer a
+    // per-user opt-in.
+    linkPastePlugin(),
+    linkClickPlugin(),
+    linkPreviewPlugin(),
+    // Paints the active theme's contrast-safe variant of any custom-colour
+    // highlight / text-colour mark over the schema's baked-in stored value.
+    // Updates flow through PM's transaction loop (Decoration.inline), so the
+    // page never fights PM's DOMObserver — the earlier direct-DOM binder
+    // froze the tab on theme toggle. See
+    // src/lib/editor/plugins/themed-colors.ts.
+    themedColors(),
   ];
+  // Image paste / drop interceptor: clipboard files, drag-drop, and HTML
+  // `<img>` paste all route through the upload pipeline so everything lands
+  // in our study-images bucket (no off-site `src` ever in the doc). Gated on
+  // the user's opt-in toggle AND on having a study/user context (the
+  // template editor's notes-only preview won't carry studyId, for example).
+  if (tools.images && imageContext) {
+    plugins.push(imagePastePlugin(imageContext));
+  }
   // Progressive Mod-A: first press selects the cursor's textblock, second
   // press grows to the surrounding scope. In the freeform body editor the
   // outer scope is the whole doc; in the locked blocks editor it's the
@@ -209,6 +245,7 @@ function buildInitialState(
   placeholderText: string,
   role: EditorRole,
   tools: EditorTools,
+  imageContext?: { studyId: string; userId: string } | null,
 ) {
   const startDoc =
     role === "blocks"
@@ -217,7 +254,7 @@ function buildInitialState(
   try {
     let state = EditorState.create({
       doc: startDoc,
-      plugins: createPlugins(placeholderText, role, tools),
+      plugins: createPlugins(placeholderText, role, tools, imageContext),
     });
     let prevCreatedAt: string | null = null;
     for (const row of bundle.steps) {
@@ -239,7 +276,7 @@ function buildInitialState(
         role === "blocks"
           ? ensureNotesIndex(initialDoc(headContent))
           : initialDoc(headContent),
-      plugins: createPlugins(placeholderText, role, tools),
+      plugins: createPlugins(placeholderText, role, tools, imageContext),
     });
   }
 }
@@ -308,6 +345,15 @@ export function DocumentEditor({
   useEffect(() => {
     editorToolsRef.current = editorTools;
   });
+  // Image-paste plugin needs both studyId and userId to build bucket paths.
+  // null when either is missing (template-only previews, signed-out flows) —
+  // gate the plugin off in that case so paste falls back to PM's default.
+  const imageContextRef = useRef<{ studyId: string; userId: string } | null>(
+    studyId && me ? { studyId, userId: me.id } : null,
+  );
+  useEffect(() => {
+    imageContextRef.current = studyId && me ? { studyId, userId: me.id } : null;
+  }, [me, studyId]);
   const [status, setStatus] = useState<SaveStatus>("idle");
   const [seeding, setSeeding] = useState(false);
   // The blocks editor always renders (the pinned notes index is the lowest-level
@@ -403,6 +449,20 @@ export function DocumentEditor({
       pendingBoundariesRef.current = [];
       const base = lastVersionRef.current;
       const newDoc = docToJSON(view.state.doc);
+      // Collect every image-node `src` in the new doc — the server diffs this
+      // against the previously-persisted set to surface orphans for soft
+      // delete. Skip placeholder URLs (`pending:{uuid}`) from in-flight
+      // uploads; only real bucket URLs are tracked.
+      const imageSrcs: string[] = [];
+      view.state.doc.descendants((n) => {
+        if (n.type.name === "image") {
+          const src = n.attrs.src as unknown;
+          if (typeof src === "string" && src && !src.startsWith("pending:")) {
+            imageSrcs.push(src);
+          }
+        }
+        return true;
+      });
       try {
         const result = await appendDocumentSteps(
           doc.id,
@@ -411,6 +471,7 @@ export function DocumentEditor({
           newDoc,
           clientId,
           boundaries,
+          imageSrcs,
         );
         // The view may have been torn down (section swap) while the save was in
         // flight — the steps are persisted, so just stop before touching it.
@@ -435,7 +496,12 @@ export function DocumentEditor({
                 role === "blocks"
                   ? ensureNotesIndex(initialDoc(head.content))
                   : initialDoc(head.content),
-              plugins: createPlugins(placeholder, role, editorToolsRef.current),
+              plugins: createPlugins(
+                placeholder,
+                role,
+                editorToolsRef.current,
+                imageContextRef.current,
+              ),
             });
             view.updateState(fresh);
             editorRef.current?.setActive(view, fresh);
@@ -450,6 +516,15 @@ export function DocumentEditor({
         }
         lastVersionRef.current = result.version;
         setStatus("saved");
+        // Per-save image cleanup: the RPC told us which srcs disappeared
+        // from this document — move their bucket files into `_trash/` so the
+        // daily sweep can hard-delete after the 30-day retention window. A
+        // version-history restore inside that window resurrects them via
+        // `resurrectTrashedImages`. Best-effort: failures are logged and the
+        // next save will redo the diff.
+        if (result.removedImageSrcs.length > 0) {
+          void trashRemovedImages(result.removedImageSrcs);
+        }
         // A retry/transient error may have surfaced an error toast earlier; clear it.
         toast.dismiss("section-save-error");
         // Push the persisted steps + the cursor's new position to viewers.
@@ -542,6 +617,7 @@ export function DocumentEditor({
         placeholder,
         role,
         editorToolsRef.current,
+        imageContextRef.current,
       ),
       nodeViews: buildNodeViews(true),
       // The blocks doc always carries the pinned notes index now, so the
@@ -925,12 +1001,19 @@ export function DocumentEditor({
 
   return (
     <div>
+      {/* Insert dialog + crop overlay listen for CustomEvents bubbled from
+          inside the editor; mounted here so they share the editor's lifetime
+          and have access to studyId/userId. No-op when either is missing
+          (template previews, signed-out viewers). */}
+      {studyId && me ? (
+        <ImageEditorIntegration studyId={studyId} userId={me.id} />
+      ) : null}
       <div className="mb-2 flex items-center gap-3">
         <h2
           className={
             hideLabel
               ? "sr-only"
-              : "text-sm font-semibold text-muted-foreground"
+              : "text-ui font-semibold text-muted-foreground"
           }
         >
           {label}
@@ -989,7 +1072,7 @@ export function DocumentEditor({
         ) : null}
       </div>
       {doc.kind === "blocks" && noStudyBlocks ? (
-        <div className="mt-2 rounded-lg border border-dashed border-muted-foreground/40 p-6 text-center text-sm text-muted-foreground">
+        <div className="mt-2 rounded-lg border border-dashed border-muted-foreground/40 p-6 text-center text-ui text-muted-foreground">
           <p className="font-medium text-foreground">No study blocks yet.</p>
           {/* Both buttons always render so the empty state's shape is stable;
               each disables (with a tooltip) when its prerequisite is missing
@@ -1028,7 +1111,7 @@ export function DocumentEditor({
               Copy from Last Section
             </Button>
           </div>
-          <p className="mt-2 text-xs">
+          <p className="mt-2 text-caption">
             Or use &ldquo;Edit blocks&rdquo; above to add them manually.
           </p>
         </div>
@@ -1054,7 +1137,7 @@ function EmptyScripturePromptOverlay({
   onClick: () => void;
 }): React.ReactElement {
   return (
-    <div className="pointer-events-none absolute inset-0 flex min-h-32 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-muted-foreground/40 bg-muted/10 p-6 text-center text-sm text-muted-foreground">
+    <div className="pointer-events-none absolute inset-0 flex min-h-32 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-muted-foreground/40 bg-muted/10 p-6 text-center text-ui text-muted-foreground">
       <button
         type="button"
         onClick={onClick}
@@ -1071,7 +1154,7 @@ function EmptyScripturePromptOverlay({
         <span className="font-medium text-foreground">
           Add Scripture to Get Started
         </span>
-        <span className="text-xs">
+        <span className="text-caption">
           Click the{" "}
           <BookOpen className="inline size-3.5 -translate-y-0.5" aria-hidden />{" "}
           in the top bar.

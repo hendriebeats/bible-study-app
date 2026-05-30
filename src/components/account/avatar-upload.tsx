@@ -78,7 +78,7 @@ export function AvatarUpload({
     <div className="flex items-center gap-4">
       <Avatar className="size-16">
         {url ? <AvatarImage src={url} alt={displayName} /> : null}
-        <AvatarFallback className="text-lg">
+        <AvatarFallback className="text-subheading">
           {getInitials(displayName || email)}
         </AvatarFallback>
       </Avatar>
@@ -122,7 +122,9 @@ export function AvatarUpload({
             </Button>
           ) : null}
         </div>
-        <p className="text-xs text-muted-foreground">PNG or JPG, up to 2 MB.</p>
+        <p className="text-caption text-muted-foreground">
+          PNG or JPG, up to 2 MB.
+        </p>
       </div>
     </div>
   );

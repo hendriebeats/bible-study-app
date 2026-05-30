@@ -94,6 +94,7 @@ export type Database = {
           created_at: string
           current_version: number
           id: string
+          image_src_index: string[]
           kind: Database["public"]["Enums"]["document_kind"]
           section_id: string
           updated_at: string
@@ -103,6 +104,7 @@ export type Database = {
           created_at?: string
           current_version?: number
           id?: string
+          image_src_index?: string[]
           kind: Database["public"]["Enums"]["document_kind"]
           section_id: string
           updated_at?: string
@@ -112,6 +114,7 @@ export type Database = {
           created_at?: string
           current_version?: number
           id?: string
+          image_src_index?: string[]
           kind?: Database["public"]["Enums"]["document_kind"]
           section_id?: string
           updated_at?: string
@@ -332,6 +335,45 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      link_previews: {
+        Row: {
+          description: string | null
+          expires_at: string
+          favicon_url: string | null
+          fetched_at: string
+          image_url: string | null
+          site_name: string | null
+          status: string
+          title: string | null
+          url: string
+          url_hash: string
+        }
+        Insert: {
+          description?: string | null
+          expires_at: string
+          favicon_url?: string | null
+          fetched_at?: string
+          image_url?: string | null
+          site_name?: string | null
+          status: string
+          title?: string | null
+          url: string
+          url_hash: string
+        }
+        Update: {
+          description?: string | null
+          expires_at?: string
+          favicon_url?: string | null
+          fetched_at?: string
+          image_url?: string | null
+          site_name?: string | null
+          status?: string
+          title?: string | null
+          url?: string
+          url_hash?: string
+        }
+        Relationships: []
       }
       notifications: {
         Row: {
@@ -1119,6 +1161,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      _study_image_study_id: { Args: { _name: string }; Returns: string }
       accept_invitation: {
         Args: { _study_id?: string; _token: string }
         Returns: string
@@ -1142,9 +1185,13 @@ export type Database = {
           _document_id: string
           _expected_base: number
           _new_doc: Json
+          _new_image_src_index?: string[]
           _steps: Json
         }
-        Returns: number
+        Returns: {
+          new_version: number
+          removed_srcs: string[]
+        }[]
       }
       append_section_steps: {
         Args: {

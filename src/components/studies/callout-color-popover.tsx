@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useState } from "react";
 
 import { ToneSwatchPicker } from "@/components/studies/tone-swatch-picker";
+import { PopoverContent, VirtualAnchorPopover } from "@/components/ui/popover";
 import { type BlockTone, normalizeTone } from "@/lib/editor/block-tones";
 import {
   CALLOUT_COLOR_EVENT,
@@ -17,13 +17,12 @@ import {
  * the event-supplied `onPick` callback which the NodeView wires to a
  * `setNodeMarkup` transaction.
  *
- * Same event/portal pattern the BlockMenu uses; one tone-swatch component
- * across the action-block dialog AND the callout (per user request: "I
- * literally want to use the same popover component of the color selector").
+ * Uses {@link VirtualAnchorPopover} so the popover gets the same flip /
+ * shift / shrink-to-fit-viewport behaviour as every other popover in the
+ * app — no hand-rolled clamping or outside-click handling.
  */
 export function CalloutColorPopover() {
   const [detail, setDetail] = useState<CalloutColorEventDetail | null>(null);
-  const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const onOpen = (event: Event) => {
@@ -36,29 +35,6 @@ export function CalloutColorPopover() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!detail) return;
-    const onPointerDown = (event: PointerEvent) => {
-      const t = event.target;
-      if (
-        rootRef.current &&
-        t instanceof Node &&
-        !rootRef.current.contains(t)
-      ) {
-        setDetail(null);
-      }
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setDetail(null);
-    };
-    document.addEventListener("pointerdown", onPointerDown, true);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown, true);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [detail]);
-
   if (!detail) return null;
 
   const handlePick = (tone: BlockTone): void => {
@@ -66,22 +42,32 @@ export function CalloutColorPopover() {
     setDetail(null);
   };
 
-  const left = Math.min(detail.x, window.innerWidth - 260);
-  const top = Math.min(detail.y, window.innerHeight - 120);
-
-  return createPortal(
-    <div
-      ref={rootRef}
-      role="menu"
-      aria-label="Pick callout color"
-      className="fixed z-50 rounded-md border bg-popover p-2 text-popover-foreground shadow-md"
-      style={{ left, top }}
+  return (
+    <VirtualAnchorPopover
+      rect={{ x: detail.x, y: detail.y }}
+      open
+      onOpenChange={(next) => {
+        if (!next) setDetail(null);
+      }}
     >
-      <ToneSwatchPicker
-        value={normalizeTone(detail.currentTone)}
-        onChange={handlePick}
-      />
-    </div>,
-    document.body,
+      <PopoverContent
+        role="menu"
+        aria-label="Pick callout color"
+        side="bottom"
+        align="start"
+        sideOffset={4}
+        className="p-2"
+        // Keep ProseMirror selection alive when clicking a swatch — without
+        // this the editor loses focus before the swatch's onPick runs.
+        onMouseDown={(event) => {
+          event.preventDefault();
+        }}
+      >
+        <ToneSwatchPicker
+          value={normalizeTone(detail.currentTone)}
+          onChange={handlePick}
+        />
+      </PopoverContent>
+    </VirtualAnchorPopover>
   );
 }

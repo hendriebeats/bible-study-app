@@ -1,6 +1,6 @@
 "use client";
 
-import { LogOut, MoreVertical, UserMinus } from "lucide-react";
+import { Copy, LogOut, Mail, MoreVertical, UserMinus } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import {
   leaveGroup,
   removeMember,
+  revokeInvitation,
   setMemberRole,
   type ActionResult,
 } from "@/app/groups/actions";
@@ -20,7 +21,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import type { GroupMember } from "@/lib/db/types";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import type { GroupMember, Invitation } from "@/lib/db/types";
 
 function initials(name: string): string {
   return name.slice(0, 1).toUpperCase() || "?";
@@ -32,17 +38,24 @@ const ROLE_LABEL: Record<string, string> = {
 };
 
 /**
- * One uniform row shape per member: avatar + name + role + ⋮. Owners see the
+ * One uniform row shape per person: avatar + name + role + ⋮. Owners see the
  * role as an interactive `<select>` (including on their own row — the
  * `enforce_group_has_owner` trigger guards the last-owner case via PT409, which
  * surfaces through the existing toast). The ⋮ menu carries "Leave group" on
  * your row and "Remove from group" on others' rows when you're an owner; it's
  * hidden otherwise. Keeping the shape identical fixes the previous
  * "me / the owner / other members" feel where each row rendered differently.
+ *
+ * Pending invitations render as rows in the same list (after the members) so
+ * the dialog reads as one unified "people in this group" list — confirmed +
+ * not-yet-confirmed in a single scan. Invite rows expose copy-link + revoke
+ * controls instead of role-change/leave.
  */
 export function MemberRoster({
   groupId,
   members,
+  pendingInvitations,
+  onPendingInvitationsChange,
   isOwner,
   meId,
   compareStudyId,
@@ -50,6 +63,12 @@ export function MemberRoster({
 }: {
   groupId: string;
   members: GroupMember[];
+  /** Optional. When present (typically only for owners), pending invite rows
+   * are appended to the same list with copy-link + revoke actions. */
+  pendingInvitations?: Invitation[];
+  /** Called when an invite is revoked, so the parent can drop it from the
+   * unified list without a refetch. */
+  onPendingInvitationsChange?: (next: Invitation[]) => void;
   isOwner: boolean;
   meId: string;
   /**
@@ -69,6 +88,13 @@ export function MemberRoster({
     name: string;
   } | null>(null);
   const [confirmLeave, setConfirmLeave] = useState(false);
+  // Revoking an invite is destructive (the link stops working) so the action
+  // gates through the same confirm pattern as remove/leave instead of firing
+  // on a single click.
+  const [pendingRevoke, setPendingRevoke] = useState<{
+    invitationId: string;
+    label: string;
+  } | null>(null);
 
   function run(action: () => Promise<ActionResult>, onOk?: () => void) {
     startTransition(() => {
@@ -109,7 +135,7 @@ export function MemberRoster({
             key={member.user_id}
             className="flex items-center gap-3 rounded-lg border bg-card p-3"
           >
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-medium text-muted-foreground">
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-ui font-medium text-muted-foreground">
               {initials(name)}
             </span>
             {compareHref ? (
@@ -139,13 +165,13 @@ export function MemberRoster({
                   }
                   run(() => setMemberRole(groupId, member.user_id, next));
                 }}
-                className="h-7 shrink-0 rounded-md border bg-background px-2 text-xs"
+                className="h-7 shrink-0 rounded-md border bg-background px-2 text-ui"
               >
                 <option value="owner">Owner</option>
                 <option value="member">Member</option>
               </select>
             ) : (
-              <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+              <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-caption font-medium text-muted-foreground">
                 {ROLE_LABEL[member.role] ?? member.role}
               </span>
             )}
@@ -195,6 +221,91 @@ export function MemberRoster({
         );
       })}
 
+      {(pendingInvitations ?? []).map((invite) => {
+        const label = invite.email?.trim();
+        const displayLabel =
+          label === undefined || label === "" ? "Link invite" : label;
+        const isLinkInvite = label === undefined || label === "";
+        return (
+          <li
+            key={`invite-${invite.id}`}
+            className="flex items-center gap-3 rounded-lg border border-dashed bg-card p-3 text-muted-foreground"
+          >
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted">
+              <Mail className="size-4" />
+            </span>
+            <span className="min-w-0 flex-1 truncate" title={displayLabel}>
+              {displayLabel}
+            </span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-caption font-medium">
+                  Invited
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                {isLinkInvite
+                  ? "This invite link hasn't been used yet."
+                  : "We've sent an invite — they haven't joined yet."}
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  aria-label={`Copy invite link for ${displayLabel}`}
+                  className="size-7"
+                  onClick={() => {
+                    void navigator.clipboard
+                      .writeText(
+                        `${window.location.origin}/groups/accept?token=${invite.token}`,
+                      )
+                      .then(
+                        () => {
+                          toast.success("Invite link copied.");
+                        },
+                        () => {
+                          toast.error(
+                            "Couldn't copy — select and copy manually.",
+                          );
+                        },
+                      );
+                  }}
+                >
+                  <Copy className="size-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                Copy the invite link to send manually.
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  disabled={pending}
+                  onClick={() => {
+                    setPendingRevoke({
+                      invitationId: invite.id,
+                      label: displayLabel,
+                    });
+                  }}
+                >
+                  Revoke
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                Cancel this invitation. The link will stop working.
+              </TooltipContent>
+            </Tooltip>
+          </li>
+        );
+      })}
+
       <ConfirmDialog
         open={pendingRemove !== null}
         onOpenChange={(next) => {
@@ -240,6 +351,43 @@ export function MemberRoster({
               router.push("/groups");
             },
           );
+        }}
+      />
+
+      <ConfirmDialog
+        open={pendingRevoke !== null}
+        onOpenChange={(next) => {
+          if (!next) {
+            setPendingRevoke(null);
+          }
+        }}
+        title="Revoke this invitation?"
+        description={
+          <>
+            The invite link for{" "}
+            <span className="font-medium text-foreground">
+              {pendingRevoke?.label ?? "this invitee"}
+            </span>{" "}
+            will stop working. You can always send a new invite later.
+          </>
+        }
+        confirmLabel="Revoke invite"
+        destructive
+        pending={pending}
+        onConfirm={() => {
+          if (pendingRevoke) {
+            const target = pendingRevoke;
+            setPendingRevoke(null);
+            startTransition(() => {
+              void revokeInvitation(target.invitationId, groupId).then(() => {
+                onPendingInvitationsChange?.(
+                  (pendingInvitations ?? []).filter(
+                    (i) => i.id !== target.invitationId,
+                  ),
+                );
+              });
+            });
+          }
         }}
       />
     </ul>

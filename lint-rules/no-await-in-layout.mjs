@@ -13,9 +13,10 @@
  *   - `await params` / `await searchParams` (Next.js convention, the route's
  *     own params Promise — not a data fetch).
  *   - `await createClient()` (Supabase client construction, not a query).
- *   - Anything inside a JSX `<Suspense>` boundary's children (the rule can't
- *     statically prove this in all cases, so it instead allows opt-out via
- *     `// lint-allow-await-in-layout: <reason>` on the line above).
+ *
+ * Anything that genuinely needs to await data in a layout should move into a
+ * separate inner file rendered under a `<Suspense fallback={…}>` boundary
+ * (e.g. `study-layout-inner.tsx`, `admin-gate.tsx`).
  *
  * The rule applies to files matching `**\/app\/**\/layout.{ts,tsx,js,jsx}`.
  */
@@ -30,7 +31,6 @@ const PARAM_ALLOWLIST = new Set(["params", "searchParams"]);
 const CALL_ALLOWLIST = new Set(["createClient"]);
 
 const LAYOUT_FILE = /\/app\/.*\/layout\.(tsx|ts|jsx|js)$/;
-const OPT_OUT = /lint-allow-await-in-layout\s*:/;
 
 function rootOfMember(node) {
   let cur = node;
@@ -72,14 +72,13 @@ const rule = {
     schema: [],
     messages: {
       blockingAwait:
-        "`await` of a database call in a layout.tsx blocks `loading.tsx` and page-level `<Suspense>` from streaming. With `cacheComponents: true` it also produces a build error. Move the async work into a separate file (e.g. `study-layout-inner.tsx` / `admin-gate.tsx`) and render it under a `<Suspense fallback={…}>` boundary inside the layout. If unavoidable, add `// lint-allow-await-in-layout: <reason>` on the line above.",
+        "`await` of a database call in a layout.tsx blocks `loading.tsx` and page-level `<Suspense>` from streaming. With `cacheComponents: true` it also produces a build error. Move the async work into a separate file (e.g. `study-layout-inner.tsx` / `admin-gate.tsx`) and render it under a `<Suspense fallback={…}>` boundary inside the layout.",
     },
   },
   create(context) {
     const filename = context.filename ?? context.getFilename?.() ?? "";
     if (!LAYOUT_FILE.test(filename)) return {};
 
-    const sourceCode = context.sourceCode;
     const dbIdentifiers = new Set();
 
     function isAllowedAwait(awaitExpr) {
@@ -107,30 +106,6 @@ const rule = {
       return !calleeIsDbCall(arg.callee, dbIdentifiers);
     }
 
-    function hasOptOutComment(node) {
-      // Walk up to the enclosing statement and check the comment above it.
-      let cur = node;
-      while (cur && cur.parent) {
-        const parent = cur.parent;
-        if (
-          parent.type === "VariableDeclaration" ||
-          parent.type === "ExpressionStatement" ||
-          parent.type === "ReturnStatement" ||
-          parent.type === "BlockStatement" ||
-          parent.type === "Program"
-        ) {
-          // Once we're at a statement, check comments before it.
-          if (parent.type !== "BlockStatement" && parent.type !== "Program") {
-            const before = sourceCode.getCommentsBefore(parent);
-            return before.some((c) => OPT_OUT.test(c.value));
-          }
-          return false;
-        }
-        cur = parent;
-      }
-      return false;
-    }
-
     return {
       ImportDeclaration(node) {
         const src = node.source.value;
@@ -149,7 +124,6 @@ const rule = {
       },
       AwaitExpression(node) {
         if (isAllowedAwait(node)) return;
-        if (hasOptOutComment(node)) return;
         context.report({ node, messageId: "blockingAwait" });
       },
     };

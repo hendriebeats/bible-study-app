@@ -10,6 +10,7 @@ import {
 import {
   type FormatRecents,
   normalizeFormatRecents,
+  removeCustomColor as removeCustomColorFromList,
 } from "@/lib/editor/format-actions";
 import {
   normalizeScriptureOptions,
@@ -186,8 +187,10 @@ export async function saveScriptureOptions(
 
 /**
  * Persist the user's recently-used formatting actions (the selection bubble's
- * quick action). Normalizes first (trust boundary + palette allow-list) before
- * upserting their single settings row.
+ * quick action) along with the custom-colour MRU lists. Normalizes first
+ * (trust boundary + palette allow-list for the preset actions, strict OKLCH
+ * shape check for the custom arrays) before upserting their single settings
+ * row.
  */
 export async function saveFormatRecents(
   recents: FormatRecents,
@@ -203,6 +206,95 @@ export async function saveFormatRecents(
   if (error) {
     return { ok: false, error: error.message };
   }
+  return { ok: true };
+}
+
+/**
+ * Wipe the user's custom-colour MRU lists (the account preview card's "Clear"
+ * button). Leaves the preset `actions` recents intact — those are scoped to
+ * the preset palette and unrelated to the custom-colour feature.
+ */
+export async function clearCustomColors(): Promise<
+  { ok: true } | { ok: false; error: string }
+> {
+  const { supabase, userId } = await requireUser();
+  // Read-modify-write so we don't blow away the preset `actions` recents
+  // when the user clears their custom-colour lists.
+  const { data } = await supabase
+    .from("user_settings")
+    .select("format_recents")
+    .eq("user_id", userId)
+    .maybeSingle();
+  const current = normalizeFormatRecents(
+    data?.format_recents as {
+      actions?: unknown;
+      customHighlights?: unknown;
+      customTextColors?: unknown;
+    } | null,
+  );
+  const next = normalizeFormatRecents({
+    actions: current.actions,
+    customHighlights: [],
+    customTextColors: [],
+  });
+  const { error } = await supabase
+    .from("user_settings")
+    .upsert(
+      { user_id: userId, format_recents: next as unknown as Json },
+      { onConflict: "user_id" },
+    );
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+  revalidatePath("/account/preferences");
+  return { ok: true };
+}
+
+/**
+ * Drop a single custom colour from one of the user's MRU rows (the account
+ * preview card's per-swatch ✕ button). Mirrors `clearCustomColors` — read /
+ * modify / write so the preset `actions` recents and the *other* custom row
+ * survive untouched. Idempotent: if the colour isn't there, this still
+ * succeeds (a stale local view shouldn't toast).
+ */
+export async function removeCustomColor(
+  kind: "highlight" | "text",
+  color: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { supabase, userId } = await requireUser();
+  const { data } = await supabase
+    .from("user_settings")
+    .select("format_recents")
+    .eq("user_id", userId)
+    .maybeSingle();
+  const current = normalizeFormatRecents(
+    data?.format_recents as {
+      actions?: unknown;
+      customHighlights?: unknown;
+      customTextColors?: unknown;
+    } | null,
+  );
+  const next = normalizeFormatRecents({
+    actions: current.actions,
+    customHighlights:
+      kind === "highlight"
+        ? removeCustomColorFromList(current.customHighlights, color)
+        : current.customHighlights,
+    customTextColors:
+      kind === "text"
+        ? removeCustomColorFromList(current.customTextColors, color)
+        : current.customTextColors,
+  });
+  const { error } = await supabase
+    .from("user_settings")
+    .upsert(
+      { user_id: userId, format_recents: next as unknown as Json },
+      { onConflict: "user_id" },
+    );
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+  revalidatePath("/account/preferences");
   return { ok: true };
 }
 

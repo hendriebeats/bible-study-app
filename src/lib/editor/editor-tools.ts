@@ -7,9 +7,9 @@
  * account UI, and the editor context can all import it.
  *
  * Two flavours of tool coexist here:
- *   1. **Formatting toggles** (`headings`, `strikethrough`, `links`) — gate
- *      core rich-text affordances so users can pare the editor down to what
- *      they actually use. When off: toolbar button hidden, keyboard shortcut
+ *   1. **Formatting toggles** (`headings`, `strikethrough`) — gate core
+ *      rich-text affordances so users can pare the editor down to what they
+ *      actually use. When off: toolbar button hidden, keyboard shortcut
  *      unbound, markdown input-rule disabled, slash menu entry hidden. The
  *      schema still RENDERS the mark/node so pre-existing content and
  *      templated content stay intact.
@@ -22,13 +22,16 @@
  * Tools land across later Phase 2 sub-phases; until a tool is available its
  * toggle in the account UI is shown as "Coming soon" (the preference still
  * persists, so it's honored the moment the feature ships).
+ *
+ * Note: `links` was an opt-in here historically. Links are now first-class
+ * (always-on) so the toggle was retired. The `normalizeEditorTools` reader
+ * silently ignores any leftover `links` key on stored settings rows.
  */
 
 /** The opt-in tool keys. Add a key here + a registry entry below to introduce one. */
 export interface EditorTools {
   headings: boolean;
   strikethrough: boolean;
-  links: boolean;
   collapsibles: boolean;
   callouts: boolean;
   tables: boolean;
@@ -44,7 +47,6 @@ export type EditorToolKey = keyof EditorTools;
 export const DEFAULT_EDITOR_TOOLS: EditorTools = {
   headings: false,
   strikethrough: false,
-  links: false,
   collapsibles: false,
   callouts: false,
   tables: false,
@@ -118,13 +120,6 @@ export const EDITOR_TOOL_REGISTRY: readonly EditorToolMeta[] = [
     available: true,
   },
   {
-    key: "links",
-    group: "formatting",
-    label: "Links",
-    description: "Add, edit, and remove hyperlinks; auto-link pasted URLs.",
-    available: true,
-  },
-  {
     key: "collapsibles",
     group: "blocks",
     label: "Collapsible sections",
@@ -149,8 +144,9 @@ export const EDITOR_TOOL_REGISTRY: readonly EditorToolMeta[] = [
     key: "images",
     group: "media-smart",
     label: "Images",
-    description: "Add images by upload or URL, with an optional caption.",
-    available: false,
+    description:
+      "Add images by upload or URL. Drag to resize, double-click to crop.",
+    available: true,
   },
   {
     key: "mediaEmbeds",
@@ -163,15 +159,17 @@ export const EDITOR_TOOL_REGISTRY: readonly EditorToolMeta[] = [
     key: "crossRefAutoDetect",
     group: "media-smart",
     label: "Auto-detect cross-references",
-    description: "Turn scripture references you type into links automatically.",
-    available: false,
+    description:
+      "Turn scripture references you type into links automatically. Single-click for a preview, double-click to open BibleHub.",
+    available: true,
   },
   {
     key: "customColor",
     group: "formatting",
     label: "Custom colors",
-    description: "Pick any highlight/text color beyond the preset palette.",
-    available: false,
+    description:
+      "Pick any highlight/text color beyond the preset palette — picked colors stay readable in light AND dark mode.",
+    available: true,
   },
 ] as const;
 

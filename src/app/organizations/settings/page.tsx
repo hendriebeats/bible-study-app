@@ -38,11 +38,11 @@ export default async function OrgSettingsPage() {
       <div>
         <Link
           href="/organizations"
-          className="text-sm text-muted-foreground hover:text-foreground"
+          className="text-ui text-muted-foreground hover:text-foreground"
         >
           ← Organization
         </Link>
-        <h1 className="mt-2 text-2xl font-bold tracking-tight">Settings</h1>
+        <h1 className="mt-2 text-title font-bold tracking-tight">Settings</h1>
       </div>
 
       <Card>

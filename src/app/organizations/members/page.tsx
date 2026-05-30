@@ -44,11 +44,11 @@ export default async function OrgMembersPage() {
       <div>
         <Link
           href="/organizations"
-          className="text-sm text-muted-foreground hover:text-foreground"
+          className="text-ui text-muted-foreground hover:text-foreground"
         >
           ← Organization
         </Link>
-        <h1 className="mt-2 text-2xl font-bold tracking-tight">Members</h1>
+        <h1 className="mt-2 text-title font-bold tracking-tight">Members</h1>
       </div>
 
       <section>
@@ -63,14 +63,14 @@ export default async function OrgMembersPage() {
       {isAdmin ? (
         <>
           <section className="grid gap-3">
-            <h2 className="text-sm font-semibold text-muted-foreground">
+            <h2 className="text-ui font-semibold text-muted-foreground">
               Join requests
             </h2>
             <JoinRequestList requests={requests} />
           </section>
 
           <section className="grid gap-3">
-            <h2 className="text-sm font-semibold text-muted-foreground">
+            <h2 className="text-ui font-semibold text-muted-foreground">
               Invite people
             </h2>
             <OrgInvitePanel

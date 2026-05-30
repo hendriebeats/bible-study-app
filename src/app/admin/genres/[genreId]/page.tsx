@@ -25,7 +25,7 @@ export default async function AdminGenrePage({
     <div>
       <Link
         href="/admin"
-        className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+        className="flex items-center gap-1 text-ui text-muted-foreground hover:text-foreground"
       >
         <ArrowLeft className="size-4" />
         All genres
@@ -36,10 +36,10 @@ export default async function AdminGenrePage({
       </div>
 
       <section className="mt-8">
-        <h2 className="mb-1 text-sm font-semibold text-muted-foreground">
+        <h2 className="mb-1 text-ui font-semibold text-muted-foreground">
           Default study blocks
         </h2>
-        <p className="mb-3 text-sm text-muted-foreground">
+        <p className="mb-3 text-ui text-muted-foreground">
           New sections in a {genre.name} study start with these blocks.
         </p>
         <BlockTemplateEditor genreId={genreId} templates={templates} />

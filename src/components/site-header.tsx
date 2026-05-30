@@ -11,7 +11,7 @@ export function SiteHeader() {
       <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-4">
         <Link href="/" className="flex items-center gap-2 font-semibold">
           <BookOpen className="size-6 text-primary" />
-          <span className="text-lg">{siteConfig.name}</span>
+          <span className="text-subheading">{siteConfig.name}</span>
         </Link>
         <nav className="flex items-center gap-2">
           <ThemeToggle />

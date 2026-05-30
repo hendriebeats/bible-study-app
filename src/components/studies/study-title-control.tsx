@@ -26,7 +26,7 @@ export function StudyTitleControl({
 
   if (!canEdit) {
     return (
-      <span className="min-w-0 truncate text-sm font-medium">{title}</span>
+      <span className="min-w-0 truncate text-ui font-medium">{title}</span>
     );
   }
 
@@ -38,7 +38,7 @@ export function StudyTitleControl({
           setEditing(true);
         }}
         title="Rename study"
-        className="min-w-0 truncate rounded-sm px-1.5 py-0.5 text-left text-sm font-medium hover:bg-muted"
+        className="min-w-0 truncate rounded-sm px-1.5 py-0.5 text-left text-ui font-medium hover:bg-muted"
       >
         {title}
       </button>
@@ -76,7 +76,7 @@ export function StudyTitleControl({
           setEditing(false);
         }
       }}
-      className="h-7 w-full max-w-sm min-w-0 border-0 bg-transparent px-1.5 text-sm font-medium shadow-none focus-visible:ring-1"
+      className="h-7 w-full max-w-sm min-w-0 border-0 bg-transparent px-1.5 text-ui font-medium shadow-none focus-visible:ring-1"
     />
   );
 }

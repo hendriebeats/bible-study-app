@@ -1,8 +1,11 @@
 import { REALTIME_SUBSCRIBE_STATES } from "@supabase/supabase-js";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 
+import type { OklchColor } from "@/lib/editor/oklch";
 import type { CursorPayload, StepsPayload } from "@/lib/editor/types";
 import { createClient } from "@/lib/supabase/client";
+import { cursorColor } from "@/lib/theme/resolve-color";
+import { isThemeId, type ThemeId } from "@/lib/theme/themes";
 
 const STEPS_EVENT = "steps";
 const CURSOR_EVENT = "cursor";
@@ -14,32 +17,37 @@ export type ConnectionStatus =
   | "reconnecting"
   | "closed";
 
-/** A stable, readable color palette for cursors + presence avatars. */
-const CURSOR_COLORS = [
-  "#1971c2",
-  "#e8590c",
-  "#2f9e44",
-  "#9c36b5",
-  "#c2255c",
-  "#0c8599",
-  "#5f3dc4",
-  "#e67700",
-];
+/**
+ * Read the active theme from `<html data-theme="…">`. The presence palette
+ * is rebuilt whenever this changes; callers normally just call `colorForId`
+ * which always pulls the current value, so a theme toggle paints fresh
+ * cursor colours on the next presence sync without any plumbing.
+ */
+function activeTheme(): ThemeId {
+  if (typeof document === "undefined") return "light";
+  const raw = document.documentElement.getAttribute("data-theme");
+  return isThemeId(raw) ? raw : "light";
+}
 
-/** Deterministic color for a user id, so the same person is always one color. */
-export function colorForId(id: string): string {
-  let hash = 0;
-  for (let i = 0; i < id.length; i += 1) {
-    hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
-  }
-  return CURSOR_COLORS[hash % CURSOR_COLORS.length] ?? "#1971c2";
+/**
+ * Deterministic, theme-aware cursor / presence colour for a user id. Hue is
+ * locked per user (the same person reads as the same brand-hue across themes);
+ * lightness is nudged by {@link cursorColor} so the cursor caret stays
+ * visible against the active theme's surface.
+ *
+ * Returns a branded {@link OklchColor} — call sites can pipe the value
+ * straight into the {@link styleBackgroundColor} / {@link styleColor}
+ * helpers without an `unsafeOklch` escape.
+ */
+export function colorForId(id: string): OklchColor {
+  return cursorColor(id, activeTheme());
 }
 
 /** Someone currently on the document (the writer or a read-along viewer). */
 export interface PresenceMember {
   userId: string;
   name: string;
-  color: string;
+  color: OklchColor;
   isOwner: boolean;
 }
 

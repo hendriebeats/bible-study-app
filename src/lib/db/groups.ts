@@ -128,6 +128,39 @@ export async function listMyOwnedStudies(): Promise<Study[]> {
   return data;
 }
 
+/**
+ * Groups the caller could attach `studyId` to: ones where they're a member but
+ * haven't attached any personal study yet (a member row carries one `study_id`
+ * slot, so it's one-per-group) and that `studyId` isn't already in. Feeds the
+ * "Add to a group" submenu on the in-study Share button.
+ */
+export async function listAttachableGroupsForUser(
+  studyId: string,
+): Promise<{ id: string; name: string }[]> {
+  const loose = await listMyLooseGroups();
+  if (loose.length === 0) {
+    return [];
+  }
+  // Subtract groups this study is already attached to (rare — a single study
+  // row can belong to multiple groups via different membership rows, but the
+  // user only has one membership per group, so they could "re-attach" the
+  // same study; the UI should hide that no-op).
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return [];
+  }
+  const { data: already } = await supabase
+    .from("group_study_members")
+    .select("group_study_id")
+    .eq("user_id", user.id)
+    .eq("study_id", studyId);
+  const exclude = new Set((already ?? []).map((r) => r.group_study_id));
+  return loose.filter((g) => !exclude.has(g.id));
+}
+
 /** Groups the current user belongs to with no study attached yet ("loose"). */
 export async function listMyLooseGroups(): Promise<
   { id: string; name: string }[]

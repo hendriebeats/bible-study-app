@@ -39,7 +39,7 @@ export function AnnouncementFeed({
           className="flex items-start gap-3 rounded-lg border border-primary/20 bg-primary/5 p-3"
         >
           <Megaphone className="mt-0.5 size-4 shrink-0 text-primary" />
-          <p className="min-w-0 flex-1 text-sm whitespace-pre-wrap">{a.body}</p>
+          <p className="min-w-0 flex-1 text-ui whitespace-pre-wrap">{a.body}</p>
           <Button
             type="button"
             size="icon-sm"

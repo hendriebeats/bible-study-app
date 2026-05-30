@@ -9,6 +9,28 @@ import { schema as basicSchema } from "prosemirror-schema-basic";
 import { tableNodes } from "prosemirror-tables";
 
 import { normalizeTone } from "./block-tones";
+import { isHighlightColor, isTextColor } from "./format-colors";
+
+/**
+ * Build the inline `style` for a colour-bearing mark. Every value — preset or
+ * custom — emits the stored OKLCH literal directly, so every render surface
+ * (live editor, read-only viewer, history previews, server-rendered HTML)
+ * shows *some* colour with zero JS. For custom values, the
+ * {@link themedColors} ProseMirror plugin (src/lib/editor/plugins/themed-
+ * colors.ts) paints theme-resolved inline-style decorations over each
+ * `[data-color]` mark once the editor mounts — this is what makes a custom
+ * highlight picked in light mode stay legible after the user flips to dark
+ * (or any future theme).
+ *
+ * `prop` is the CSS property the mark drives — `background-color` for
+ * highlights, `color` for text colour.
+ */
+function colorMarkStyle(
+  prop: "background-color" | "color",
+  color: string,
+): string {
+  return `${prop}:${color}`;
+}
 
 /**
  * The single ProseMirror schema for every study document.
@@ -19,7 +41,7 @@ import { normalizeTone } from "./block-tones";
  * persisted history would fail to deserialize against a forked one. Never
  * create another schema — extend this one here. (See plan Risk #5.)
  *
- * Feature parity with the previous Tiptap StarterKit editor: headings,
+ * Covers the editor's full prose feature set: headings,
  * bold/italic/strikethrough, bullet/ordered lists, blockquote, code, code
  * block, horizontal rule, hard break. Plus the study-specific nodes:
  *   * `verse_number` — an inline atom rendered as a superscript verse number.
@@ -400,6 +422,138 @@ const codeBlockSpec: NodeSpec = {
 };
 
 /**
+ * Image node — overrides `prosemirror-schema-basic`'s default `image` spec
+ * via `.update("image", imageSpec)` in the nodeSpecs chain below. (Adding it
+ * via `.addToEnd` would collide on the "image" name.)
+ *
+ * The node is an `atom` block: no editable children, draggable like any other
+ * block, slots wherever `paragraph` does (so it works inside callout,
+ * collapsible, study_block bodies, and notes). Crop / rotation / flip live
+ * as ATTRS — rendering uses CSS transforms inside an overflow:hidden frame,
+ * so there's no derivative file and Reset is free.
+ *
+ * `parseDOM` deliberately matches only our own `<figure data-image>` shape.
+ * Bare `<img>` from HTML clipboards is intercepted by the image-paste plugin
+ * (re-uploaded into our bucket) before PM's parser ever sees it; matching
+ * raw `<img>` here would let off-site URLs slip into the doc.
+ */
+const imageSpec: NodeSpec = {
+  group: "block",
+  atom: true,
+  draggable: true,
+  defining: true,
+  attrs: {
+    src: { default: "" },
+    naturalW: { default: 0 },
+    naturalH: { default: 0 },
+    // Legacy: 0 = natural-fit sentinel; 15–100 = percent of the container.
+    // Existing docs that stored percents still render via this attr — the
+    // NodeView falls back to it when `widthPx` is 0.
+    width: { default: 0 },
+    // Fixed pixel width. When >0 the frame renders at exactly this many
+    // CSS pixels (capped by max-width:100% so it never overflows the
+    // containing column). Set by the resize handle and the crop-commit
+    // path going forward, so the rendered size doesn't scale with the
+    // window. Defaults to 0 (= use legacy `width` percent / natural-fit).
+    widthPx: { default: 0 },
+    // 0 means "derive from aspect ratio" (the default — height follows
+    // width via the cropped image's natural aspect). A positive pixel
+    // value forces an explicit height, which lets the side handles
+    // (top/bottom) stretch the image vertically while leaving its width
+    // alone. Corner handles preserve aspect by always clearing this back
+    // to 0; left/right side handles also lock the current height so the
+    // image stretches horizontally.
+    height: { default: 0 },
+    align: { default: "left" },
+    crop: { default: null },
+    rotation: { default: 0 },
+    flipH: { default: false },
+    flipV: { default: false },
+    status: { default: "ready" },
+  },
+  parseDOM: [
+    {
+      tag: "figure[data-image]",
+      getAttrs(dom) {
+        if (typeof dom === "string") return null;
+        const get = (k: string) => dom.getAttribute(k);
+        const num = (k: string, def: number) => {
+          const raw = get(k);
+          if (raw == null) return def;
+          const n = Number(raw);
+          return Number.isFinite(n) ? n : def;
+        };
+        let crop: { x: number; y: number; w: number; h: number } | null = null;
+        const cropRaw = get("data-crop");
+        if (cropRaw) {
+          try {
+            const parsed: unknown = JSON.parse(cropRaw);
+            if (
+              parsed &&
+              typeof parsed === "object" &&
+              typeof (parsed as Record<string, unknown>).x === "number"
+            ) {
+              crop = parsed as { x: number; y: number; w: number; h: number };
+            }
+          } catch {
+            crop = null;
+          }
+        }
+        const alignRaw = get("data-align");
+        const align =
+          alignRaw === "left" || alignRaw === "full" ? alignRaw : "center";
+        const rotRaw = num("data-rotation", 0);
+        const rotation =
+          rotRaw === 90 || rotRaw === 180 || rotRaw === 270 ? rotRaw : 0;
+        const statusRaw = get("data-status");
+        const status =
+          statusRaw === "uploading" || statusRaw === "broken"
+            ? statusRaw
+            : "ready";
+        return {
+          src: get("data-src") ?? "",
+          naturalW: num("data-natural-w", 0),
+          naturalH: num("data-natural-h", 0),
+          width: num("data-width", 100),
+          widthPx: num("data-width-px", 0),
+          height: num("data-height", 0),
+          align,
+          crop,
+          rotation,
+          flipH: get("data-flip-h") === "true",
+          flipV: get("data-flip-v") === "true",
+          status,
+        };
+      },
+    },
+  ],
+  toDOM(node) {
+    const a = node.attrs as Record<string, unknown>;
+    const num = (v: unknown, def: number): string =>
+      String(typeof v === "number" && Number.isFinite(v) ? v : def);
+    const str = (v: unknown, def: string): string =>
+      typeof v === "string" ? v : def;
+    const src = typeof a.src === "string" ? a.src : "";
+    const attrs: Record<string, string> = {
+      "data-image": "",
+      "data-src": src,
+      "data-natural-w": num(a.naturalW, 0),
+      "data-natural-h": num(a.naturalH, 0),
+      "data-width": num(a.width, 100),
+      "data-width-px": num(a.widthPx, 0),
+      "data-height": num(a.height, 0),
+      "data-align": str(a.align, "center"),
+      "data-rotation": num(a.rotation, 0),
+      "data-flip-h": a.flipH ? "true" : "false",
+      "data-flip-v": a.flipV ? "true" : "false",
+      "data-status": str(a.status, "ready"),
+    };
+    if (a.crop) attrs["data-crop"] = JSON.stringify(a.crop);
+    return ["figure", attrs, ["img", { src, alt: "" }]];
+  },
+};
+
+/**
  * Flat-schema list row (Phase 1b — additive, not yet driven by editing
  * commands). One node type subsumes `list_item` AND `task_item`; `listType`
  * discriminates bullet / ordered / task. Content is `inline*` (a row holds
@@ -684,6 +838,7 @@ const nodeSpecs = baseNodeSpecs
   .update("heading", headingSpec)
   .update("blockquote", blockquoteSpec)
   .update("code_block", codeBlockSpec)
+  .update("image", imageSpec)
   .addToEnd("verse_number", verseNumberSpec)
   .addToEnd("scripture", scriptureSpec)
   .addToEnd("study_block", studyBlockSpec)
@@ -697,7 +852,61 @@ const nodeSpecs = baseNodeSpecs
   .addToEnd("table_cell", tableNodeSpecs.table_cell)
   .addToEnd("table_header", tableNodeSpecs.table_header);
 
+// Extend the inherited `link` mark with cached preview attrs (displayTitle,
+// favicon, siteName). The hover preview plugin lazily backfills these on the
+// first hover of a legacy link, so docs stored before this change parse
+// cleanly with the new attrs defaulted to `null`. `toDOM` writes only the
+// standard `href`/`title` to the rendered <a>, so HTML serialization remains
+// round-trip compatible with the schema-basic shape.
+const baseLinkSpec = basicSchema.spec.marks.get("link");
+if (!baseLinkSpec) {
+  throw new Error("schema-basic is expected to provide a link mark");
+}
 const markSpecs = basicSchema.spec.marks
+  .update("link", {
+    ...baseLinkSpec,
+    attrs: {
+      href: { default: "" },
+      title: { default: null },
+      displayTitle: { default: null },
+      favicon: { default: null },
+      siteName: { default: null },
+    },
+    inclusive: false,
+    parseDOM: [
+      {
+        tag: "a[href]",
+        getAttrs(dom) {
+          if (typeof dom === "string") return null;
+          return {
+            href: dom.getAttribute("href") ?? "",
+            title: dom.getAttribute("title"),
+            displayTitle: dom.getAttribute("data-display-title"),
+            favicon: dom.getAttribute("data-favicon"),
+            siteName: dom.getAttribute("data-site-name"),
+          };
+        },
+      },
+    ],
+    toDOM(mark) {
+      const attrs = mark.attrs as {
+        href: string;
+        title: string | null;
+        displayTitle: string | null;
+        favicon: string | null;
+        siteName: string | null;
+      };
+      const out: Record<string, string> = { href: attrs.href };
+      if (attrs.title) out.title = attrs.title;
+      // Carry the cache fields in data-* so a round-trip through the DOM
+      // (copy/paste, undo replay) preserves them without polluting the
+      // rendered <a> attributes that browsers care about.
+      if (attrs.displayTitle) out["data-display-title"] = attrs.displayTitle;
+      if (attrs.favicon) out["data-favicon"] = attrs.favicon;
+      if (attrs.siteName) out["data-site-name"] = attrs.siteName;
+      return ["a", out, 0];
+    },
+  })
   .addToEnd("strikethrough", {
     parseDOM: [
       { tag: "s" },
@@ -767,12 +976,14 @@ const markSpecs = basicSchema.spec.marks
     ],
     toDOM(mark) {
       const color = (mark.attrs as { color: string }).color;
+      const custom = color !== "" && !isHighlightColor(color);
       return [
         "mark",
         {
           "data-highlight": "true",
           "data-color": color,
-          style: `background-color:${color}`,
+          ...(custom ? { "data-custom": "true" } : {}),
+          style: colorMarkStyle("background-color", color),
         },
         0,
       ];
@@ -792,12 +1003,100 @@ const markSpecs = basicSchema.spec.marks
     ],
     toDOM(mark) {
       const color = (mark.attrs as { color: string }).color;
+      const custom = color !== "" && !isTextColor(color);
       return [
         "span",
         {
           "data-text-color": "true",
           "data-color": color,
-          style: `color:${color}`,
+          ...(custom ? { "data-custom": "true" } : {}),
+          style: colorMarkStyle("color", color),
+        },
+        0,
+      ];
+    },
+  })
+  // Cross-reference chip. Wraps a typed scripture reference (e.g. "John 3:16",
+  // "Romans 8:28-30") with the parsed canonical reference attrs. Applied by the
+  // cross-ref-detect plugin (gated on the `crossRefAutoDetect` editor tool):
+  // while the cursor is inside the range, `committed` is false and the chip
+  // grows/contracts with each keystroke; once the user moves on, `committed`
+  // flips to true and the underlying text is rewritten to the canonical form.
+  // `excludes: "code"` so refs inside the inline code mark are skipped.
+  // `inclusive: false` keeps typing past either edge from extending the chip.
+  // Persists in the doc like any other mark, so read-only viewers and history
+  // previews render the same pill without needing the detector to be present.
+  .addToEnd("crossRef", {
+    attrs: {
+      book: { default: 0 },
+      startChapter: { default: 0 },
+      startVerse: { default: 0 },
+      endChapter: { default: 0 },
+      endVerse: { default: 0 },
+      raw: { default: "" },
+      committed: { default: false },
+    },
+    inclusive: false,
+    excludes: "code",
+    parseDOM: [
+      {
+        tag: "span[data-cross-ref]",
+        getAttrs(dom) {
+          if (typeof dom === "string") return null;
+          const num = (name: string): number => {
+            const v = Number(dom.getAttribute(name) ?? "0");
+            return Number.isFinite(v) ? v : 0;
+          };
+          return {
+            book: num("data-book"),
+            startChapter: num("data-start-chapter"),
+            startVerse: num("data-start-verse"),
+            endChapter: num("data-end-chapter"),
+            endVerse: num("data-end-verse"),
+            raw: dom.getAttribute("data-raw") ?? "",
+            // Anything that round-trips through the DOM is by definition
+            // committed — only the live editor instance ever holds the
+            // pre-commit transient state.
+            committed: true,
+          };
+        },
+      },
+    ],
+    toDOM(mark) {
+      const attrs = mark.attrs as {
+        book: number;
+        startChapter: number;
+        startVerse: number;
+        endChapter: number;
+        endVerse: number;
+        raw: string;
+        committed: boolean;
+      };
+      // Visual + interactive only when committed. While the user is actively
+      // typing a reference, the mark exists silently on the text — no pill,
+      // no click target — so the chip "appears" once the user has clearly
+      // moved on (typed a space, clicked away). Re-editing a committed chip
+      // keeps it committed: the pill stays visible, the surrounding text
+      // never shifts. (Class joined via array to sidestep the Tailwind
+      // class linter, which would try to validate the custom class.)
+      if (!attrs.committed) {
+        return ["span", 0];
+      }
+      const classes = ["cross-ref", "chip"].join("-");
+      return [
+        "span",
+        {
+          "data-cross-ref": "true",
+          "data-book": String(attrs.book),
+          "data-start-chapter": String(attrs.startChapter),
+          "data-start-verse": String(attrs.startVerse),
+          "data-end-chapter": String(attrs.endChapter),
+          "data-end-verse": String(attrs.endVerse),
+          // Always present (even when empty) so the click handler can read
+          // `dataset.raw` without a possibly-undefined fallback that the
+          // linter flags as unreachable under DOM types.
+          "data-raw": attrs.raw,
+          class: classes,
         },
         0,
       ];
@@ -835,6 +1134,7 @@ export const nodes = {
   codeBlock: requireNode("code_block"),
   horizontalRule: requireNode("horizontal_rule"),
   hardBreak: requireNode("hard_break"),
+  image: requireNode("image"),
   verseNumber: requireNode("verse_number"),
   scripture: requireNode("scripture"),
   studyBlock: requireNode("study_block"),
@@ -849,6 +1149,23 @@ export const nodes = {
   tableHeader: requireNode("table_header"),
 } as const;
 
+/**
+ * Attrs carried on the `link` mark. `href` is the only required value; the
+ * cache fields are populated by the hover preview plugin (or by the smart-
+ * paste flow when pasting a bare URL) and read by the LinkPreviewCard.
+ */
+export interface LinkAttrs {
+  href: string;
+  /** Standard HTML `title` attribute (hover tooltip). Almost never set. */
+  title: string | null;
+  /** Cached page title — what the hover card renders bold. */
+  displayTitle: string | null;
+  /** Cached favicon URL — small icon shown in the hover card / fallback. */
+  favicon: string | null;
+  /** Cached `og:site_name`. */
+  siteName: string | null;
+}
+
 /** Resolved mark types (see {@link nodes}). */
 export const marks = {
   strong: requireMark("strong"),
@@ -862,4 +1179,5 @@ export const marks = {
   highlight: requireMark("highlight"),
   textColor: requireMark("text_color"),
   note: requireMark("note"),
+  crossRef: requireMark("crossRef"),
 } as const;

@@ -10,19 +10,12 @@
  * via `Promise.all([...])`. Adjacent sequential awaits add a full round-trip
  * each for no benefit.
  *
- * False positives: when the second query *genuinely* depends on the first's
- * resolved value (e.g. the first returns IDs the second needs), parallelization
- * is impossible. Acknowledge the chain with a one-line comment immediately
- * before the second statement:
- *
- *     const sections = await listSections(studyId);
- *     // lint-allow-sequential-db: needs sections.length for lastPosition
- *     const specs = await getPreviousSectionBlockSpecs(studyId, sections.length);
- *
- * Heuristic: only adjacent statements (no intervening statements) are checked.
- * A non-await statement between two DB awaits is treated as a chain-break, so
- * patterns like `notFound()` guards and intermediate computations naturally
- * suppress the rule.
+ * When the second query *genuinely* depends on the first's resolved value
+ * (e.g. the first returns IDs the second needs), insert any non-await
+ * statement between them — extracting an intermediate variable or moving the
+ * dependent value into a helper. The rule treats any non-await statement as
+ * a chain-break, so `notFound()` guards and intermediate computations
+ * naturally suppress it.
  */
 
 const DB_IMPORT_SOURCE_PATTERNS = [
@@ -109,8 +102,6 @@ function awaitArgIsDbCall(awaitExpr, dbIdentifiers) {
   return calleeIsDbCall(arg.callee, dbIdentifiers);
 }
 
-const OPT_OUT = /lint-allow-sequential-db\s*:/;
-
 /** @type {import('eslint').Rule.RuleModule} */
 const rule = {
   meta: {
@@ -122,18 +113,12 @@ const rule = {
     schema: [],
     messages: {
       sequential:
-        "Adjacent `await` of a database call follows another. Combine them into a single `await Promise.all([...])` so they run in parallel. If this query genuinely depends on the previous one's result, add `// lint-allow-sequential-db: <reason>` on the line above.",
+        "Adjacent `await` of a database call follows another. Combine them into a single `await Promise.all([...])` so they run in parallel. If this query genuinely depends on the previous one's result, restructure to break the adjacency (extract an intermediate value, add a guard, or split into helper functions).",
     },
   },
   create(context) {
-    const sourceCode = context.sourceCode;
     /** Identifiers known to be DB calls from imports. */
     const dbIdentifiers = new Set();
-
-    function hasOptOutComment(node) {
-      const before = sourceCode.getCommentsBefore(node);
-      return before.some((c) => OPT_OUT.test(c.value));
-    }
 
     function checkBlock(body) {
       let prevDbAwait = null;
@@ -149,7 +134,7 @@ const rule = {
           prevDbAwait = null;
           continue;
         }
-        if (prevDbAwait !== null && !hasOptOutComment(stmt)) {
+        if (prevDbAwait !== null) {
           context.report({ node: awaitExpr, messageId: "sequential" });
         }
         prevDbAwait = awaitExpr;

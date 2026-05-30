@@ -14,7 +14,7 @@ export default async function AcceptInvitePage({
   function shell(body: React.ReactNode) {
     return (
       <div className="mx-auto w-full max-w-md px-6 py-12">
-        <h1 className="mb-4 text-2xl font-bold">Group invitation</h1>
+        <h1 className="mb-4 text-title font-bold">Group invitation</h1>
         {body}
       </div>
     );
@@ -41,7 +41,7 @@ export default async function AcceptInvitePage({
         <p className="text-muted-foreground">
           This invitation is no longer valid.
         </p>
-        <Link href="/groups" className="text-sm text-primary underline">
+        <Link href="/groups" className="text-ui text-primary underline">
           Go to your groups
         </Link>
       </div>,

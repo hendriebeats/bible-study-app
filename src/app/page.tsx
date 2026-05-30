@@ -34,13 +34,13 @@ export default function HomePage() {
         {/* Hero */}
         <section className="mx-auto w-full max-w-6xl px-4 py-20 sm:py-28">
           <div className="mx-auto max-w-3xl text-center">
-            <p className="mb-4 text-sm font-semibold tracking-wide text-primary uppercase">
+            <p className="mb-4 text-caption font-semibold tracking-wide text-primary uppercase">
               {siteConfig.tagline}
             </p>
-            <h1 className="text-4xl font-bold tracking-tight text-balance sm:text-6xl">
+            <h1 className="text-display font-bold tracking-tight text-balance sm:text-display-xl">
               The Bible, made approachable.
             </h1>
-            <p className="mt-6 text-lg text-pretty text-muted-foreground sm:text-xl">
+            <p className="mt-6 text-subheading text-pretty text-muted-foreground sm:text-heading">
               {siteConfig.description} No prior knowledge needed — just bring
               your curiosity.
             </p>
@@ -56,10 +56,10 @@ export default function HomePage() {
 
           {/* Scripture quote, set in the serif reading face */}
           <figure className="mx-auto mt-16 max-w-2xl border-l-4 border-primary pl-6">
-            <blockquote className="font-serif text-xl leading-relaxed text-pretty sm:text-2xl">
+            <blockquote className="font-serif text-heading leading-relaxed text-pretty sm:text-title">
               “Your word is a lamp to my feet and a light to my path.”
             </blockquote>
-            <figcaption className="mt-3 text-sm text-muted-foreground">
+            <figcaption className="mt-3 text-caption text-muted-foreground">
               Psalm 119:105
             </figcaption>
           </figure>
@@ -72,7 +72,7 @@ export default function HomePage() {
               <Card key={feature.title} className="border-border/60 bg-card/60">
                 <CardHeader>
                   <feature.icon className="size-8 text-primary" aria-hidden />
-                  <CardTitle className="mt-2 text-xl">
+                  <CardTitle className="mt-2 text-heading">
                     {feature.title}
                   </CardTitle>
                 </CardHeader>
@@ -86,10 +86,10 @@ export default function HomePage() {
 
         {/* Closing call to action */}
         <section className="mx-auto w-full max-w-6xl px-4 py-20 text-center">
-          <h2 className="text-3xl font-bold tracking-tight text-balance sm:text-4xl">
+          <h2 className="text-page-title font-bold tracking-tight text-balance sm:text-display">
             Take the first step today.
           </h2>
-          <p className="mx-auto mt-4 max-w-xl text-lg text-pretty text-muted-foreground">
+          <p className="mx-auto mt-4 max-w-xl text-subheading text-pretty text-muted-foreground">
             Create a free account and open your first study in minutes.
           </p>
           <Button asChild size="lg" className="mt-8">

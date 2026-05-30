@@ -17,14 +17,14 @@ export default async function OrgSearchPage() {
       <div>
         <Link
           href="/organizations"
-          className="text-sm text-muted-foreground hover:text-foreground"
+          className="text-ui text-muted-foreground hover:text-foreground"
         >
           ← Organizations
         </Link>
-        <h1 className="mt-2 text-2xl font-bold tracking-tight">
+        <h1 className="mt-2 text-title font-bold tracking-tight">
           Find an organization
         </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <p className="mt-1 text-ui text-muted-foreground">
           {membership
             ? "You already belong to an organization — leave it first to join another."
             : "Browse verified organizations. Some let you join instantly; others review requests."}

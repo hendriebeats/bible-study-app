@@ -111,7 +111,7 @@ export function BlockListEditor({
   return (
     <div className="flex flex-col gap-3" onFocusCapture={handleFocusCapture}>
       {items.length === 0 ? (
-        <p className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
+        <p className="rounded-lg border border-dashed px-4 py-6 text-center text-ui text-muted-foreground">
           No blocks yet. Add the first one below.
         </p>
       ) : (
@@ -169,7 +169,7 @@ export function BlockListEditor({
               }}
             >
               Standard block
-              <span className="ml-2 text-xs text-muted-foreground">
+              <span className="ml-2 text-caption text-muted-foreground">
                 Title + body
               </span>
             </DropdownMenuItem>
@@ -180,7 +180,7 @@ export function BlockListEditor({
               }}
             >
               Action reminder
-              <span className="ml-2 text-xs text-muted-foreground">
+              <span className="ml-2 text-caption text-muted-foreground">
                 Header + subheader bar
               </span>
             </DropdownMenuItem>
@@ -310,13 +310,13 @@ function BlockRow({
           <div className="border-t bg-muted/30 p-3">
             <label
               htmlFor={`placeholder-${block.key}`}
-              className="text-xs font-medium text-muted-foreground"
+              className="text-caption font-medium text-muted-foreground"
             >
               Placeholder (shown in the body when empty)
             </label>
             <textarea
               id={`placeholder-${block.key}`}
-              className="mt-1 field-sizing-content min-h-14 w-full resize-none rounded-md border bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="mt-1 field-sizing-content min-h-14 w-full resize-none rounded-md border bg-background px-3 py-2 text-ui outline-none focus-visible:ring-2 focus-visible:ring-ring"
               value={block.placeholder}
               autoFocus
               onChange={(event) => {
@@ -380,8 +380,8 @@ function NotesRow({
           isLast ? "rounded-b-lg" : "",
         )}
       >
-        <p className="text-sm font-semibold">Notes</p>
-        <p className="text-xs text-muted-foreground">
+        <p className="text-ui font-semibold">Notes</p>
+        <p className="text-caption text-muted-foreground">
           Shared annotations for this section. Always present — drag to
           reposition.
         </p>

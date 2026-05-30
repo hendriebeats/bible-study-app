@@ -2,7 +2,7 @@
 
 import { gapCursor } from "prosemirror-gapcursor";
 import { history } from "prosemirror-history";
-import { Bold, Italic, List, X } from "lucide-react";
+import { X } from "lucide-react";
 import { EditorState } from "prosemirror-state";
 import { EditorView } from "prosemirror-view";
 import {
@@ -14,31 +14,30 @@ import {
 import { createPortal } from "react-dom";
 
 import { useEditorContext } from "@/components/studies/editor-context";
-import {
-  toggleBold,
-  toggleBulletList,
-  toggleItalic,
-} from "@/lib/editor/commands";
 import { DEFAULT_EDITOR_TOOLS } from "@/lib/editor/editor-tools";
 import { placeNearAnchor } from "@/lib/editor/floating-position";
+import { setNoteSticky } from "@/lib/editor/note-highlight";
 import { buildNodeViews } from "@/lib/editor/node-views";
 import { buildInputRules } from "@/lib/editor/plugins/input-rules";
 import { buildKeymaps } from "@/lib/editor/plugins/keymap";
+import { linkClickPlugin } from "@/lib/editor/plugins/link-click";
+import { linkPastePlugin } from "@/lib/editor/plugins/link-paste";
+import { linkPreviewPlugin } from "@/lib/editor/plugins/link-preview";
 import {
   NOTE_OPEN_EVENT,
   type NoteOpenEventDetail,
 } from "@/lib/editor/plugins/note-anchors";
-import { focusNoteEntryBody } from "@/lib/editor/plugins/notes-index-view";
-import { setNoteSticky } from "@/lib/editor/note-highlight";
+import {
+  flashNoteEntry,
+  focusNoteEntryBody,
+} from "@/lib/editor/plugins/notes-index-view";
 import { schema } from "@/lib/editor/schema";
 import { UNDO_GROUP_DELAY_MS, withUndoBoundary } from "@/lib/editor/word-undo";
 
 const WIDTH = 360;
-/** Estimated popover height for the initial placement (we haven't measured the
- * real height yet on the open event). The clamp pulls us back inside the
- * viewport either way, and the drag handle lets the user nudge it. */
+/** Estimated popover height for the initial placement — we re-clamp at paint. */
 const ESTIMATED_HEIGHT = 220;
-/** Debounce before writing popover edits back into the blocks doc. */
+/** Debounce window before writing popover edits back into the blocks doc. */
 const WRITEBACK_MS = 200;
 
 function clamp(value: number, min: number, max: number): number {
@@ -46,21 +45,32 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 /**
- * A fixed-position, draggable popover for editing one shared note. Opens on the
- * {@link NOTE_OPEN_EVENT} window event (fired by `createNote` and by clicking an
- * inline note icon). It hosts its own mini ProseMirror editor seeded from the
- * note's body (which lives in the `note_entry` in the blocks doc). Edits are
- * two-way synced with that entry: the popover writes back on input (debounced),
- * and edits made directly in the index row flow back here (reconciled only while
- * the mini editor is unfocused, so the caret never jumps). Owners only — rendered
- * inside the editor provider in section-surface.
+ * Floating, draggable popover for editing one shared note. Listens for the
+ * {@link NOTE_OPEN_EVENT} window event (fired by `createNote` and by the inline
+ * note-icon click handler) and either focuses the inline notes-index row OR
+ * opens the popover, per the visibility rule:
+ *
+ *   - If the study-blocks doc is detached AND the visible tab in its dockview
+ *     group, the inline row IS the editing surface — focus its caret + flash.
+ *   - Otherwise (blocks inline above the body, blocks in a background dock tab,
+ *     or no dockview at all), render the popover via `createPortal(document.body)`
+ *     so it ALWAYS escapes any hidden ancestor. Inside the popover lives a
+ *     small ProseMirror editor seeded from the note's `note_entry` body; edits
+ *     two-way-sync with that entry (debounced writeback on input, inbound
+ *     reconciliation only while unfocused so the caret never jumps).
+ *
+ * No inline toolbar — the mini editor registers itself with `EditorContext` as
+ * a "dialog" role on focus, so the main study toolbar drives formatting. Owners
+ * only — rendered next to the rest of the workspace in `study-workspace.tsx`.
  */
 export function NotePopover() {
   const ctx = useEditorContext();
-  // These are stable useCallbacks on the context, safe as effect deps.
   const findNoteEntry = ctx?.findNoteEntry;
   const getBlocksView = ctx?.getBlocksView;
   const isDockBlocksVisible = ctx?.isDockBlocksVisible;
+  const registerView = ctx?.registerView;
+  const unregisterView = ctx?.unregisterView;
+  const setActive = ctx?.setActive;
   const activeState = ctx?.activeState ?? null;
   const editorTools = ctx?.editorTools ?? DEFAULT_EDITOR_TOOLS;
 
@@ -69,27 +79,23 @@ export function NotePopover() {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const miniRef = useRef<EditorView | null>(null);
 
-  // Open on the window event. When the study-blocks doc is detached AND the
-  // visible tab in its group, the inline notes-index row IS the editing
-  // surface — focus the caret in that entry and skip the popover entirely.
-  // Otherwise show the popover, anchored near whatever surfaced the request
-  // (the caret after `createNote()`, or the inline icon the user clicked) so
-  // it appears in their line of sight rather than always at the top-right.
+  // Open on the window event. Both entry points (`createNote` + inline
+  // icon click) route through here so the visibility rule lives in one
+  // place. When the inline row is the active editing surface (detached +
+  // visible tab), focus + flash it and skip the popover entirely.
   useEffect(() => {
     const onOpen = (event: Event) => {
       const detail = (event as CustomEvent<NoteOpenEventDetail>).detail;
-      // Route through the visibility probe first. Both entry points
-      // (createNote + inline-icon click) go through this event, so the rule
-      // is centralised here.
       if (isDockBlocksVisible?.() && findNoteEntry && getBlocksView) {
         const hit = findNoteEntry(detail.id);
         const blocksView = getBlocksView();
         if (hit && blocksView) {
           focusNoteEntryBody(blocksView, hit.pos);
+          flashNoteEntry(blocksView, hit.pos);
           return;
         }
-        // Fall through to the popup if the entry can't be located — should
-        // be impossible for a freshly-created note but harmless as a fallback.
+        // Fall through to the popover if the entry can't be located — should
+        // be impossible for a freshly-created note, but harmless as a fallback.
       }
       const anchor = detail.anchorRect;
       if (anchor) {
@@ -114,6 +120,10 @@ export function NotePopover() {
   }, [findNoteEntry, getBlocksView, isDockBlocksVisible]);
 
   // Build the mini editor when a note opens; tear it down on close / id change.
+  // Two-way sync with the inline note_entry: edits in the popover flow back via
+  // a 200ms-debounced replace, and edits in the inline row reconcile here (see
+  // the next effect) — but only while the mini editor is unfocused, so the
+  // caret never jumps under the user.
   useEffect(() => {
     if (openId == null || !findNoteEntry || !getBlocksView) {
       return;
@@ -156,6 +166,9 @@ export function NotePopover() {
           ...buildKeymaps(editorTools),
           gapCursor(),
           history({ newGroupDelay: UNDO_GROUP_DELAY_MS }),
+          linkPastePlugin(),
+          linkClickPlugin(),
+          linkPreviewPlugin(),
         ],
       }),
       nodeViews: buildNodeViews(true),
@@ -164,7 +177,13 @@ export function NotePopover() {
         if (!v) {
           return;
         }
-        v.updateState(v.state.apply(withUndoBoundary(v, transaction)));
+        const next = v.state.apply(withUndoBoundary(v, transaction));
+        v.updateState(next);
+        // Mirror what the main editors do (document-editor.tsx) — every
+        // dispatch makes this view the toolbar's active target and refreshes
+        // its active-mark states. Without this, the toolbar would freeze on
+        // the state captured at focus time.
+        setActive?.(v, next);
         if (transaction.docChanged) {
           if (writeTimer) {
             clearTimeout(writeTimer);
@@ -172,26 +191,56 @@ export function NotePopover() {
           writeTimer = setTimeout(writeBack, WRITEBACK_MS);
         }
       },
+      handleDOMEvents: {
+        focus: () => {
+          const v = miniRef.current;
+          if (v) {
+            setActive?.(v, v.state);
+          }
+          return false;
+        },
+      },
     });
     miniRef.current = view;
+    // Register as a "dialog" role: the main toolbar reuses the dialog gating
+    // (hides Note/Scripture, keeps formatting commands wired) and the popover
+    // doesn't override the section's notes / blocks view refs.
+    registerView?.(view, "dialog");
     view.focus();
-    // Keep the note's anchored region lit while the popover is open.
+    setActive?.(view, view.state);
+    // Keep the note's anchored region lit while the popover is open. The
+    // verse-ref pill's `jumpToNoteRef` only clears its 800ms sticky when the
+    // sticky id still matches the same note — so this open lifetime takes
+    // precedence and the highlight stays on for the whole session.
     setNoteSticky(openId);
 
     return () => {
       if (writeTimer) {
         clearTimeout(writeTimer);
       }
-      writeBack(); // flush the last edit on close
+      // Flush the last edit on close so a quick edit-then-close doesn't
+      // lose the trailing characters that landed inside the debounce window.
+      writeBack();
       setNoteSticky(null);
+      unregisterView?.(view);
       view.destroy();
       miniRef.current = null;
     };
-  }, [openId, findNoteEntry, getBlocksView, editorTools]);
+  }, [
+    openId,
+    findNoteEntry,
+    getBlocksView,
+    editorTools,
+    registerView,
+    unregisterView,
+    setActive,
+  ]);
 
-  // Inbound sync: when the blocks doc changes (index row edited, cross-tab),
-  // refresh the mini editor — but only while it's unfocused, and only if the
-  // content actually differs, so the caret never jumps and there's no echo.
+  // Inbound sync: when the blocks doc changes (the inline notes-index row was
+  // edited, or a co-editor's change arrived), refresh the mini editor — but
+  // only while it's unfocused, and only if the content actually differs. This
+  // preserves the caret while the user is typing and avoids an echo loop with
+  // the writeback effect above.
   useEffect(() => {
     if (openId == null || !findNoteEntry) {
       return;
@@ -261,18 +310,6 @@ export function NotePopover() {
     document.addEventListener("pointerup", onUp);
   };
 
-  const runMini = (command: typeof toggleBold) => {
-    const view = miniRef.current;
-    if (!view) {
-      return;
-    }
-    command(view.state, view.dispatch, view);
-    view.focus();
-  };
-
-  const toolBtn =
-    "flex size-7 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground";
-
   return createPortal(
     <div
       className="fixed z-50 overflow-hidden rounded-lg border bg-popover text-popover-foreground shadow-md ring-1 ring-foreground/10"
@@ -282,67 +319,27 @@ export function NotePopover() {
     >
       <div
         className="flex cursor-move items-center justify-between gap-2 bg-muted px-3 py-2 select-none"
+        data-drag-handle="true"
         onPointerDown={onHeaderPointerDown}
       >
-        <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+        <span className="text-caption font-medium tracking-wide text-muted-foreground uppercase">
           Note
         </span>
         <button
           type="button"
-          data-close="true"
           aria-label="Close note"
-          className="flex size-6 items-center justify-center rounded-sm hover:bg-background"
-          onClick={() => {
+          className="flex size-6 cursor-pointer items-center justify-center rounded-sm text-muted-foreground hover:bg-background hover:text-foreground"
+          onClick={(event) => {
+            event.preventDefault();
             setOpenId(null);
           }}
         >
           <X className="size-4" />
         </button>
       </div>
-      <div className="flex items-center gap-0.5 border-b px-2 py-1">
-        <button
-          type="button"
-          aria-label="Bold"
-          className={toolBtn}
-          onMouseDown={(event) => {
-            event.preventDefault();
-          }}
-          onClick={() => {
-            runMini(toggleBold);
-          }}
-        >
-          <Bold className="size-4" />
-        </button>
-        <button
-          type="button"
-          aria-label="Italic"
-          className={toolBtn}
-          onMouseDown={(event) => {
-            event.preventDefault();
-          }}
-          onClick={() => {
-            runMini(toggleItalic);
-          }}
-        >
-          <Italic className="size-4" />
-        </button>
-        <button
-          type="button"
-          aria-label="Bullet list"
-          className={toolBtn}
-          onMouseDown={(event) => {
-            event.preventDefault();
-          }}
-          onClick={() => {
-            runMini(toggleBulletList);
-          }}
-        >
-          <List className="size-4" />
-        </button>
-      </div>
       <div
         ref={mountRef}
-        className="max-h-80 overflow-y-auto px-3 py-2 text-sm"
+        className="max-h-80 overflow-y-auto px-3 py-2 text-body"
       />
     </div>,
     document.body,

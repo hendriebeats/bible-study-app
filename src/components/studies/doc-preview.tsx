@@ -6,11 +6,21 @@ import { type DecorationSet, EditorView } from "prosemirror-view";
 import { useEffect, useRef } from "react";
 
 import { buildNodeViews } from "@/lib/editor/node-views";
+import { crossRefDetect } from "@/lib/editor/plugins/cross-ref-detect";
+import { themedColors } from "@/lib/editor/plugins/themed-colors";
 import { verseLabel } from "@/lib/editor/plugins/verse-label";
+import { DEFAULT_EDITOR_TOOLS } from "@/lib/editor/editor-tools";
 
 function makeState(doc: Node, decorations?: DecorationSet): EditorState {
   const plugins = [
     verseLabel(),
+    // Per-theme overlay for custom-colour marks (mirrors the live editor's
+    // wiring in document-editor.tsx). Read-only views still need this so
+    // history previews stay legible after the user toggles themes.
+    themedColors(),
+    // Interaction-only mode (auto-detect off): persisted chips stay clickable
+    // in history previews and diff views.
+    crossRefDetect(DEFAULT_EDITOR_TOOLS),
     ...(decorations
       ? [new Plugin({ props: { decorations: () => decorations } })]
       : []),

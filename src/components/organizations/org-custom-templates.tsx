@@ -137,7 +137,7 @@ function CustomRow({
       <div className="min-w-0 flex-1">
         <p className="truncate font-medium">{template.name}</p>
         {template.description ? (
-          <p className="truncate text-sm text-muted-foreground">
+          <p className="truncate text-ui text-muted-foreground">
             {template.description}
           </p>
         ) : null}
@@ -225,7 +225,7 @@ export function OrgCustomTemplates({
   return (
     <div className="grid gap-3">
       {items.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
+        <p className="text-caption text-muted-foreground">
           No custom templates yet.
         </p>
       ) : (
@@ -280,7 +280,7 @@ export function OrgCustomTemplates({
             onChange={(event) => {
               setGenreId(event.target.value);
             }}
-            className="h-9 rounded-md border bg-background px-2 text-sm"
+            className="h-9 rounded-md border bg-background px-2 text-ui"
           >
             <option value="">No starter blocks</option>
             {genres.map((genre) => (

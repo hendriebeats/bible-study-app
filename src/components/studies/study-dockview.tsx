@@ -179,7 +179,7 @@ function MinePanel(): React.ReactElement {
   // during that window.
   if (!hasSections) {
     return (
-      <div className="flex h-full items-center justify-center p-8 text-center text-sm text-muted-foreground">
+      <div className="flex h-full items-center justify-center p-8 text-center text-ui text-muted-foreground">
         <div>
           <p>This study has no sections yet.</p>
           <p className="mt-1">Use “Add section” in the sidebar to begin.</p>
@@ -252,11 +252,11 @@ function InlineBlocksEditor({
   const { blocksDetached, setBlocksDetached } = useDock();
   if (blocksDetached) {
     return (
-      <div className="flex items-center justify-between gap-3 rounded-lg border border-dashed bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+      <div className="flex items-center justify-between gap-3 rounded-lg border border-dashed bg-muted/30 px-4 py-3 text-ui text-muted-foreground">
         <span>Study blocks open in a separate panel.</span>
         <button
           type="button"
-          className="inline-flex items-center gap-1.5 rounded-md border bg-background px-2 py-1 text-xs text-foreground hover:bg-muted"
+          className="inline-flex items-center gap-1.5 rounded-md border bg-background px-2 py-1 text-caption text-foreground hover:bg-muted"
           onClick={() => {
             setBlocksDetached(false);
           }}
@@ -416,18 +416,16 @@ function MineSectionBody({
     };
   }, [pendingAction, section.id, clearPendingSectionAction, onOpenHistory]);
 
-  // When the sidebar is collapsed, the chrome floats a re-open button over the
-  // body's top-left — pad this (leftmost) panel so the title clears it.
+  // When the sidebar is collapsed, the chrome floats a re-open button at the
+  // body's top-left (top-3 left-3, ~36px icon). Only the title row sits
+  // alongside that button vertically, so inset just the title — keeping the
+  // panel's body padding symmetric so the editor below doesn't get shoved.
   const sidebarOpen = chrome?.sidebarOpen ?? true;
+  const titleInsetClass = sidebarOpen ? undefined : "pl-8";
 
   return (
     <div className="h-full overflow-auto">
-      <div
-        className={cn(
-          "flex flex-col gap-4 py-5",
-          sidebarOpen ? "px-6" : "pr-6 pl-14",
-        )}
-      >
+      <div className="flex flex-col gap-4 px-6 py-5">
         {isOwner ? (
           <Input
             ref={titleRef}
@@ -441,10 +439,18 @@ function MineSectionBody({
             onBlur={handleTitleBlur}
             aria-label="Section title"
             placeholder="Enter section title…"
-            className="h-9 w-full min-w-0 border-0 bg-transparent px-0 text-xl font-semibold shadow-none placeholder:font-normal placeholder:text-muted-foreground/60 focus-visible:ring-0"
+            className={cn(
+              "h-9 w-full min-w-0 border-0 bg-transparent px-0 text-heading font-semibold shadow-none placeholder:font-normal placeholder:text-muted-foreground/60 focus-visible:ring-0",
+              titleInsetClass,
+            )}
           />
         ) : (
-          <span className="block truncate text-xl font-semibold">
+          <span
+            className={cn(
+              "block truncate text-heading font-semibold",
+              titleInsetClass,
+            )}
+          >
             {section.title || (
               <span className="text-muted-foreground/70 italic">
                 New Section
@@ -618,7 +624,7 @@ function PersonPanel({
 
   if (pane.status === "error") {
     return (
-      <p className="p-3 text-sm text-destructive">
+      <p className="p-3 text-ui text-destructive">
         Something went wrong loading this study.
       </p>
     );
@@ -634,7 +640,7 @@ function PersonPanel({
   return (
     <div className="flex h-full flex-col gap-2 overflow-auto p-3">
       {pane.candidates.length > 0 && (
-        <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-3 text-caption text-muted-foreground">
           <label className="flex items-center gap-2">
             Best match
             <select
@@ -642,7 +648,7 @@ function PersonPanel({
               onChange={(event) => {
                 void changeSelection(event.target.value);
               }}
-              className="rounded-md border bg-background px-2 py-1 text-sm text-foreground"
+              className="rounded-md border bg-background px-2 py-1 text-ui text-foreground"
             >
               {pane.candidates.map((c) => (
                 <option key={c.sectionId} value={c.sectionId}>
@@ -662,7 +668,7 @@ function PersonPanel({
               onChange={(event) => {
                 void changeSelection(event.target.value);
               }}
-              className="rounded-md border bg-background px-2 py-1 text-sm text-foreground"
+              className="rounded-md border bg-background px-2 py-1 text-ui text-foreground"
             >
               {byPosition.map((c) => (
                 <option key={c.sectionId} value={c.sectionId}>
@@ -681,7 +687,7 @@ function PersonPanel({
         // dropdown row above, not inside the body.
         <BodySkeleton showTitle={false} />
       ) : pane.status === "unmatched" || !pane.notes || !pane.blocks ? (
-        <p className="text-sm text-muted-foreground">
+        <p className="text-caption text-muted-foreground">
           No matching section found in this study.
         </p>
       ) : (

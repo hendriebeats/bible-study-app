@@ -16,7 +16,7 @@ export default async function AcceptOrgInvitePage({
   function shell(body: React.ReactNode) {
     return (
       <div className="mx-auto w-full max-w-md py-8">
-        <h1 className="mb-4 text-2xl font-bold">Organization invitation</h1>
+        <h1 className="mb-4 text-title font-bold">Organization invitation</h1>
         {body}
       </div>
     );
@@ -43,7 +43,7 @@ export default async function AcceptOrgInvitePage({
         <p className="text-muted-foreground">
           This invitation is no longer valid.
         </p>
-        <Link href="/organizations" className="text-sm text-primary underline">
+        <Link href="/organizations" className="text-ui text-primary underline">
           Go to organizations
         </Link>
       </div>,

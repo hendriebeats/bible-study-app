@@ -114,7 +114,7 @@ export function GroupMembersMenu({
                           className="justify-between pl-7"
                         >
                           <span className="truncate">{name}</span>
-                          <span className="text-xs text-muted-foreground">
+                          <span className="text-caption text-muted-foreground">
                             no study yet
                           </span>
                         </DropdownMenuItem>
@@ -181,6 +181,7 @@ export function GroupMembersMenu({
         meId={meId}
         compareStudyId={studyId}
         compareSectionId={sectionId}
+        hideOwnStudyAction
       />
     </>
   );

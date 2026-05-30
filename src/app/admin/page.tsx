@@ -17,9 +17,9 @@ export default async function AdminGenresPage() {
     <div>
       <div className="flex items-center gap-2">
         <Layers className="size-5 text-primary" />
-        <h1 className="text-2xl font-bold tracking-tight">Genre templates</h1>
+        <h1 className="text-title font-bold tracking-tight">Genre templates</h1>
       </div>
-      <p className="mt-1 text-sm text-muted-foreground">
+      <p className="mt-1 text-ui text-muted-foreground">
         The default study-block sets new sections start from, organized by
         genre. Editing these changes the defaults for future studies.
       </p>
@@ -31,7 +31,7 @@ export default async function AdminGenresPage() {
         <Building2 className="size-5 text-muted-foreground" />
         <span className="min-w-0 flex-1">
           <span className="block font-medium">Organization verification</span>
-          <span className="block text-sm text-muted-foreground">
+          <span className="block text-ui text-muted-foreground">
             Review organizations requesting to be listed publicly.
           </span>
         </span>
@@ -45,7 +45,7 @@ export default async function AdminGenresPage() {
         <Layers className="size-5 text-muted-foreground" />
         <span className="min-w-0 flex-1">
           <span className="block font-medium">Study templates</span>
-          <span className="block text-sm text-muted-foreground">
+          <span className="block text-ui text-muted-foreground">
             The book + custom templates users create studies from.
           </span>
         </span>
@@ -68,12 +68,12 @@ export default async function AdminGenresPage() {
                 <div className="min-w-0 flex-1">
                   <p className="font-medium">{genre.name}</p>
                   {genre.description ? (
-                    <p className="truncate text-sm text-muted-foreground">
+                    <p className="truncate text-ui text-muted-foreground">
                       {genre.description}
                     </p>
                   ) : null}
                 </div>
-                <span className="shrink-0 text-xs text-muted-foreground">
+                <span className="shrink-0 text-caption text-muted-foreground">
                   {count} block{count === 1 ? "" : "s"}
                 </span>
                 <ChevronRight className="size-4 shrink-0 text-muted-foreground" />

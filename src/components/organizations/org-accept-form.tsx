@@ -25,7 +25,7 @@ export function OrgAcceptForm({
         <span className="font-medium text-foreground">{organizationName}</span>{" "}
         as {role === "member" ? "a member" : `an ${role.replace("_", " ")}`}.
       </p>
-      <p className="text-sm text-muted-foreground">
+      <p className="text-ui text-muted-foreground">
         You can belong to one organization at a time.
       </p>
       <Button

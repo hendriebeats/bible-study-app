@@ -9,7 +9,7 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
     <div className="flex min-h-svh flex-col items-center justify-center px-4 py-12">
       <Link
         href="/"
-        className="mb-8 flex items-center gap-2 text-lg font-semibold"
+        className="mb-8 flex items-center gap-2 text-subheading font-semibold"
       >
         <BookOpen className="size-6 text-primary" />
         <span>{siteConfig.name}</span>

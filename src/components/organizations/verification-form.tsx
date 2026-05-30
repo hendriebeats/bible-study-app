@@ -25,13 +25,13 @@ export function VerificationForm({ org }: { org: Organization }) {
 
       {org.verification_status === "rejected" &&
       org.verification_reject_reason ? (
-        <p className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+        <p className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-ui text-destructive">
           Rejected: {org.verification_reject_reason}
         </p>
       ) : null}
 
       {isVerified ? (
-        <p className="text-sm text-muted-foreground">
+        <p className="text-ui text-muted-foreground">
           Your organization is verified. You can list it publicly above.
         </p>
       ) : (
@@ -50,7 +50,7 @@ export function VerificationForm({ org }: { org: Organization }) {
             });
           }}
         >
-          <p className="text-sm text-muted-foreground">
+          <p className="text-ui text-muted-foreground">
             We&rsquo;ll submit your profile — name, address, website, and
             contact email — for review.
             {isPending
@@ -58,7 +58,7 @@ export function VerificationForm({ org }: { org: Organization }) {
               : " Make sure those are filled in the Profile section above."}
           </p>
           {missingContact ? (
-            <p className="rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
+            <p className="rounded-md border border-border bg-muted/40 p-3 text-ui text-muted-foreground">
               Tip: add a contact email to your profile so reviewers can reach
               you.
             </p>
@@ -73,7 +73,7 @@ export function VerificationForm({ org }: { org: Organization }) {
               }}
               rows={3}
               maxLength={1000}
-              className="min-h-20 rounded-md border bg-background px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+              className="min-h-20 rounded-md border bg-background px-3 py-2 text-ui outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
             />
           </div>
           <div>

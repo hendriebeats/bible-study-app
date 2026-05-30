@@ -65,7 +65,7 @@ export function EditorToolsSettings({ initial }: { initial: EditorTools }) {
         if (items.length === 0) return null;
         return (
           <div key={group} className="grid gap-1">
-            <h3 className="px-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+            <h3 className="px-1 text-caption font-semibold tracking-wide text-muted-foreground uppercase">
               {EDITOR_TOOL_GROUP_LABELS[group]}
             </h3>
             <ul className="grid gap-0.5">
@@ -120,22 +120,22 @@ function EditorToolRow({
     >
       <div className="grid min-w-0 gap-1">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium">{tool.label}</span>
+          <span className="text-ui font-medium">{tool.label}</span>
           {!tool.available ? (
-            <span className="rounded-full bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+            <span className="rounded-full bg-muted px-1.5 py-0.5 text-caption text-muted-foreground">
               Coming soon
             </span>
           ) : null}
         </div>
-        <span className="text-sm text-muted-foreground">
+        <span className="text-ui text-muted-foreground">
           {tool.description}
         </span>
         {tool.shortcut || tool.markdownSyntax ? (
-          <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+          <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-caption text-muted-foreground">
             {tool.shortcut ? (
               <span className="inline-flex items-center gap-1.5">
                 Shortcut
-                <kbd className="inline-flex items-center rounded-sm border border-border/60 bg-background px-1.5 py-0.5 font-mono text-xs text-foreground shadow-sm">
+                <kbd className="inline-flex items-center rounded-sm border border-border/60 bg-background px-1.5 py-0.5 font-mono text-caption text-foreground shadow-sm">
                   {tool.shortcut}
                 </kbd>
               </span>
@@ -143,7 +143,7 @@ function EditorToolRow({
             {tool.markdownSyntax ? (
               <span className="inline-flex items-center gap-1.5">
                 Type
-                <code className="inline-flex items-center rounded-sm border border-border/60 bg-background px-1.5 py-0.5 font-mono text-xs text-foreground shadow-sm">
+                <code className="inline-flex items-center rounded-sm border border-border/60 bg-background px-1.5 py-0.5 font-mono text-caption text-foreground shadow-sm">
                   {tool.markdownSyntax}
                 </code>
               </span>

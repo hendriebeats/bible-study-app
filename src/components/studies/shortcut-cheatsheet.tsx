@@ -59,18 +59,18 @@ const MARKDOWN: Shortcut[] = [
 function ShortcutGroup({ title, items }: { title: string; items: Shortcut[] }) {
   return (
     <div className="grid gap-1.5">
-      <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+      <h3 className="text-caption font-semibold tracking-wide text-muted-foreground uppercase">
         {title}
       </h3>
       <dl className="grid gap-1">
         {items.map((item) => (
           <div
             key={item.label}
-            className="flex items-center justify-between gap-4 text-sm"
+            className="flex items-center justify-between gap-4 text-ui"
           >
             <dt className="text-muted-foreground">{item.label}</dt>
             <dd>
-              <kbd className="rounded-sm border bg-muted px-1.5 py-0.5 font-mono text-xs">
+              <kbd className="rounded-sm border bg-muted px-1.5 py-0.5 font-mono text-caption">
                 {item.keys}
               </kbd>
             </dd>

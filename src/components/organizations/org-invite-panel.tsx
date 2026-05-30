@@ -79,7 +79,7 @@ export function OrgInvitePanel({
             onChange={(event) => {
               setRole(event.target.value as OrgRole);
             }}
-            className="h-9 rounded-md border bg-background px-2 text-sm"
+            className="h-9 rounded-md border bg-background px-2 text-ui"
           >
             <option value="member">Member</option>
             <option value="admin">Admin</option>
@@ -92,7 +92,7 @@ export function OrgInvitePanel({
 
       {link ? (
         <div className="flex items-center gap-2 rounded-md border bg-muted/40 p-2">
-          <code className="min-w-0 flex-1 truncate text-xs">{link}</code>
+          <code className="min-w-0 flex-1 truncate text-caption">{link}</code>
           <Button
             type="button"
             size="sm"
@@ -109,13 +109,13 @@ export function OrgInvitePanel({
 
       {invitations.length > 0 ? (
         <div className="grid gap-1">
-          <p className="text-xs font-medium text-muted-foreground">
+          <p className="text-caption font-medium text-muted-foreground">
             Pending invitations
           </p>
           {invitations.map((invite) => (
             <div
               key={invite.id}
-              className="flex items-center gap-2 rounded-md border p-2 text-sm"
+              className="flex items-center gap-2 rounded-md border p-2 text-ui"
             >
               <span className="min-w-0 flex-1 truncate">
                 {invite.email ?? "Link invite"}

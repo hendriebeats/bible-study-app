@@ -28,7 +28,7 @@ export function ChangeEmailForm({ currentEmail }: { currentEmail: string }) {
           placeholder={currentEmail}
           required
         />
-        <p className="text-xs text-muted-foreground">
+        <p className="text-caption text-muted-foreground">
           You&apos;ll get a confirmation link at both your current and new
           address; the change applies once confirmed.
         </p>

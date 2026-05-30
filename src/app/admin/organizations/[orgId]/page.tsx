@@ -11,8 +11,10 @@ export const metadata: Metadata = { title: "Admin · Review organization" };
 function Field({ label, value }: { label: string; value: string | null }) {
   return (
     <div className="grid gap-0.5">
-      <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
-      <dd className="text-sm">{value?.trim() ? value : "—"}</dd>
+      <dt className="text-caption font-medium text-muted-foreground">
+        {label}
+      </dt>
+      <dd className="text-ui">{value?.trim() ? value : "—"}</dd>
     </div>
   );
 }
@@ -35,15 +37,15 @@ export default async function AdminOrgReviewPage({
       <div>
         <Link
           href="/admin/organizations"
-          className="text-sm text-muted-foreground hover:text-foreground"
+          className="text-ui text-muted-foreground hover:text-foreground"
         >
           ← Verification queue
         </Link>
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <h1 className="text-2xl font-bold tracking-tight">{org.name}</h1>
+          <h1 className="text-title font-bold tracking-tight">{org.name}</h1>
           <OrgStatusBadge status={org.verification_status} />
         </div>
-        <p className="mt-1 text-sm text-muted-foreground">{org.description}</p>
+        <p className="mt-1 text-ui text-muted-foreground">{org.description}</p>
       </div>
 
       <dl className="grid gap-4 rounded-lg border p-4 sm:grid-cols-2">

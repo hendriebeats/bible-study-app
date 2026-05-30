@@ -19,17 +19,17 @@ export default async function CreateOrganizationPage() {
     <div>
       <Link
         href="/organizations"
-        className="text-sm text-muted-foreground hover:text-foreground"
+        className="text-ui text-muted-foreground hover:text-foreground"
       >
         ← Organizations
       </Link>
       <div className="mt-2 flex items-center gap-2">
         <Building2 className="size-5 text-primary" />
-        <h1 className="text-2xl font-bold tracking-tight">
+        <h1 className="text-title font-bold tracking-tight">
           Create an organization
         </h1>
       </div>
-      <p className="mt-1 mb-6 text-sm text-muted-foreground">
+      <p className="mt-1 mb-6 text-ui text-muted-foreground">
         You&apos;ll be its first super admin. New organizations start private
         and unverified — submit for verification in settings to appear in
         search.

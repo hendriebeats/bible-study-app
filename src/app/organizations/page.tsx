@@ -28,9 +28,11 @@ export default async function OrganizationsPage() {
         <div>
           <div className="flex items-center gap-2">
             <Building2 className="size-5 text-primary" />
-            <h1 className="text-2xl font-bold tracking-tight">Organizations</h1>
+            <h1 className="text-title font-bold tracking-tight">
+              Organizations
+            </h1>
           </div>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="mt-1 text-ui text-muted-foreground">
             Join a church or ministry to study together with shared templates,
             or start your own. You can belong to one organization at a time.
           </p>
@@ -85,16 +87,16 @@ export default async function OrganizationsPage() {
         </Avatar>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-2xl font-bold tracking-tight">{org.name}</h1>
+            <h1 className="text-title font-bold tracking-tight">{org.name}</h1>
             <OrgStatusBadge status={org.verification_status} />
           </div>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="mt-1 text-ui text-muted-foreground">
             {org.description}
           </p>
           {place ? (
-            <p className="mt-1 text-xs text-muted-foreground">{place}</p>
+            <p className="mt-1 text-caption text-muted-foreground">{place}</p>
           ) : null}
-          <div className="mt-1 flex flex-wrap gap-x-3 text-xs text-muted-foreground">
+          <div className="mt-1 flex flex-wrap gap-x-3 text-caption text-muted-foreground">
             {org.website ? (
               <a
                 href={org.website}
@@ -136,20 +138,20 @@ export default async function OrganizationsPage() {
       </div>
 
       <section className="grid gap-3">
-        <h2 className="text-sm font-semibold text-muted-foreground">
+        <h2 className="text-ui font-semibold text-muted-foreground">
           Announcements
         </h2>
         {isAdmin ? <AnnouncementComposer /> : null}
         {announcements.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-border/60 p-6 text-center text-sm text-muted-foreground">
+          <p className="rounded-lg border border-dashed border-border/60 p-6 text-center text-ui text-muted-foreground">
             No announcements yet.
           </p>
         ) : (
           <ul className="grid gap-2">
             {announcements.map((a) => (
-              <li key={a.id} className="rounded-lg border bg-card p-3 text-sm">
+              <li key={a.id} className="rounded-lg border bg-card p-3 text-ui">
                 <p className="whitespace-pre-wrap">{a.body}</p>
-                <p className="mt-1 text-xs text-muted-foreground">
+                <p className="mt-1 text-caption text-muted-foreground">
                   {new Date(a.created_at).toLocaleDateString()}
                 </p>
               </li>

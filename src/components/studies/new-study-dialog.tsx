@@ -195,7 +195,7 @@ export function NewStudyDialog() {
                   setTab(t);
                 }}
                 className={cn(
-                  "flex-1 rounded-md px-2 py-1 text-sm font-medium capitalize transition-colors",
+                  "flex-1 rounded-md px-2 py-1 text-ui font-medium capitalize transition-colors",
                   tab === t
                     ? "bg-background text-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground",
@@ -227,7 +227,7 @@ export function NewStudyDialog() {
                 ].map((group) =>
                   group.books.length === 0 ? null : (
                     <div key={group.label}>
-                      <p className="sticky top-0 bg-muted/80 px-3 py-1 text-xs font-medium text-muted-foreground backdrop-blur-sm">
+                      <p className="sticky top-0 bg-muted/80 px-3 py-1 text-caption font-medium text-muted-foreground backdrop-blur-sm">
                         {group.label}
                       </p>
                       {group.books.map((book) => {
@@ -241,13 +241,13 @@ export function NewStudyDialog() {
                               setName(book.name);
                             }}
                             className={cn(
-                              "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-muted/50",
+                              "flex w-full items-center gap-2 px-3 py-1.5 text-left text-ui hover:bg-muted/50",
                               bookOrdinal === book.ordinal && "bg-accent/60",
                             )}
                           >
                             <span className="flex-1">{book.name}</span>
                             {badge ? (
-                              <span className="rounded-full bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                              <span className="rounded-full bg-muted px-1.5 py-0.5 text-caption text-muted-foreground">
                                 {badge}
                               </span>
                             ) : null}
@@ -270,7 +270,7 @@ export function NewStudyDialog() {
                   ))}
                 </div>
               ) : customTemplates.length === 0 ? (
-                <p className="p-4 text-center text-sm text-muted-foreground">
+                <p className="p-4 text-center text-caption text-muted-foreground">
                   No custom templates available.
                 </p>
               ) : (
@@ -283,13 +283,13 @@ export function NewStudyDialog() {
                       setName(tmpl.name);
                     }}
                     className={cn(
-                      "block w-full px-3 py-2 text-left text-sm hover:bg-muted/50",
+                      "block w-full px-3 py-2 text-left text-ui hover:bg-muted/50",
                       templateId === tmpl.id && "bg-accent/60",
                     )}
                   >
                     <span className="block font-medium">{tmpl.name}</span>
                     {tmpl.description ? (
-                      <span className="block truncate text-xs text-muted-foreground">
+                      <span className="block truncate text-caption text-muted-foreground">
                         {tmpl.description}
                       </span>
                     ) : null}
@@ -300,7 +300,7 @@ export function NewStudyDialog() {
           ) : null}
 
           {tab === "blank" ? (
-            <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+            <p className="rounded-md border border-dashed p-4 text-ui text-muted-foreground">
               A blank study with one empty section.
             </p>
           ) : null}

@@ -23,12 +23,12 @@ export function AuthCard({
   return (
     <Card>
       <CardHeader className="text-center">
-        <CardTitle className="text-2xl">{title}</CardTitle>
+        <CardTitle className="text-title">{title}</CardTitle>
         <CardDescription>{description}</CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4">{children}</CardContent>
       {footer ? (
-        <CardFooter className="justify-center text-sm text-muted-foreground">
+        <CardFooter className="justify-center text-ui text-muted-foreground">
           {footer}
         </CardFooter>
       ) : null}
@@ -40,7 +40,7 @@ export function OrDivider() {
   return (
     <div className="flex items-center gap-3">
       <span className="h-px flex-1 bg-border" />
-      <span className="text-xs text-muted-foreground uppercase">
+      <span className="text-caption text-muted-foreground uppercase">
         or continue with email
       </span>
       <span className="h-px flex-1 bg-border" />
@@ -50,7 +50,7 @@ export function OrDivider() {
 
 export function FormError({ message }: { message: string }) {
   return (
-    <p role="alert" className="text-sm text-destructive">
+    <p role="alert" className="text-ui text-destructive">
       {message}
     </p>
   );

@@ -76,7 +76,7 @@ export function OrgIconUpload({
     <div className="flex items-center gap-4">
       <Avatar className="size-16 rounded-lg">
         {url ? <AvatarImage src={url} alt={orgName} /> : null}
-        <AvatarFallback className="rounded-lg text-lg">
+        <AvatarFallback className="rounded-lg text-subheading">
           {getInitials(orgName)}
         </AvatarFallback>
       </Avatar>
@@ -120,7 +120,9 @@ export function OrgIconUpload({
             </Button>
           ) : null}
         </div>
-        <p className="text-xs text-muted-foreground">PNG or JPG, up to 2 MB.</p>
+        <p className="text-caption text-muted-foreground">
+          PNG or JPG, up to 2 MB.
+        </p>
       </div>
     </div>
   );

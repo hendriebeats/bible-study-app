@@ -8,7 +8,7 @@ import {
 } from "prosemirror-state";
 
 import { buildConvertTransaction } from "./convert-block";
-import { marks, MAX_INDENT, nodes } from "./schema";
+import { type LinkAttrs, marks, MAX_INDENT, nodes } from "./schema";
 
 type Attrs = Record<string, unknown>;
 
@@ -200,20 +200,45 @@ export function normalizeUrl(raw: string): string | null {
   return `https://${trimmed}`;
 }
 
+/** What {@link activeLinkRange} returns when the selection sits on a link. */
+export interface ActiveLink {
+  from: number;
+  to: number;
+  /** Full link mark attrs (href + cached preview fields). */
+  attrs: LinkAttrs;
+  /** The text covered by the link mark — display text the user edits. */
+  text: string;
+}
+
+function readLinkAttrs(attrs: unknown): LinkAttrs {
+  const source = (attrs ?? {}) as Partial<LinkAttrs>;
+  return {
+    href: source.href ?? "",
+    title: source.title ?? null,
+    displayTitle: source.displayTitle ?? null,
+    favicon: source.favicon ?? null,
+    siteName: source.siteName ?? null,
+  };
+}
+
 /**
  * The link covering the selection (or the contiguous link run around an empty
  * cursor), or null when there's no single link to act on. Powers the link
- * control's edit/remove state and `unsetLink`'s range.
+ * control's edit/remove state, the hover preview plugin's range lookup, and
+ * the click-to-edit handler.
  */
-export function activeLinkRange(
-  state: EditorState,
-): { from: number; to: number; href: string } | null {
+export function activeLinkRange(state: EditorState): ActiveLink | null {
   const linkType = marks.link;
   const { $from, from, to, empty } = state.selection;
   if (!empty) {
     const mark = linkType.isInSet(state.doc.resolve(from).marks());
     if (mark && state.doc.rangeHasMark(from, to, linkType)) {
-      return { from, to, href: (mark.attrs as { href: string }).href };
+      return {
+        from,
+        to,
+        attrs: readLinkAttrs(mark.attrs),
+        text: state.doc.textBetween(from, to, "", ""),
+      };
     }
     return null;
   }
@@ -252,33 +277,58 @@ export function activeLinkRange(
   return {
     from: foundFrom,
     to: foundTo,
-    href: (cursorMark.attrs as { href: string }).href,
+    attrs: readLinkAttrs(cursorMark.attrs),
+    text: state.doc.textBetween(foundFrom, foundTo, "", ""),
   };
 }
 
 /**
  * Apply a link to an explicit range (captured when the link popover opened, so
- * it survives the URL field stealing focus from the editor). A non-empty range
- * is wrapped/retargeted; an empty range inserts the href as linked text.
+ * it survives the URL field stealing focus from the editor).
+ *
+ * - When `displayText` is supplied and differs from the current range text, the
+ *   range text is replaced first; the mark is then applied to the new span.
+ * - When the range is empty AND no display text is given, the href itself is
+ *   inserted as the visible text (matching the old single-arg behavior so
+ *   smart-paste and the keymap can drop a link at the caret with one call).
+ * - Cache attrs in `attrs` (displayTitle/favicon/siteName) are preserved so the
+ *   smart-paste flow can apply a freshly-fetched preview in the same step.
  */
-export function applyLink(from: number, to: number, href: string): Command {
+export function applyLink(
+  from: number,
+  to: number,
+  attrs: Partial<LinkAttrs> & { href: string },
+  displayText?: string,
+): Command {
   return (state, dispatch) => {
     const linkType = marks.link;
-    if (dispatch) {
-      const tr = state.tr;
-      if (to > from) {
-        tr.removeMark(from, to, linkType).addMark(
-          from,
-          to,
-          linkType.create({ href }),
-        );
-      } else {
-        tr.insertText(href, from);
-        tr.addMark(from, from + href.length, linkType.create({ href }));
-        tr.removeStoredMark(linkType);
+    const fullAttrs = readLinkAttrs(attrs);
+    if (!dispatch) return true;
+    const tr = state.tr;
+    const rangeFrom = from;
+    let rangeTo = to;
+    if (rangeTo > rangeFrom) {
+      const currentText = state.doc.textBetween(rangeFrom, rangeTo, "", "");
+      if (displayText !== undefined && displayText !== currentText) {
+        tr.insertText(displayText, rangeFrom, rangeTo);
+        rangeTo = rangeFrom + displayText.length;
       }
-      dispatch(tr.scrollIntoView());
+      tr.removeMark(rangeFrom, rangeTo, linkType).addMark(
+        rangeFrom,
+        rangeTo,
+        linkType.create(fullAttrs),
+      );
+    } else {
+      const text = displayText ?? fullAttrs.href;
+      tr.insertText(text, rangeFrom);
+      tr.addMark(
+        rangeFrom,
+        rangeFrom + text.length,
+        linkType.create(fullAttrs),
+      );
+      tr.removeStoredMark(linkType);
     }
+    dispatch(tr.scrollIntoView());
     return true;
   };
 }
@@ -443,7 +493,10 @@ export const insertCollapsible: Command = (state, dispatch) => {
  * top); the empty-paragraph-replacement convenience still applies at that
  * depth.
  */
-function insertNodeNextToCursor(state: EditorState, node: Node): Transaction {
+export function insertNodeNextToCursor(
+  state: EditorState,
+  node: Node,
+): Transaction {
   const depth = insertionDepthFor(state, node.type);
   const { $from } = state.selection;
   const blockStart = $from.before(depth);

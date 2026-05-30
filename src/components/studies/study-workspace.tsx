@@ -17,6 +17,9 @@ import {
   useEditorContext,
 } from "@/components/studies/editor-context";
 import { GroupMembersMenu } from "@/components/studies/group-members-menu";
+import { CrossRefPopover } from "@/components/studies/cross-ref-popover";
+import { LinkPopover } from "@/components/studies/link-control";
+import { LinkPreviewCardPortal } from "@/components/studies/link-preview-card";
 import { NotePopover } from "@/components/studies/note-popover";
 import { SelectionBubble } from "@/components/studies/selection-bubble";
 import { SlashMenu } from "@/components/studies/slash-menu";
@@ -273,6 +276,17 @@ function WorkspaceInner({
       {isOwner ? <CalloutColorPopover /> : null}
       {isOwner ? <TableHandlePopover /> : null}
       {isOwner ? <NotePopover /> : null}
+      {/* Link insert/edit popover — owners only (non-owners can't mutate
+          links). Bridges Cmd-K + click-on-link events from any editor view
+          in this provider into one shared popover. */}
+      {isOwner ? <LinkPopover /> : null}
+      {/* Hover preview card — rendered for everyone, since read-only viewers
+          benefit from the rich preview (Edit/Remove auto-hide for them). */}
+      <LinkPreviewCardPortal />
+      {/* Cross-ref preview popover is read-only — render for everyone so
+          non-owners viewing a study can still click a chip to see the verse
+          preview and jump out to BibleHub. */}
+      <CrossRefPopover />
 
       <StudyDock
         studyId={studyId}

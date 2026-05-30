@@ -59,7 +59,7 @@ export function DangerZone({ email }: { email: string }) {
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <AlertDialogAction
             disabled={!canDelete}
-            className="bg-destructive text-white hover:bg-destructive/90"
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             onClick={(event) => {
               if (!canDelete) {
                 event.preventDefault();

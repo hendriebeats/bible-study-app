@@ -53,7 +53,7 @@ export function NewAppTemplateForm({ genres }: { genres: Genre[] }) {
         onChange={(event) => {
           setGenreId(event.target.value);
         }}
-        className="h-9 rounded-md border bg-background px-2 text-sm"
+        className="h-9 rounded-md border bg-background px-2 text-ui"
       >
         <option value="">No starter blocks</option>
         {genres.map((genre) => (

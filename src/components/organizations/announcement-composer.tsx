@@ -39,7 +39,7 @@ export function AnnouncementComposer() {
         placeholder="Share an announcement with your members…"
         rows={2}
         maxLength={1000}
-        className="min-h-16 rounded-md border bg-background px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+        className="min-h-16 rounded-md border bg-background px-3 py-2 text-ui outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
       />
       <div className="flex justify-end">
         <Button type="submit" size="sm" disabled={pending}>

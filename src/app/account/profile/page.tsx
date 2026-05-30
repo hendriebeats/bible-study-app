@@ -33,9 +33,9 @@ export default async function AccountProfilePage() {
   const hasPassword = providers.includes("email");
 
   return (
-    <div className="mx-auto w-full max-w-2xl px-4 pt-10 pb-20">
-      <h1 className="text-2xl font-bold tracking-tight">Profile</h1>
-      <p className="mt-1 text-sm text-muted-foreground">
+    <div className="mx-auto w-full max-w-2xl px-4 pt-10 pb-16">
+      <h1 className="text-title font-bold tracking-tight">Profile</h1>
+      <p className="mt-1 text-ui text-muted-foreground">
         Your name, photo, and sign-in details.
       </p>
 
@@ -49,7 +49,7 @@ export default async function AccountProfilePage() {
           />
           <ProfileForm displayName={displayName} />
           {memberSince ? (
-            <p className="text-xs text-muted-foreground">
+            <p className="text-ui text-muted-foreground">
               Member since {memberSince}
             </p>
           ) : null}
@@ -57,14 +57,14 @@ export default async function AccountProfilePage() {
 
         <section className="space-y-6 border-t border-border/60 pt-8">
           <div>
-            <h2 className="text-lg font-semibold">Sign in</h2>
-            <p className="text-sm text-muted-foreground">
+            <h2 className="text-subheading font-semibold">Sign in</h2>
+            <p className="text-ui text-muted-foreground">
               Email and password for your account.
             </p>
           </div>
           <div className="grid gap-1">
-            <span className="text-sm font-medium">Email</span>
-            <span className="text-sm text-muted-foreground">
+            <span className="text-ui font-medium">Email</span>
+            <span className="text-ui text-muted-foreground">
               {email}
               {isGoogle ? " · Signed in with Google" : ""}
             </span>

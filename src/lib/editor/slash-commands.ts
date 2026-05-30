@@ -4,6 +4,7 @@ import {
   Heading1,
   Heading2,
   Heading3,
+  Image as ImageIcon,
   List,
   ListChecks,
   ListOrdered,
@@ -27,6 +28,7 @@ import {
   toggleTaskList,
 } from "./commands";
 import type { EditorToolKey, EditorTools } from "./editor-tools";
+import { openImageInsertDialog } from "./image-insert-trigger";
 import { nodes } from "./schema";
 import { isChromeChild } from "./wrapper-chrome";
 
@@ -195,6 +197,16 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
     icon: Table,
     command: insertTable,
     tool: "tables",
+    hiddenWhen: inChromeHeader,
+  },
+  {
+    id: "image",
+    label: "Image",
+    keywords: ["picture", "photo", "img", "upload", "media"],
+    group: "Blocks",
+    icon: ImageIcon,
+    command: openImageInsertDialog,
+    tool: "images",
     hiddenWhen: inChromeHeader,
   },
 ] as const;

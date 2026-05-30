@@ -47,12 +47,12 @@ export default async function OrgTemplatesPage() {
       <div>
         <Link
           href="/organizations"
-          className="text-sm text-muted-foreground hover:text-foreground"
+          className="text-ui text-muted-foreground hover:text-foreground"
         >
           ← Organization
         </Link>
-        <h1 className="mt-2 text-2xl font-bold tracking-tight">Templates</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <h1 className="mt-2 text-title font-bold tracking-tight">Templates</h1>
+        <p className="mt-1 text-ui text-muted-foreground">
           Choose what your members start from when they create a study. Editing
           a template only affects studies created afterward.
         </p>

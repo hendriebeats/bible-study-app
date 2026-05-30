@@ -3,9 +3,9 @@
  *
  * These describe the JSON shapes we serialize to / from the database and the
  * wire. They are deliberately decoupled from any editor library (we build on
- * bare ProseMirror, not Tiptap). More transport types (step batches, cursor
- * payloads, realtime broadcast events) are added alongside their first use in
- * later phases.
+ * bare ProseMirror). More transport types (step batches, cursor payloads,
+ * realtime broadcast events) are added alongside their first use in later
+ * phases.
  */
 
 /** A serialized ProseMirror mark (the shape of `Mark.toJSON()`). */

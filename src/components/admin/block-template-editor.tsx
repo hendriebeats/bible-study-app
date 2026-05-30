@@ -53,7 +53,7 @@ export function BlockTemplateEditor({
   return (
     <div data-reorder-group className="flex flex-col gap-3">
       {items.length === 0 ? (
-        <p className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
+        <p className="rounded-lg border border-dashed px-4 py-6 text-center text-ui text-muted-foreground">
           No blocks yet. Add the first default block for this genre.
         </p>
       ) : (
@@ -157,7 +157,7 @@ function BlockTemplateRow({
           onBlur={persist}
           aria-label="Block subtitle"
           placeholder="Subtitle (optional)"
-          className="text-sm"
+          className="text-ui"
         />
         <textarea
           value={placeholder}
@@ -167,10 +167,10 @@ function BlockTemplateRow({
           onBlur={persist}
           aria-label="Body placeholder"
           placeholder="Body placeholder — suggested text shown until the writer types (optional)…"
-          className="min-h-14 w-full rounded-md border bg-transparent px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="min-h-14 w-full rounded-md border bg-transparent px-3 py-2 text-ui outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
         <div className="flex flex-col gap-1">
-          <span className="text-xs font-medium text-muted-foreground">
+          <span className="text-caption font-medium text-muted-foreground">
             Default content (optional) — pre-fills the block body
           </span>
           <DefaultContentEditor

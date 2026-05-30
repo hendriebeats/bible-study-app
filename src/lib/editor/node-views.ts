@@ -1,5 +1,6 @@
 import type { NodeViewConstructor } from "prosemirror-view";
 
+import { ImageView } from "./node-views/image-view";
 import { CalloutView } from "./plugins/callout-view";
 import { CollapsibleView } from "./plugins/collapsible-view";
 import { ListRowView } from "./plugins/list-row-view";
@@ -37,5 +38,9 @@ export function buildNodeViews(
     notes_index: () => new NotesIndexView(),
     note_entry: (node, view, getPos) =>
       new NoteEntryView(node, view, getPos, editable),
+    // Image: an atom block with non-destructive crop/rotate/flip via CSS
+    // transforms, side resize handles, a floating align/replace/download/
+    // delete toolbar on selection, and a `dblclick` → crop-overlay handoff.
+    image: (node, view, getPos) => new ImageView(node, view, getPos, editable),
   };
 }

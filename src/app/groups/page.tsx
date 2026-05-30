@@ -26,12 +26,12 @@ export default async function GroupsPage({
     <div className="mx-auto w-full max-w-3xl px-6 py-8">
       <Link
         href="/dashboard"
-        className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+        className="flex items-center gap-2 text-ui text-muted-foreground hover:text-foreground"
       >
         <BookOpen className="size-4" />
         All studies
       </Link>
-      <h1 className="mt-2 mb-6 text-2xl font-bold">Group studies</h1>
+      <h1 className="mt-2 mb-6 text-title font-bold">Group studies</h1>
 
       <div className="mb-8">
         <NewGroupForm />

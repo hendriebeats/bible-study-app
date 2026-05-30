@@ -7,6 +7,7 @@ import type {
 } from "prosemirror-view";
 
 import { MAX_INDENT, nodes } from "../schema";
+import { placeCaretInRect } from "./node-view-utils";
 
 /** Indent step in rem — kept in lockstep with `INDENT_STEP_REM` in schema.ts. */
 const INDENT_STEP_REM = 1.75;
@@ -136,10 +137,39 @@ export class CollapsibleView implements NodeView {
     wrapper.appendChild(content);
     wrapper.appendChild(emptyHint);
 
+    // Lock the outer wrapper out of the browser's contenteditable area so a
+    // caret can't park in the chevron column / hint strip / bleed gaps
+    // around the body (orphan typed text would be silently dropped by
+    // `ignoreMutation` and discarded on the next re-render). Content is
+    // explicitly re-opted-in.
+    wrapper.contentEditable = "false";
+    content.contentEditable = "true";
+
     this.dom = wrapper;
     this.contentDOM = content;
     this.toggle = toggle;
     this.emptyHint = emptyHint;
+
+    // Click in the outer chrome → project into the content's rect and
+    // resolve the nearest caret position.
+    wrapper.addEventListener("mousedown", (event) => {
+      if (!(event.target instanceof globalThis.Node)) return;
+      if (this.contentDOM.contains(event.target)) return;
+      if (this.toggle.contains(event.target)) return;
+      if (this.emptyHint.contains(event.target)) return;
+      event.preventDefault();
+      const myPos = this.getPos();
+      placeCaretInRect(
+        this.view,
+        this.contentDOM,
+        event.clientX,
+        event.clientY,
+        (clickedAbove) => {
+          if (myPos == null) return null;
+          return clickedAbove ? myPos + 1 : myPos + this.node.nodeSize - 1;
+        },
+      );
+    });
   }
 
   /**
@@ -224,7 +254,15 @@ export class CollapsibleView implements NodeView {
   }
 
   stopEvent(event: Event): boolean {
-    return event.target === this.toggle || event.target === this.emptyHint;
+    const target = event.target;
+    if (target === this.toggle || target === this.emptyHint) return true;
+    if (!(target instanceof globalThis.Node)) return false;
+    // Mousedown anywhere in the outer chrome is owned by the gutter redirect
+    // attached in the constructor — keep PM out of it.
+    if (event.type === "mousedown" && !this.contentDOM.contains(target)) {
+      return true;
+    }
+    return false;
   }
 
   ignoreMutation(mutation: ViewMutationRecord): boolean {

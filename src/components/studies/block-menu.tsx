@@ -109,9 +109,9 @@ export function BlockMenu() {
   const top = Math.min(pos.y, window.innerHeight - 320);
 
   const itemClass =
-    "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-foreground/80 hover:bg-muted hover:text-foreground";
+    "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-ui text-foreground/80 hover:bg-muted hover:text-foreground";
   const destructiveClass =
-    "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-destructive hover:bg-destructive/10";
+    "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-ui text-destructive hover:bg-destructive/10";
 
   const item = (
     key: string,
@@ -153,7 +153,7 @@ export function BlockMenu() {
     >
       {inTable ? (
         <>
-          <p className="px-2 py-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
+          <p className="px-2 py-1 text-caption font-medium tracking-wide text-muted-foreground uppercase">
             Table
           </p>
           {item(
@@ -211,7 +211,7 @@ export function BlockMenu() {
         </>
       ) : (
         <>
-          <p className="px-2 py-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
+          <p className="px-2 py-1 text-caption font-medium tracking-wide text-muted-foreground uppercase">
             Turn into
           </p>
           {turnInto.map((entry) =>

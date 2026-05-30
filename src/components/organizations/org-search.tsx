@@ -67,7 +67,7 @@ export function OrgSearch({
       </div>
 
       {filtered.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-border/60 p-8 text-center text-sm text-muted-foreground">
+        <p className="rounded-lg border border-dashed border-border/60 p-8 text-center text-ui text-muted-foreground">
           No organizations match your search.
         </p>
       ) : (
@@ -97,12 +97,12 @@ export function OrgSearch({
                 <div className="min-w-0 flex-1">
                   <p className="font-medium">{org.name}</p>
                   {place ? (
-                    <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <p className="flex items-center gap-1 text-caption text-muted-foreground">
                       <MapPin className="size-3" />
                       {place}
                     </p>
                   ) : null}
-                  <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
+                  <p className="mt-1 line-clamp-2 text-ui text-muted-foreground">
                     {org.description}
                   </p>
                 </div>

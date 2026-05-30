@@ -74,7 +74,7 @@ export function ThemePicker() {
               setTheme(value);
             }}
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-sm px-3 py-1.5 text-sm transition-colors outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
+              "inline-flex items-center gap-1.5 rounded-sm px-3 py-1.5 text-ui transition-colors outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
               selected
                 ? "bg-background font-medium text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground",

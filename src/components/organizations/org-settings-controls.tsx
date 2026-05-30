@@ -48,7 +48,7 @@ export function OrgSettingsControls({
               });
             });
           }}
-          className="h-9 rounded-md border bg-background px-2 text-sm"
+          className="h-9 rounded-md border bg-background px-2 text-ui"
         >
           <option value="unlisted">Unlisted — invite only</option>
           <option value="public" disabled={!verified}>
@@ -56,7 +56,7 @@ export function OrgSettingsControls({
           </option>
         </select>
         {!verified ? (
-          <p className="text-xs text-muted-foreground">
+          <p className="text-caption text-muted-foreground">
             Only verified organizations can be listed publicly.
           </p>
         ) : null}
@@ -83,7 +83,7 @@ export function OrgSettingsControls({
               });
             });
           }}
-          className="h-9 rounded-md border bg-background px-2 text-sm"
+          className="h-9 rounded-md border bg-background px-2 text-ui"
         >
           <option value="request">Request — an admin approves each join</option>
           <option value="open">Open — anyone can join instantly</option>

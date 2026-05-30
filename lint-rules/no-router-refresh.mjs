@@ -11,16 +11,13 @@
  *     Keep `revalidatePath(...)` inside the action so the next navigation has
  *     fresh data; just don't force a refresh on the current view.
  *   - For navigation after a mutation: `router.push(...)` / `router.replace(...)`.
- *
- * If you have an unavoidable case (auth state change after login is the usual
- * one), add `// lint-allow-router-refresh: <reason>` on the line above.
+ *   - For auth state transitions: `router.push("/dashboard")` (or wherever)
+ *     instead of refresh — the navigation triggers a fresh RSC payload anyway.
  *
  * Detection: any `.refresh()` member-call where the receiver is an identifier
  * containing "router" (case-insensitive) — `router`, `appRouter`, `useRouter()`
  * return value bound to anything Router-ish.
  */
-
-const OPT_OUT = /lint-allow-router-refresh\s*:/;
 
 /** @type {import('eslint').Rule.RuleModule} */
 const rule = {
@@ -33,29 +30,10 @@ const rule = {
     schema: [],
     messages: {
       noRefresh:
-        "`router.refresh()` causes a visible blank-then-fill flash because Next must re-fetch the entire RSC payload before any update is visible. Return updated data from the server action and apply it with `useOptimistic` (or local `setState`); keep `revalidatePath(...)` inside the action for the next navigation. If unavoidable, add `// lint-allow-router-refresh: <reason>` on the line above.",
+        "`router.refresh()` causes a visible blank-then-fill flash because Next must re-fetch the entire RSC payload before any update is visible. Return updated data from the server action and apply it with `useOptimistic` (or local `setState`); keep `revalidatePath(...)` inside the action for the next navigation. For auth transitions, `router.push(...)` triggers a fresh RSC payload without the flash.",
     },
   },
   create(context) {
-    const sourceCode = context.sourceCode;
-
-    function hasOptOutComment(node) {
-      // Walk up to the enclosing statement.
-      let cur = node;
-      while (cur && cur.parent) {
-        if (
-          cur.parent.type === "ExpressionStatement" ||
-          cur.parent.type === "VariableDeclaration" ||
-          cur.parent.type === "ReturnStatement"
-        ) {
-          const before = sourceCode.getCommentsBefore(cur.parent);
-          return before.some((c) => OPT_OUT.test(c.value));
-        }
-        cur = cur.parent;
-      }
-      return false;
-    }
-
     return {
       CallExpression(node) {
         const callee = node.callee;
@@ -77,7 +55,6 @@ const rule = {
           looksRouter = true;
         }
         if (!looksRouter) return;
-        if (hasOptOutComment(node)) return;
         context.report({ node, messageId: "noRefresh" });
       },
     };

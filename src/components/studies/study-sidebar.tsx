@@ -19,6 +19,7 @@ import {
   restoreSection,
   setStudyGenre,
 } from "@/app/studies/actions";
+import { SectionTrashPanel } from "@/components/studies/section-trash-panel";
 import { useStudyChrome } from "@/components/studies/study-chrome-context";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -28,23 +29,32 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import type { Genre, SectionSummary, Study } from "@/lib/db/types";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import type { Genre, SectionSummary, Study, TrashItem } from "@/lib/db/types";
 import { cn } from "@/lib/utils";
 
 export function StudySidebar({
   study,
   sections,
   isOwner,
+  trashedSections,
   genres,
   onCollapse,
 }: {
   study: Study;
   sections: SectionSummary[];
   isOwner: boolean;
+  trashedSections: TrashItem[];
   genres: Genre[];
   /** Collapse the sidebar (the re-open control then floats over the body). */
   onCollapse: () => void;
 }) {
+  const [trashOpen, setTrashOpen] = useState(false);
+  const trashedCount = trashedSections.length;
   const pathname = usePathname();
   const router = useRouter();
   const chrome = useStudyChrome();
@@ -92,7 +102,7 @@ export function StudySidebar({
         <div className="border-b px-4 py-3">
           <label
             htmlFor="study-genre"
-            className="text-xs font-medium text-muted-foreground"
+            className="text-caption font-medium text-muted-foreground"
           >
             Genre
           </label>
@@ -107,7 +117,7 @@ export function StudySidebar({
                 void setStudyGenre(study.id, value);
               });
             }}
-            className="mt-1 w-full rounded-md border bg-background px-2 py-1 text-sm"
+            className="mt-1 w-full rounded-md border bg-background px-2 py-1 text-ui"
           >
             <option value="">No genre</option>
             {genres.map((genre) => (
@@ -147,7 +157,7 @@ export function StudySidebar({
                   onPointerEnter={prefetch}
                   onFocus={prefetch}
                   className={cn(
-                    "min-w-0 flex-1 truncate rounded-md px-3 py-2 text-sm",
+                    "min-w-0 flex-1 truncate rounded-md px-3 py-2 text-ui",
                     active
                       ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
                       : "hover:bg-sidebar-accent/50",
@@ -251,7 +261,51 @@ export function StudySidebar({
             <Plus className="size-4" />
             Add section
           </Button>
+          {/* Always rendered for owners so the restore path is discoverable.
+              Disabled when the trash is empty; a Radix tooltip explains both
+              what the control is and why it's currently inert. The button is
+              wrapped in a span trigger because Radix tooltips don't receive
+              pointer events from a natively-disabled <button>. */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="block">
+                <Button
+                  variant="ghost"
+                  className="w-full justify-start"
+                  disabled={trashedCount === 0}
+                  onClick={() => {
+                    setTrashOpen(true);
+                  }}
+                >
+                  <Trash2 className="size-4" />
+                  <span className="flex-1 text-left">
+                    Recently deleted sections
+                  </span>
+                  {trashedCount > 0 ? (
+                    <span className="text-caption text-muted-foreground">
+                      {String(trashedCount)}
+                    </span>
+                  ) : null}
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="right" className="max-w-xs">
+              {trashedCount === 0
+                ? "Sections you delete go here for 30 days, so you can restore them. Nothing's been deleted yet."
+                : "Restore sections deleted in the last 30 days."}
+            </TooltipContent>
+          </Tooltip>
         </div>
+      ) : null}
+
+      {trashOpen ? (
+        <SectionTrashPanel
+          studyId={study.id}
+          items={trashedSections}
+          onClose={() => {
+            setTrashOpen(false);
+          }}
+        />
       ) : null}
 
       <ConfirmDialog
@@ -267,8 +321,8 @@ export function StudySidebar({
             <span className="font-medium text-foreground">
               {pendingDelete?.title ?? "This section"}
             </span>{" "}
-            will move to the trash. You can restore it from the ⋮ menu in the
-            top bar (&ldquo;Recently deleted sections&rdquo;).
+            will move to the trash. You can restore it from &ldquo;Recently
+            deleted sections&rdquo; in the sidebar.
           </>
         }
         confirmLabel="Delete section"

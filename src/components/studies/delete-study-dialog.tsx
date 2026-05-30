@@ -184,7 +184,7 @@ export function DeleteStudyDialog({
           </Button>
         ) : null}
 
-        {error ? <p className="text-sm text-destructive">{error}</p> : null}
+        {error ? <p className="text-ui text-destructive">{error}</p> : null}
 
         <DialogFooter>
           <Button
@@ -230,7 +230,7 @@ function ChoiceButton({
       )}
     >
       <span className="font-medium">{label}</span>
-      <span className="text-xs font-normal opacity-80">{hint}</span>
+      <span className="text-caption font-normal opacity-80">{hint}</span>
     </Button>
   );
 }

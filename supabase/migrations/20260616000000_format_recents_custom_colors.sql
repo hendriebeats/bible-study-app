@@ -1,0 +1,19 @@
+-- Documentation-only migration. The `user_settings.format_recents` column was
+-- added in 20260606000000 as plain jsonb; this migration introduces no schema
+-- change but records that the shape gains two sibling arrays alongside `actions`:
+--
+--   {
+--     actions: FormatAction[],           // preset palette only (max 4)
+--     customHighlights: string[],        // OKLCH literals (max 8, MRU)
+--     customTextColors: string[],        // OKLCH literals (max 8, MRU)
+--   }
+--
+-- All three are normalized server-side in
+-- `src/lib/editor/format-actions.ts → normalizeFormatRecents` via strict allow-
+-- lists, so older rows that pre-date the custom arrays remain valid (the
+-- normalizer fills the missing fields with []) and a malicious payload cannot
+-- inject arbitrary CSS through the inline style on a highlight/text_color mark.
+--
+-- Kept as a versioned no-op so the migration history makes the shape change
+-- discoverable from `supabase/migrations/` alone.
+select 1;

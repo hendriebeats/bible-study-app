@@ -60,7 +60,7 @@ export function UserMenu({
             <span className="block truncate font-medium">
               {displayName || "Your account"}
             </span>
-            <span className="block truncate text-xs font-normal text-muted-foreground">
+            <span className="block truncate text-caption font-normal text-muted-foreground">
               {email}
             </span>
           </DropdownMenuLabel>

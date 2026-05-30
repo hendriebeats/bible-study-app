@@ -32,7 +32,9 @@ export function AdminCustomTemplatesList({
 
   if (items.length === 0) {
     return (
-      <p className="text-sm text-muted-foreground">No custom templates yet.</p>
+      <p className="text-caption text-muted-foreground">
+        No custom templates yet.
+      </p>
     );
   }
 
@@ -61,7 +63,7 @@ export function AdminCustomTemplatesList({
               );
             }}
           />
-          <div className="flex items-center gap-3 text-sm">
+          <div className="flex items-center gap-3 text-ui">
             <Link
               href={`/studies/${t.template_study_id}`}
               className="text-primary hover:underline"

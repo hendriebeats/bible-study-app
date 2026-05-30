@@ -1,6 +1,4 @@
 import type { Metadata } from "next";
-import { Users } from "lucide-react";
-import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { AppHeader } from "@/components/app-header";
@@ -8,7 +6,6 @@ import { AnnouncementFeed } from "@/components/organizations/announcement-feed";
 import { NewStudyDialog } from "@/components/studies/new-study-dialog";
 import { StudiesList } from "@/components/studies/studies-list";
 import { TrashButton } from "@/components/studies/trash-button";
-import { Button } from "@/components/ui/button";
 import { listGenres } from "@/lib/db/genres";
 import { listActiveAnnouncements } from "@/lib/db/organizations";
 import { listMyStudiesEnriched, listTrashedStudies } from "@/lib/db/studies";
@@ -55,14 +52,8 @@ export default async function DashboardPage() {
       <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-10">
         <AnnouncementFeed announcements={announcements} />
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold tracking-tight">Your studies</h1>
+          <h1 className="text-title font-bold tracking-tight">Your studies</h1>
           <div className="flex items-center gap-2">
-            <Button variant="outline" asChild>
-              <Link href="/groups">
-                <Users className="size-4" />
-                Group studies
-              </Link>
-            </Button>
             <TrashButton kind="study" items={trashedStudies} />
             <NewStudyDialog />
           </div>
@@ -73,7 +64,7 @@ export default async function DashboardPage() {
             <p className="text-muted-foreground">
               You don&apos;t have any studies yet.
             </p>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <p className="mt-1 text-caption text-muted-foreground">
               Create your first one to start writing.
             </p>
           </div>
